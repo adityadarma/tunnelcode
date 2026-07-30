@@ -332,12 +332,12 @@ ADR-019.
 - [x] The CLI does not read TUNNELCODE_SERVER_URL, HOST, or PORT
 - [x] One config per user, no project config
 - [x] One engine setting, named engine
-- [x] Keep loading an earlier config that says defaultEngine
+- [x] Reject any engine setting not named engine
 - [x] Report the working directory without reading a config from it
 - [x] Menu tests driving the real process
 - [x] Test: the environment cannot point the agent at another server
 - [x] Test: a config file in the working directory is ignored
-- [x] Test: an earlier config still loads and the current name wins
+- [x] Test: a config naming the engine anything else is rejected
 
 Acceptance
 
@@ -349,4 +349,4 @@ Setup offers one engine setting.
 
 A config file left in a project directory changes nothing.
 
-A config written by an earlier build does not fail validation.
+`engine` is the only name the config accepts for the engine setting.

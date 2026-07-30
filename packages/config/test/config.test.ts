@@ -84,33 +84,31 @@ test('a config missing the engine is rejected', async () => {
   });
 });
 
-test('an earlier config using defaultEngine still loads', async () => {
+test('the engine name is read as written', async () => {
   await withTempHome(async () => {
     await writeRaw(
       JSON.stringify({
         server: validConfig.server,
         device: validConfig.device,
-        defaultEngine: 'claude',
+        engine: 'claude',
       }),
     );
 
-    // Rejecting this would strand an upgrading user: the CLI exits before it can
-    // offer the menu that would fix the file.
     assert.deepEqual(await loadGlobalConfig(), { ...validConfig, engine: 'claude' });
   });
 });
 
-test('the current engine name wins over a leftover defaultEngine', async () => {
+test('a config naming the engine anything but engine is rejected', async () => {
   await withTempHome(async () => {
     await writeRaw(
       JSON.stringify({
         server: validConfig.server,
         device: validConfig.device,
-        engine: 'opencode',
         defaultEngine: 'claude',
       }),
     );
 
-    assert.equal((await loadGlobalConfig())?.engine, 'opencode');
+    // `engine` is the only name. Setup rewrites the file.
+    await assert.rejects(() => loadGlobalConfig(), ConfigError);
   });
 });

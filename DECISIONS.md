@@ -442,10 +442,9 @@ Windows
 A project directory is never read from. `.tunnelcode/config.json` no longer
 exists, and a file left there by an earlier version is ignored.
 
-There is one engine setting, named `engine`.
-
-A config written by an earlier build using `defaultEngine` is still accepted, and
-the value is rewritten under the current name the next time anything is saved.
+There is one engine setting, named `engine`. That is the only name the schema
+accepts. A config that names it anything else fails validation, and Setup writes
+the file again.
 
 The working directory still decides what the agent works in and still derives the
 device id. It just no longer decides configuration.
