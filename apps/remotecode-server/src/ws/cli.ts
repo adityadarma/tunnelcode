@@ -148,6 +148,12 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
           }
           return;
 
+        case 'turn_blocked':
+          if (deviceId !== undefined) {
+            relay.blocked(deviceId, message.turnId, message.tool, message.reason);
+          }
+          return;
+
         case 'turn_session': {
           if (deviceId === undefined) {
             return;

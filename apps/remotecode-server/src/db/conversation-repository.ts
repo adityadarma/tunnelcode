@@ -19,6 +19,10 @@ export interface StoredActivity {
   id: string;
   tool: string;
   target: string | null;
+  /** True when the engine was refused permission, so the call never happened. */
+  blocked: boolean;
+  /** Why the call was refused. Null on a call that was allowed to run. */
+  reason: string | null;
   createdAt: number;
 }
 
@@ -164,12 +168,19 @@ export class ConversationRepository {
    * Records something the engine did. Unlike a message this is written as it
    * happens, because an activity is already complete when it is reported.
    */
-  appendActivity(conversationId: string, tool: string, target: string | undefined): StoredActivity {
+  appendActivity(
+    conversationId: string,
+    tool: string,
+    target: string | undefined,
+    refusal?: { reason: string },
+  ): StoredActivity {
     const now = Date.now();
     const activity: StoredActivity = {
       id: randomUUID(),
       tool,
       target: target ?? null,
+      blocked: refusal !== undefined,
+      reason: refusal?.reason ?? null,
       createdAt: now,
     };
 
@@ -180,6 +191,8 @@ export class ConversationRepository {
         conversationId,
         tool,
         target: activity.target,
+        blocked: activity.blocked,
+        reason: activity.reason,
         createdAt: now,
       })
       .run();
@@ -264,6 +277,8 @@ export class ConversationRepository {
         id: activities.id,
         tool: activities.tool,
         target: activities.target,
+        blocked: activities.blocked,
+        reason: activities.reason,
         createdAt: activities.createdAt,
       })
       .from(activities)

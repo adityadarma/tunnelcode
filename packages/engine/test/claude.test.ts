@@ -130,6 +130,49 @@ process.stdin.on('end', () => {
 });
 `;
 
+/**
+ * Reproduces a tool call refused on permission grounds, recorded from the real
+ * CLI at version 2.1.159.
+ *
+ * The refusal arrives on a `user` line as a tool_result, and the turn carries on:
+ * the model explains itself and the run exits successfully. Nothing else reports
+ * that the call never happened.
+ */
+const BLOCKED_TOOL = `#!/usr/bin/env node
+const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+process.stdin.resume();
+process.stdin.on('end', () => {
+  out({ type: 'assistant', message: { content: [
+    { type: 'tool_use', id: 'Write-1', name: 'Write', input: { file_path: '/outside/note.txt', content: 'x' } },
+  ] } });
+  out({ type: 'user', message: { role: 'user', content: [
+    { type: 'tool_result', tool_use_id: 'Write-1', is_error: true, content: "Claude requested permissions to write to /outside/note.txt, but you haven't granted it yet." },
+  ] } });
+  out({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'I could not write it.' } } });
+  out({ type: 'result', subtype: 'success', is_error: false, result: 'I could not write it.', session_id: 's1' });
+  process.exit(0);
+});
+`;
+
+/**
+ * A tool that simply failed, which looks the same as a refusal on the wire: an
+ * is_error tool_result. Only the wording separates the two.
+ */
+const FAILED_TOOL = `#!/usr/bin/env node
+const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+process.stdin.resume();
+process.stdin.on('end', () => {
+  out({ type: 'assistant', message: { content: [
+    { type: 'tool_use', id: 'Bash-1', name: 'Bash', input: { command: 'ls /nope' } },
+  ] } });
+  out({ type: 'user', message: { role: 'user', content: [
+    { type: 'tool_result', tool_use_id: 'Bash-1', is_error: true, content: 'ls: /nope: No such file or directory' },
+  ] } });
+  out({ type: 'result', subtype: 'success', is_error: false, result: 'It does not exist.', session_id: 's1' });
+  process.exit(0);
+});
+`;
+
 async function collect(events: AsyncGenerator<EngineEvent>): Promise<EngineEvent[]> {
   const out: EngineEvent[] = [];
 
@@ -157,6 +200,12 @@ type Session = Extract<EngineEvent, { type: 'session' }>;
 
 function sessionsOf(events: EngineEvent[]): Session[] {
   return events.filter((event): event is Session => event.type === 'session');
+}
+
+type Blocked = Extract<EngineEvent, { type: 'blocked' }>;
+
+function blockedOf(events: EngineEvent[]): Blocked[] {
+  return events.filter((event): event is Blocked => event.type === 'blocked');
 }
 
 test('text deltas are forwarded in order', async () => {
@@ -374,5 +423,44 @@ test('a real failure while resuming is still reported', async () => {
     // the user.
     assert.ok(failure !== undefined);
     assert.match(failure.type === 'error' ? failure.message : '', /Not logged in/);
+  });
+});
+
+test('a refused tool call is reported instead of vanishing', async () => {
+  await withFakeEngine('claude', BLOCKED_TOOL, async () => {
+    const events = await collect(new ClaudeEngine().prompt('hi', { cwd: process.cwd() }));
+
+    // The refusal arrives on a user line, which the adapter used to drop, leaving
+    // the answer that followed with no visible cause.
+    const blocked = blockedOf(events);
+
+    assert.equal(blocked.length, 1);
+    // Named from the tool_use, because the tool_result only carries its id.
+    assert.equal(blocked[0]?.tool, 'Write');
+    assert.match(blocked[0]?.reason ?? '', /requested permissions/);
+  });
+});
+
+test('a refusal does not stop the rest of the turn', async () => {
+  await withFakeEngine('claude', BLOCKED_TOOL, async () => {
+    const events = await collect(new ClaudeEngine().prompt('hi', { cwd: process.cwd() }));
+
+    // Claude answers around a refusal rather than failing, so reporting one must
+    // not swallow the answer or invent a failure.
+    assert.equal(textOf(events), 'I could not write it.');
+    assert.equal(
+      events.some((event) => event.type === 'error'),
+      false,
+    );
+  });
+});
+
+test('a tool that merely failed is not reported as refused', async () => {
+  await withFakeEngine('claude', FAILED_TOOL, async () => {
+    const events = await collect(new ClaudeEngine().prompt('hi', { cwd: process.cwd() }));
+
+    // A command that exited nonzero is the engine's business. Reporting it as a
+    // permission problem would be wrong and noisy.
+    assert.deepEqual(blockedOf(events), []);
   });
 });

@@ -100,6 +100,16 @@ export const activities = sqliteTable(
     tool: text('tool').notNull(),
     /** What the tool acted on. Null when the engine did not say. */
     target: text('target'),
+    /**
+     * True when the engine was refused permission, so the call never happened.
+     *
+     * Stored alongside the calls that did happen, because a refusal is still part
+     * of what the turn attempted. Defaults to false, which is what every row
+     * written before this existed is.
+     */
+    blocked: integer('blocked', { mode: 'boolean' }).notNull().default(false),
+    /** Why the call was refused. Null on a call that was allowed to run. */
+    reason: text('reason'),
     createdAt: integer('created_at').notNull(),
   },
   (table) => [index('activities_conversation_idx').on(table.conversationId)],

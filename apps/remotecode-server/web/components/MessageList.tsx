@@ -231,7 +231,6 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
   };
 
   for (const line of lines) {
-
     if (line.trim().startsWith('```')) {
       if (inCode) {
         blocks.push({
@@ -419,15 +418,34 @@ export function MessageList({
                   </div>
                 ) : (
                   <div key={item.id} className="activity-pill-wrapper">
-                    <p className="activity">
+                    <p
+                      className={
+                        item.activity.blocked === true ? 'activity activity-blocked' : 'activity'
+                      }
+                    >
                       <span className="activity-tool">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                        >
                           <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
                         </svg>
                         <span>{item.activity.tool}</span>
                       </span>
+                      {/* Said in words rather than by colour alone: a call that
+                          never ran must not read like one that did. */}
+                      {item.activity.blocked === true && (
+                        <span className="activity-blocked-label">blocked</span>
+                      )}
                       {item.activity.target !== undefined && (
                         <span className="activity-target mono">{item.activity.target}</span>
+                      )}
+                      {item.activity.reason !== undefined && (
+                        <span className="activity-target">{item.activity.reason}</span>
                       )}
                     </p>
                   </div>

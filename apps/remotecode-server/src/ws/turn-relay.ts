@@ -88,6 +88,41 @@ export class TurnRelay {
   }
 
   /**
+   * Stores a tool call the engine was not allowed to make.
+   *
+   * Recorded as an activity rather than an error: the turn carries on, and the
+   * refusal is part of what the turn attempted. Nothing else reports it, so
+   * without this the answer that follows has no visible cause.
+   */
+  blocked(deviceId: string, turnId: string, tool: string, reason: string): void {
+    const turn = this.options.turns.findForDevice(turnId, deviceId);
+
+    if (turn === undefined) {
+      return;
+    }
+
+    // The refused call carries no target: what matters is which tool was stopped
+    // and why, and the reason already names what it tried to touch.
+    const stored = this.options.conversationRepository.appendActivity(
+      turn.conversationId,
+      tool,
+      undefined,
+      { reason },
+    );
+
+    this.options.browsers.broadcast(turn.sessionId, {
+      type: 'activity',
+      conversationId: turn.conversationId,
+      turnId,
+      id: stored.id,
+      tool: stored.tool,
+      blocked: true,
+      ...(stored.reason !== null ? { reason: stored.reason } : {}),
+      createdAt: stored.createdAt,
+    });
+  }
+
+  /**
    * Stores the finished answer and tells the browsers the turn is over.
    * An empty answer is not stored, since there is nothing to show later.
    */

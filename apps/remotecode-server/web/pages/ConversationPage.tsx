@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createConversation, deleteConversation, listConversations, readSession, readTranscript } from '../api.js';
+import {
+  createConversation,
+  deleteConversation,
+  listConversations,
+  readSession,
+  readTranscript,
+} from '../api.js';
 import type { Activity, Conversation, Message, SessionDetail } from '../api.js';
 import { Composer } from '../components/Composer.js';
 import { ConversationList } from '../components/ConversationList.js';
@@ -34,6 +40,8 @@ interface ServerEvent {
   message?: unknown;
   tool?: unknown;
   target?: unknown;
+  blocked?: unknown;
+  reason?: unknown;
   activeTurn?: unknown;
 }
 
@@ -135,7 +143,9 @@ export function ConversationPage({
         // Deltas sent while the socket was gone are lost for good, so nothing can
         // be shown until the turn finishes and stores its message. An empty
         // string still marks the answer as pending.
-        setStreaming(active !== undefined && active.conversationId === activeIdRef.current ? '' : undefined);
+        setStreaming(
+          active !== undefined && active.conversationId === activeIdRef.current ? '' : undefined,
+        );
         return;
       }
 
@@ -156,8 +166,9 @@ export function ConversationPage({
           const derivedTitle = deriveTitle(message.content);
           setConversations((current) =>
             current.map((item) =>
-              item.id === activeIdRef.current &&
-              (item.title === null || item.title === undefined || item.title === '')
+              // Only an unnamed conversation takes its title from the prompt, so
+              // an existing name is never overwritten.
+              item.id === activeIdRef.current && (item.title === null || item.title === '')
                 ? { ...item, title: derivedTitle }
                 : item,
             ),
@@ -183,6 +194,8 @@ export function ConversationPage({
           id: String(event.id),
           tool: String(event.tool),
           ...(typeof event.target === 'string' ? { target: event.target } : {}),
+          ...(event.blocked === true ? { blocked: true } : {}),
+          ...(typeof event.reason === 'string' ? { reason: event.reason } : {}),
           createdAt: typeof event.createdAt === 'number' ? event.createdAt : Date.now(),
         };
 
@@ -228,7 +241,9 @@ export function ConversationPage({
       if (stored !== undefined && detail.models.includes(stored)) {
         setModel(stored);
       } else if (detail.models.length > 0) {
-        setModel((current) => (current !== undefined && detail.models.includes(current) ? current : detail.models[0]));
+        setModel((current) =>
+          current !== undefined && detail.models.includes(current) ? current : detail.models[0],
+        );
       }
     } catch {
       onSessionLost();
@@ -252,9 +267,7 @@ export function ConversationPage({
         const list = await listConversations(sessionId);
         setConversations(list);
 
-        const sorted = [...list].sort(
-          (left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0),
-        );
+        const sorted = [...list].sort((left, right) => right.createdAt - left.createdAt);
         const storedActiveId = readStoredActiveConversationId();
         const foundStored =
           storedActiveId !== undefined && list.some((item) => item.id === storedActiveId);
@@ -315,9 +328,7 @@ export function ConversationPage({
         setConversations((current) => {
           const updated = current.filter((item) => item.id !== id);
           if (activeIdRef.current === id) {
-            const sorted = [...updated].sort(
-              (left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0),
-            );
+            const sorted = [...updated].sort((left, right) => right.createdAt - left.createdAt);
             const nextActiveId = sorted[0]?.id;
             setActiveId(nextActiveId);
             if (nextActiveId !== undefined) {
@@ -358,7 +369,9 @@ export function ConversationPage({
     const derivedTitle = deriveTitle(text);
     setConversations((current) =>
       current.map((item) =>
-        item.id === activeId && (item.title === null || item.title === undefined || item.title === '')
+        // Only an unnamed conversation takes its title from the prompt, so an
+        // existing name is never overwritten.
+        item.id === activeId && (item.title === null || item.title === '')
           ? { ...item, title: derivedTitle }
           : item,
       ),

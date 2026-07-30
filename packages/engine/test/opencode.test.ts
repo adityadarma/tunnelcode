@@ -105,6 +105,41 @@ process.stdin.on('end', () => {
 });
 `;
 
+/**
+ * Reproduces a tool call refused on permission grounds, recorded from the real
+ * CLI at version 1.18.9.
+ *
+ * Unlike claude, opencode reports the refusal on the tool part itself, as a
+ * status of error carrying the reason. The call is announced first and refused on
+ * a later repeat of the same part, which is exactly what the dedupe by call id
+ * would otherwise swallow.
+ */
+const BLOCKED_TOOL = `#!/usr/bin/env node
+if (process.argv[2] === 'models') { process.stdout.write('opencode/fast\\n'); process.exit(0); }
+const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+process.stdin.resume();
+process.stdin.on('end', () => {
+  out({ type: 'tool_use', sessionID: 'ses_1', part: { type: 'tool', tool: 'write', callID: 'call_1', state: { status: 'running', input: { filePath: '/outside/note.txt' } } } });
+  out({ type: 'tool_use', sessionID: 'ses_1', part: { type: 'tool', tool: 'write', callID: 'call_1', state: { status: 'error', input: { filePath: '/outside/note.txt' }, error: 'The user rejected permission to use this specific tool call.' } } });
+  out({ type: 'text', sessionID: 'ses_1', part: { id: 'p1', type: 'text', text: 'I could not write it.' } });
+  process.exit(0);
+});
+`;
+
+/**
+ * A tool that simply failed, which carries the same error status as a refusal.
+ * Only the wording separates the two.
+ */
+const FAILED_TOOL = `#!/usr/bin/env node
+if (process.argv[2] === 'models') { process.stdout.write('opencode/fast\\n'); process.exit(0); }
+const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+process.stdin.resume();
+process.stdin.on('end', () => {
+  out({ type: 'tool_use', sessionID: 'ses_1', part: { type: 'tool', tool: 'bash', callID: 'call_1', state: { status: 'error', input: { command: 'ls /nope' }, error: 'ls: /nope: No such file or directory' } } });
+  process.exit(0);
+});
+`;
+
 /** Records the args it was launched with, so a test can assert what was passed. */
 const ARGS_ECHO = `#!/usr/bin/env node
 if (process.argv[2] === 'models') { process.stdout.write('opencode/fast\\n'); process.exit(0); }
@@ -144,6 +179,12 @@ type Session = Extract<EngineEvent, { type: 'session' }>;
 
 function sessionsOf(events: EngineEvent[]): Session[] {
   return events.filter((event): event is Session => event.type === 'session');
+}
+
+type Blocked = Extract<EngineEvent, { type: 'blocked' }>;
+
+function blockedOf(events: EngineEvent[]): Blocked[] {
+  return events.filter((event): event is Blocked => event.type === 'blocked');
 }
 
 test('cumulative text is emitted only once', async () => {
@@ -362,5 +403,44 @@ test('a missing engine reports unavailable instead of throwing', async () => {
     const events = await collect(engine.prompt('hi', { cwd: process.cwd() }));
     assert.equal(events.at(0)?.type, 'error');
     assert.equal(events.at(-1)?.type === 'done' ? events.at(-1)?.exitCode : 0, 127);
+  });
+});
+
+test('a refused tool call is reported instead of vanishing', async () => {
+  await withFakeEngine('opencode', BLOCKED_TOOL, async () => {
+    const events = await collect(new OpenCodeEngine().prompt('hi', { cwd: process.cwd() }));
+
+    const blocked = blockedOf(events);
+
+    assert.equal(blocked.length, 1);
+    assert.equal(blocked[0]?.tool, 'write');
+    assert.match(blocked[0]?.reason ?? '', /rejected permission/);
+  });
+});
+
+test('a refusal survives the dedupe that hides repeated tool parts', async () => {
+  await withFakeEngine('opencode', BLOCKED_TOOL, async () => {
+    const events = await collect(new OpenCodeEngine().prompt('hi', { cwd: process.cwd() }));
+
+    // The call is announced once and refused on a later repeat of the same part.
+    // Reporting the activity per call id must not also discard the refusal.
+    assert.deepEqual(
+      activitiesOf(events).map((event) => event.tool),
+      ['write'],
+    );
+    assert.equal(blockedOf(events).length, 1);
+
+    // The answer that follows still has to come through.
+    assert.equal(textOf(events), 'I could not write it.');
+  });
+});
+
+test('a tool that merely failed is not reported as refused', async () => {
+  await withFakeEngine('opencode', FAILED_TOOL, async () => {
+    const events = await collect(new OpenCodeEngine().prompt('hi', { cwd: process.cwd() }));
+
+    // A command that exited nonzero is the engine's business, not a permission
+    // problem the user has to see.
+    assert.deepEqual(blockedOf(events), []);
   });
 });

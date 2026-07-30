@@ -42,6 +42,13 @@ export interface Activity {
   id: string;
   tool: string;
   target?: string;
+  /**
+   * True when the engine was refused permission, so the call never happened.
+   * Absent on a server that predates the flag, which is read as having run.
+   */
+  blocked?: boolean;
+  /** Why the call was refused, present only on a blocked one. */
+  reason?: string;
   createdAt: number;
 }
 

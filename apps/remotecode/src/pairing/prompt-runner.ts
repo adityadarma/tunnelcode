@@ -143,6 +143,12 @@ export class PromptRunner {
               ...(event.target !== undefined ? { target: event.target } : {}),
             });
             break;
+          case 'blocked':
+            // The turn keeps running after a refusal, so this is reported rather
+            // than treated as a failure. Without it the answer that follows would
+            // reference work the user never saw refused.
+            send({ type: 'turn_blocked', turnId, tool: event.tool, reason: event.reason });
+            break;
           case 'session':
             // Reported even when the turn later fails: the engine conversation
             // exists either way, and losing the id would strand its context.

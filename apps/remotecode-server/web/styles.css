@@ -117,7 +117,10 @@ button {
   border-radius: var(--radius);
   padding: 0.45rem 0.85rem;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.1s ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -163,7 +166,9 @@ select {
   border-radius: var(--radius);
   padding: 0.5rem 0.75rem;
   width: 100%;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 input:focus,
@@ -331,7 +336,10 @@ select:focus {
   border-radius: 4px;
   color: var(--muted);
   opacity: 0;
-  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -742,7 +750,9 @@ select:focus {
 }
 
 @keyframes typingPulse {
-  0%, 60%, 100% {
+  0%,
+  60%,
+  100% {
     transform: scale(0.8);
     opacity: 0.4;
   }
@@ -892,6 +902,29 @@ select:focus {
   border-radius: 4px;
 }
 
+/* A tool call that never ran, because the engine was refused permission. Marked
+   with a dashed border as well as the word "blocked", so the distinction does not
+   depend on colour. */
+.activity-blocked {
+  border-style: dashed;
+}
+
+.activity-blocked .activity-tool {
+  text-decoration: line-through;
+}
+
+.activity-blocked-label {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--border);
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
 /* Composer Bar */
 
 .composer {
@@ -908,13 +941,17 @@ select:focus {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
 
 .composer-box:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-glow), 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow:
+    0 0 0 3px var(--accent-glow),
+    0 4px 16px rgba(0, 0, 0, 0.2);
 }
 
 .composer-box.disabled {

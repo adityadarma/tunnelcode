@@ -47,6 +47,21 @@ export interface EngineSession {
   id: string;
 }
 
+/**
+ * A tool call the engine was not allowed to make.
+ *
+ * Reported separately from an error because the turn carries on: the engine is
+ * told it was refused and answers around it. Without this the refusal is invisible
+ * and the answer that follows has no visible cause.
+ */
+export interface EngineBlocked {
+  type: 'blocked';
+  /** Tool that was refused, named as the engine reported it. */
+  tool: string;
+  /** Why it was refused, as the engine explained it. */
+  reason: string;
+}
+
 export interface EngineDone {
   type: 'done';
   exitCode: number;
@@ -58,7 +73,13 @@ export interface EngineFailure {
 }
 
 export type EngineEvent =
-  EngineDelta | EngineLog | EngineActivity | EngineSession | EngineDone | EngineFailure;
+  | EngineDelta
+  | EngineLog
+  | EngineActivity
+  | EngineSession
+  | EngineBlocked
+  | EngineDone
+  | EngineFailure;
 
 export interface PromptOptions {
   /** Working directory the engine runs in. */

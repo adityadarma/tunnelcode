@@ -26,6 +26,8 @@ interface BrowserEvent {
   id?: string;
   tool?: string;
   target?: string;
+  blocked?: boolean;
+  reason?: string;
   activeTurn?: { conversationId: string; turnId: string };
 }
 
@@ -1008,5 +1010,98 @@ test('a disconnect before attaching is refused', async () => {
 
     assert.match(browser.events.at(-1)?.message ?? '', /Not attached/);
     browser.close();
+  });
+});
+
+test('a refused tool call is stored and marked as blocked', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const { cli, sessionId, conversationId } = await pair(baseUrl);
+
+    const browser = await connect<BrowserEvent>(baseUrl, '/ws/browser');
+    browser.send({ type: 'attach', sessionId });
+    await browser.waitFor((events) => events.some((event) => event.type === 'attached'));
+
+    browser.send({ type: 'prompt', conversationId, text: 'write outside the workspace' });
+    await cli.waitFor((events) => events.some((event) => event.type === 'prompt'));
+
+    const turnId = cli.events.find((event) => event.type === 'prompt')?.turnId ?? '';
+    cli.send({
+      type: 'turn_blocked',
+      turnId,
+      tool: 'Write',
+      reason: "requested permissions to write to /outside/note.txt, but you haven't granted it yet",
+    });
+    await browser.waitFor((events) => events.some((event) => event.type === 'activity'));
+
+    const relayed = browser.events.find((event) => event.type === 'activity');
+    assert.equal(relayed?.blocked, true);
+    assert.equal(relayed?.tool, 'Write');
+    assert.match(relayed?.reason ?? '', /requested permissions/);
+
+    const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
+    const activities = reloaded.body['activities'] as { tool: string; blocked: boolean }[];
+
+    // A refusal is part of what the turn attempted, so a refresh has to show it
+    // rather than leaving the answer that followed without a cause.
+    assert.equal(activities.length, 1);
+    assert.equal(activities[0]?.blocked, true);
+
+    browser.close();
+    cli.close();
+  });
+});
+
+test('a tool call that ran is not marked as blocked', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const { cli, sessionId, conversationId } = await pair(baseUrl);
+
+    const browser = await connect<BrowserEvent>(baseUrl, '/ws/browser');
+    browser.send({ type: 'attach', sessionId });
+    await browser.waitFor((events) => events.some((event) => event.type === 'attached'));
+
+    browser.send({ type: 'prompt', conversationId, text: 'run the tests' });
+    await cli.waitFor((events) => events.some((event) => event.type === 'prompt'));
+
+    const turnId = cli.events.find((event) => event.type === 'prompt')?.turnId ?? '';
+    cli.send({ type: 'turn_activity', turnId, tool: 'Bash', target: 'pnpm test' });
+    await browser.waitFor((events) => events.some((event) => event.type === 'activity'));
+
+    const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
+    const activities = reloaded.body['activities'] as { blocked: boolean }[];
+
+    assert.equal(activities[0]?.blocked, false);
+
+    browser.close();
+    cli.close();
+  });
+});
+
+test('a refusal reported for another device is ignored', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const { cli, sessionId, conversationId } = await pair(baseUrl);
+
+    const browser = await connect<BrowserEvent>(baseUrl, '/ws/browser');
+    browser.send({ type: 'attach', sessionId });
+    await browser.waitFor((events) => events.some((event) => event.type === 'attached'));
+
+    browser.send({ type: 'prompt', conversationId, text: 'do something' });
+    await cli.waitFor((events) => events.some((event) => event.type === 'prompt'));
+
+    const turnId = cli.events.find((event) => event.type === 'prompt')?.turnId ?? '';
+
+    const other = await connect<CliEvent>(baseUrl, '/ws/cli');
+    other.send({ ...register, code: 'QQQQQQQQ', deviceId: 'device-2', workspace: '/other' });
+    await other.waitFor((events) => events.some((event) => event.type === 'registered'));
+    other.send({ type: 'turn_blocked', turnId, tool: 'Write', reason: 'rejected permission' });
+
+    const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
+
+    // Writing into another device's turn would let one machine fake a refusal in
+    // somebody else's conversation.
+    assert.deepEqual(reloaded.body['activities'], []);
+
+    other.close();
+    browser.close();
+    cli.close();
   });
 });

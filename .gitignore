@@ -7,6 +7,7 @@ bundle/
 .DS_Store
 
 .remotecode/
+.claude/
 data/
 *.sqlite
 *.sqlite-journal

@@ -247,3 +247,32 @@ test('a second prompt while busy is refused', async () => {
 
   await first;
 });
+
+test('a refused tool call is forwarded without ending the turn', async () => {
+  const engine = new ScriptedEngine(
+    [
+      { type: 'blocked', tool: 'Write', reason: 'not granted yet' },
+      { type: 'delta', text: 'could not do it' },
+      { type: 'done', exitCode: 0 },
+    ],
+    false,
+  );
+  const { sent, send } = collect();
+  const runner = new PromptRunner({
+    engine,
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    silenceTimeoutMs: 500,
+  });
+
+  await runner.run('turn-1', 'hi', undefined, undefined);
+
+  const blocked = sent.find((message) => message.type === 'turn_blocked');
+  assert.equal(blocked?.type === 'turn_blocked' ? blocked.tool : '', 'Write');
+
+  // The engine answers around a refusal, so the turn still finishes normally.
+  const done = sent.find((message) => message.type === 'turn_done');
+  assert.equal(done?.type === 'turn_done' ? done.text : '', 'could not do it');
+  assert.equal(typesOf(sent).includes('turn_error'), false);
+});

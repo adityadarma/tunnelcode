@@ -30,7 +30,7 @@ interface TextPart {
    */
   callID?: unknown;
   /** Call details, where the arguments live once the call is running. */
-  state?: { input?: unknown; status?: unknown } | undefined;
+  state?: { input?: unknown; status?: unknown; error?: unknown } | undefined;
 }
 
 interface OpenCodeLine {
@@ -47,6 +47,23 @@ interface OpenCodeLine {
  * this is the only way to tell a stale id from a real failure.
  */
 const STALE_SESSION_PATTERN = /session not found/i;
+
+/**
+ * How opencode words a tool call it refused on permission grounds.
+ *
+ * A failed call carries a plain error string, and a tool that simply exited
+ * nonzero looks the same, so the wording is what separates "not allowed" from
+ * "did not work", which the user does not need reported.
+ */
+const PERMISSION_PATTERN = /rejected permission|permission requested|requires approval/i;
+
+/** Keeps a refusal short enough to read as one line in a conversation. */
+const REASON_MAX_LENGTH = 200;
+
+function shortenReason(value: string): string {
+  const flat = value.replace(/\s+/g, ' ').trim();
+  return flat.length <= REASON_MAX_LENGTH ? flat : `${flat.slice(0, REASON_MAX_LENGTH - 1)}…`;
+}
 
 /**
  * OpenCode adapter.
@@ -108,7 +125,12 @@ export class OpenCodeEngine implements Engine {
       for await (const event of this.attempt(text, options, options.resume)) {
         // Anything the engine actually produced means the session was found, so
         // from here on the run is passed straight through.
-        if (event.type === 'delta' || event.type === 'activity' || event.type === 'session') {
+        if (
+          event.type === 'delta' ||
+          event.type === 'activity' ||
+          event.type === 'blocked' ||
+          event.type === 'session'
+        ) {
           committed = true;
         }
 
@@ -149,9 +171,12 @@ export class OpenCodeEngine implements Engine {
   ): AsyncGenerator<EngineEvent> {
     const emitted = new Map<string, string>();
     const reportedTools = new Set<string>();
+    // Tracked apart from reportedTools: a call is announced once but its refusal
+    // arrives later, on a repeat of the same part.
+    const reportedRefusals = new Set<string>();
     let reportedSession = false;
 
-    const mapEvent = (parsed: OpenCodeLine): EngineEvent | undefined => {
+    const mapEvent = (parsed: OpenCodeLine): EngineEvent | EngineEvent[] | undefined => {
       // The line is `tool_use` while the part inside it is `tool`. Matching the
       // part shape alone would also catch a line type that is not a tool call.
       if (parsed.type === 'tool_use' || parsed.type === 'tool') {
@@ -161,9 +186,8 @@ export class OpenCodeEngine implements Engine {
           return undefined;
         }
 
-        // A tool part is repeated as its call progresses, so it is reported once
-        // per call. callID comes first because tool parts carry no id, and falling
-        // back to the tool name would merge two calls to the same tool into one.
+        // callID comes first because tool parts carry no id, and falling back to
+        // the tool name would merge two calls to the same tool into one.
         const id =
           typeof part.callID === 'string'
             ? part.callID
@@ -171,18 +195,37 @@ export class OpenCodeEngine implements Engine {
               ? part.id
               : part.tool;
 
-        if (reportedTools.has(id)) {
-          return undefined;
+        const events: EngineEvent[] = [];
+
+        // A tool part is repeated as its call progresses, so it is reported once
+        // per call.
+        if (!reportedTools.has(id)) {
+          reportedTools.add(id);
+
+          const target = readActivityTarget(part.state?.input);
+
+          events.push({
+            type: 'activity',
+            tool: part.tool,
+            ...(target !== undefined ? { target } : {}),
+          });
         }
-        reportedTools.add(id);
 
-        const target = readActivityTarget(part.state?.input);
+        // Checked separately from the activity above, because a refusal usually
+        // arrives on a repeat of a part already reported, which the dedupe above
+        // would otherwise swallow.
+        const error = part.state?.error;
 
-        return {
-          type: 'activity',
-          tool: part.tool,
-          ...(target !== undefined ? { target } : {}),
-        };
+        if (
+          typeof error === 'string' &&
+          PERMISSION_PATTERN.test(error) &&
+          !reportedRefusals.has(id)
+        ) {
+          reportedRefusals.add(id);
+          events.push({ type: 'blocked', tool: part.tool, reason: shortenReason(error) });
+        }
+
+        return events.length === 0 ? undefined : events;
       }
 
       if (parsed.type !== 'text') {
@@ -226,7 +269,13 @@ export class OpenCodeEngine implements Engine {
         reportedSession = true;
         const session: EngineEvent = { type: 'session', id: parsed.sessionID };
 
-        return event === undefined ? session : [session, event];
+        // One line can now map to several events, so the session is prepended to
+        // whatever came back rather than assuming a single event.
+        if (event === undefined) {
+          return session;
+        }
+
+        return [session, ...(Array.isArray(event) ? event : [event])];
       }
 
       return event;

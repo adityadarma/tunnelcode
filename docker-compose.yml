@@ -1,0 +1,17 @@
+services:
+  remotecode:
+    image: ghcr.io/adityadarma/remotecode:latest
+    container_name: remotecode
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/data
+    environment:
+      - TZ=Asia/Makassar
+    networks:
+      - internet
+
+networks:
+  internet:
+    external: true

@@ -137,6 +137,36 @@ describe('MessageList', () => {
     expect(screen.queryByText(/stopped before it finished/)).toBeNull();
   });
 
+  test('a refused tool call says it was blocked', () => {
+    const activities: Activity[] = [
+      {
+        id: 'a1',
+        tool: 'Write',
+        blocked: true,
+        reason:
+          "requested permissions to write to /outside/note.txt, but you haven't granted it yet",
+        createdAt: 1700000000500,
+      },
+    ];
+
+    render(<MessageList messages={messages} activities={activities} streaming={undefined} />);
+
+    // Said in words, not by colour alone: a call that never ran must not read
+    // like one that did.
+    expect(screen.getByText('blocked')).toBeDefined();
+    expect(screen.getByText(/requested permissions/)).toBeDefined();
+  });
+
+  test('a tool call that ran carries no blocked label', () => {
+    const activities: Activity[] = [
+      { id: 'a1', tool: 'Bash', target: 'pnpm test', createdAt: 1700000000500 },
+    ];
+
+    render(<MessageList messages={messages} activities={activities} streaming={undefined} />);
+
+    expect(screen.queryByText('blocked')).toBeNull();
+  });
+
   test('activities alone are enough to show a transcript', () => {
     const activities: Activity[] = [{ id: 'a1', tool: 'Read', target: 'a.ts', createdAt: 1 }];
 

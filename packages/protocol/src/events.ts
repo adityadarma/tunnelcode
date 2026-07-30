@@ -60,6 +60,15 @@ export const cliMessageSchema = z.discriminatedUnion('type', [
     // Absent when the engine did not say what the tool acted on.
     target: z.string().min(1).optional(),
   }),
+  // A tool call the engine was not allowed to make. Reported separately from an
+  // error because the turn carries on: without this the refusal is invisible and
+  // the answer that follows has no visible cause.
+  z.object({
+    type: z.literal('turn_blocked'),
+    turnId: turnIdSchema,
+    tool: z.string().min(1),
+    reason: z.string().min(1),
+  }),
   // The engine's own conversation id for this turn, stored so the next prompt in
   // this conversation can continue it and the agent keeps its context.
   z.object({
@@ -217,6 +226,13 @@ export const serverToBrowserMessageSchema = z.discriminatedUnion('type', [
     id: z.string().min(1),
     tool: z.string().min(1),
     target: z.string().min(1).optional(),
+    /**
+     * True when the engine was not allowed to make this call, so it never
+     * happened. Absent means the tool ran.
+     */
+    blocked: z.boolean().optional(),
+    /** Why the call was refused, present only on a blocked one. */
+    reason: z.string().min(1).optional(),
     createdAt: z.number(),
   }),
   z.object({

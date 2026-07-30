@@ -81,6 +81,33 @@ test('a message written before the partial flag reads as complete', async () => 
   });
 });
 
+test('an activity written before the blocked flag reads as having run', async () => {
+  await withTempDb(async (handle, file) => {
+    new SessionRepository(handle.db).persistApproved(session);
+    const conversations = new ConversationRepository(handle.db);
+    const conversation = conversations.create('session-1');
+    handle.close();
+
+    // Written the way a build that predates the columns did, without naming them.
+    const raw = new Database(file);
+    raw
+      .prepare(
+        'insert into activities (id, conversation_id, tool, target, created_at) values (?, ?, ?, ?, ?)',
+      )
+      .run('a1', conversation.id, 'Bash', 'pnpm test', 1);
+    raw.close();
+
+    await reopenDb(file, async (reopened) => {
+      const stored = new ConversationRepository(reopened.db).listActivities(conversation.id);
+
+      // The column default keeps an existing row valid, so a call that did run is
+      // never shown as refused.
+      assert.equal(stored[0]?.blocked, false);
+      assert.equal(stored[0]?.reason, null);
+    });
+  });
+});
+
 test('the migration journal does not grow on a rerun', async () => {
   await withTempDb(async (handle, file) => {
     handle.close();
