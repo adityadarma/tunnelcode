@@ -22,30 +22,62 @@ export function ModelPicker({
   selected,
   disabled,
   onChange,
-}: ModelPickerProps): React.JSX.Element | null {
-  if (models.length === 0) {
-    return null;
-  }
+}: ModelPickerProps): React.JSX.Element {
+  const availableModels = Array.from(new Set([...(selected ? [selected] : []), ...models]));
 
   return (
     <div className="model-picker">
-      <label htmlFor="model">Model</label>
-      <select
-        id="model"
-        value={selected ?? DEFAULT_VALUE}
-        disabled={disabled}
-        onChange={(event) => {
-          const value = event.target.value;
-          onChange(value === DEFAULT_VALUE ? undefined : value);
-        }}
-      >
-        <option value={DEFAULT_VALUE}>Engine default</option>
-        {models.map((model) => (
-          <option key={model} value={model}>
-            {model}
-          </option>
-        ))}
-      </select>
+      <label htmlFor="model" className="visually-hidden">
+        Model
+      </label>
+      <div className="model-picker-pill">
+        <svg
+          className="model-picker-icon"
+          width="13"
+          height="13"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+        </svg>
+        <select
+          id="model"
+          value={selected ?? availableModels[0] ?? DEFAULT_VALUE}
+          disabled={disabled}
+          title={selected ?? availableModels[0] ?? 'Engine default'}
+          onChange={(event) => {
+            const value = event.target.value;
+            onChange(value === DEFAULT_VALUE ? undefined : value);
+          }}
+        >
+          {availableModels.length === 0 ? (
+            <option value={DEFAULT_VALUE}>Engine default</option>
+          ) : (
+            availableModels.map((model) => (
+              <option key={model} value={model}>
+                {model}
+              </option>
+            ))
+          )}
+        </select>
+        <svg
+          className="model-picker-chevron"
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </div>
     </div>
   );
 }

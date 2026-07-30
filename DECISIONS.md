@@ -532,3 +532,21 @@ conversation makes that impossible.
 Setup keeps naming an engine because a new conversation still has to start
 somewhere, and a browser that expresses no preference should not get an arbitrary
 one.
+
+---
+
+# ADR-021
+
+## Tailwind CSS v4 for Web UI
+
+Decision
+
+Adopt Tailwind CSS v4 using the `@tailwindcss/vite` plugin for the web application styling and responsive design system.
+
+The ModelPicker control lives inside the prompt composer box footer, matching modern IDE chat experiences.
+
+Reason
+
+Tailwind CSS v4 provides a fast, zero-config build via `@tailwindcss/vite` and a unified utility system with CSS variable integration for themes (`--bg`, `--surface`, `--accent`).
+
+Moving the model selector inside the prompt input box (composer toolbar) keeps controls co-located with text entry, improving usability on small mobile portrait screens and desktop views without extra header clutter.

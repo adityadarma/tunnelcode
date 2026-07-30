@@ -109,7 +109,7 @@ describe('ConversationList', () => {
     expect(onSelect).toHaveBeenCalledWith('c2');
   });
 
-  test('one engine creates without asking which', async () => {
+  test('opens modal and creates conversation with chosen engine and model', async () => {
     const onCreate = vi.fn();
     render(
       <ConversationList
@@ -123,12 +123,12 @@ describe('ConversationList', () => {
     );
 
     await userEvent.click(screen.getByRole('button', { name: 'New' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Start Conversation' }));
 
-    // Nothing to choose between, so the engine is left to the server.
-    expect(onCreate).toHaveBeenCalledWith(undefined);
+    expect(onCreate).toHaveBeenCalledWith('opencode', 'opencode/fast');
   });
 
-  test('several engines ask which one to start on', async () => {
+  test('several engines allow choosing engine and model in modal', async () => {
     const onCreate = vi.fn();
     render(
       <ConversationList
@@ -142,10 +142,10 @@ describe('ConversationList', () => {
     );
 
     await userEvent.click(screen.getByRole('button', { name: 'New' }));
-    await userEvent.click(screen.getByRole('menuitem', { name: 'claude' }));
+    await userEvent.selectOptions(screen.getByLabelText('Engine'), 'claude');
+    await userEvent.click(screen.getByRole('button', { name: 'Start Conversation' }));
 
-    // The engine is chosen here because it can never be changed afterwards.
-    expect(onCreate).toHaveBeenCalledWith('claude');
+    expect(onCreate).toHaveBeenCalledWith('claude', 'sonnet');
   });
 
   test('creating is refused while the device is offline', () => {

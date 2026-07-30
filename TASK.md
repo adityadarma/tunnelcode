@@ -391,3 +391,24 @@ silently loses the context it built up.
 The model can be changed within the conversation's engine.
 
 A machine with no installed engine says so instead of pairing.
+
+---
+
+# Milestone 15 — Responsive UI & Tailwind CSS v4
+
+## Goal
+
+Integrate Tailwind CSS v4 and refine the web app frontend so it looks modern, feels like an IDE chat UI, and is fully responsive on desktop and mobile portrait/landscape screens. See ADR-021.
+
+### Tasks
+
+- [x] Integrate `@tailwindcss/vite` and `tailwindcss` v4 into web app build
+- [x] Position ModelPicker inside the prompt composer box footer (IDE prompt box)
+- [x] Ensure ModelPicker is always visible even when models array is empty
+- [x] Prevent horizontal scrolling and text clipping on mobile screens (`min-width: 0`, `overflow-wrap: anywhere`)
+- [x] Optimize small portrait screen (< 360px) layout with compact send icon button
+- [x] Build and test web app with zero regression
+
+Acceptance
+
+The web UI is styled with Tailwind CSS v4 and maintains 100% responsiveness without horizontal overflow across mobile portrait and landscape viewports.

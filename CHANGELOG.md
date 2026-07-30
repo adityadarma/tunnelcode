@@ -6,7 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The CLI and the server image share one version and ship from a single `v*` tag.
 
-## [Unreleased]
+## [0.2.0] - 2026-07-30
+
+The engine is now chosen in the browser rather than in the terminal, once per
+conversation. Existing conversations keep working: one created before this release
+falls back to the engine of the session it was paired in.
 
 ### Added
 
@@ -15,10 +19,12 @@ The CLI and the server image share one version and ship from a single `v*` tag.
   in the browser can always be served. See ADR-020.
 - Each conversation records the engine it runs on and the model it asks for, and the
   conversation list shows both.
-- `New` offers the installed engines when there is more than one, and creates
-  directly when there is only one.
+- `New` opens a dialog that asks for the engine and the model before starting a
+  conversation. Both are asked together because the engine cannot be changed
+  afterwards, and the model list follows the engine that is selected.
 - The model of a conversation can be changed at any time, within that conversation's
   engine.
+- Tailwind CSS v4, through the `@tailwindcss/vite` plugin. See ADR-021.
 
 ### Changed
 
@@ -32,6 +38,33 @@ The CLI and the server image share one version and ship from a single `v*` tag.
 - The session detail reports every installed engine with its own models, instead of
   one engine and one flat model list.
 - A CLI with no installed engine reports that instead of starting a session.
+- The model picker sits in the composer footer rather than the page header, so the
+  control that decides how a prompt is answered lives next to the prompt itself.
+- The model picker stays visible when an engine reports no models, showing `Engine
+  default` instead of hiding. A picker that disappeared read as a missing feature
+  rather than as an engine with nothing to choose between.
+- The model picker lists only real models once an engine reports any. `Engine
+  default` is no longer offered alongside them, since the conversation already
+  carries a model by then.
+- The new conversation dialog renders through a portal onto `document.body`, so it
+  centres on the viewport instead of being confined by the mobile sidebar transform.
+- The stylesheet was rebuilt on Tailwind and CSS variables, roughly halving its size.
+  Layouts constrain horizontal overflow (`min-width: 0`, `overflow-wrap: anywhere`)
+  so narrow portrait screens neither scroll sideways nor clip message text.
+
+### Removed
+
+- `WEB_PORT`. The Vite dev server listens on 5173, and the variable was only ever
+  read there.
+
+### Migration
+
+- The database gains two nullable columns on `conversations`, applied automatically
+  at startup. No table is rebuilt and no row is rewritten.
+- A conversation created before this release has no engine of its own and answers on
+  the engine of its session, exactly as it did before.
+- The `engine` setting in Setup keeps its meaning as a name, but it now decides only
+  what a new conversation starts on. No config file needs editing.
 
 ## [0.1.1] - 2026-07-30
 
@@ -146,7 +179,7 @@ between the browser, a server, and a local agent.
 - The CLI has no environment variables and does not read `.env`. It resolves the
   server from the stored config, then the URL baked in at publish time, then
   `http://localhost:3000`.
-- Dev server variables: `WEB_PORT`, `HOST`, `PORT`.
+- Dev server variables: `HOST`, `PORT`.
 
 #### Packaging
 
@@ -173,5 +206,6 @@ between the browser, a server, and a local agent.
   visible prompt rather than something the surrounding shell or a cloned repository
   can decide.
 
+[0.2.0]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.2.0
 [0.1.1]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.1.1
 [0.1.0]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.1.0

@@ -4,13 +4,19 @@ interface ComposerProps {
   disabled: boolean;
   disabledReason: string | undefined;
   onSend: (text: string) => void;
+  modelPicker?: React.ReactNode;
 }
 
 /**
  * Prompt input. Enter sends, Shift+Enter adds a line, which matches what people
  * expect from a chat box while still allowing multi-line prompts.
  */
-export function Composer({ disabled, disabledReason, onSend }: ComposerProps): React.JSX.Element {
+export function Composer({
+  disabled,
+  disabledReason,
+  onSend,
+  modelPicker,
+}: ComposerProps): React.JSX.Element {
   const [text, setText] = useState('');
 
   const send = (): void => {
@@ -55,9 +61,12 @@ export function Composer({ disabled, disabledReason, onSend }: ComposerProps): R
         />
 
         <div className="composer-toolbar">
-          <span className="composer-hint">
-            Press <strong>Enter</strong> to send, <strong>Shift + Enter</strong> for newline
-          </span>
+          <div className="composer-toolbar-left">
+            {modelPicker}
+            <span className="composer-hint">
+              Press <strong>Enter</strong> to send, <strong>Shift + Enter</strong> for newline
+            </span>
+          </div>
           <button type="submit" className="btn-send" disabled={disabled || text.trim() === ''}>
             <span>Send</span>
             <svg

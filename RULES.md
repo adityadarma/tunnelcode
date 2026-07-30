@@ -15,3 +15,6 @@
 - Migrations are additive only: never drop, rename, or retype an existing table or column without explicit approval.
 - Never edit a migration that has already shipped. Add a new one instead.
 - A new column is either nullable or has a default, so existing rows stay valid.
+- Web UI styling uses Tailwind CSS v4 and CSS variables (`--bg`, `--surface`, `--accent`, `--border`) for theme support.
+- All UI layouts must be responsive without horizontal scroll overflow: use `min-width: 0` on flex/grid items and `overflow-wrap: anywhere` on message text.
+- Prompt controls (such as model selection) belong inside the prompt box container footer, co-located with text entry.

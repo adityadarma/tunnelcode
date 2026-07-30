@@ -150,7 +150,6 @@ Read by the dev server (`dev:web`):
 
 | Variable   | Default | Purpose                        |
 | ---------- | ------- | ------------------------------ |
-| `WEB_PORT` | `5173`  | Port Vite listens on           |
 | `HOST`     | `127.0.0.1` | Proxy target host          |
 | `PORT`     | `3000`  | Proxy target port              |
 

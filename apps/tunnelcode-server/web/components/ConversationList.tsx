@@ -9,7 +9,8 @@ interface ConversationListProps {
   /** True while the device is offline, when a new conversation cannot be created. */
   createDisabled: boolean;
   onSelect: (id: string) => void;
-  onCreate: (engine: string | undefined) => void;
+  onCreate: (engine: string | undefined, model: string | undefined) => void;
+  onOpenModal?: (() => void) | undefined;
   onDelete?: (id: string) => void;
 }
 
@@ -28,6 +29,7 @@ export function ConversationList({
   createDisabled,
   onSelect,
   onCreate,
+  onOpenModal,
   onDelete,
 }: ConversationListProps): React.JSX.Element {
   const sortedConversations = [...conversations].sort(
@@ -51,7 +53,12 @@ export function ConversationList({
           </svg>
           <h2>Conversations</h2>
         </div>
-        <NewConversationButton engines={engines} disabled={createDisabled} onCreate={onCreate} />
+        <NewConversationButton
+          engines={engines}
+          disabled={createDisabled}
+          onCreate={onCreate}
+          onOpenModal={onOpenModal}
+        />
       </div>
 
       {sortedConversations.length === 0 ? (

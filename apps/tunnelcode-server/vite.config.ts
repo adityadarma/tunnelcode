@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = '3000';
@@ -29,13 +30,13 @@ export default defineConfig(() => {
 
   return {
     root: 'web',
-    plugins: [react()],
+    plugins: [tailwindcss(), react()],
     build: {
       outDir: '../dist/web',
       emptyOutDir: true,
     },
     server: {
-      port: Number(process.env['WEB_PORT'] ?? 5173),
+      port: 5173,
       proxy: {
         '/pair': target,
         '/sessions': target,

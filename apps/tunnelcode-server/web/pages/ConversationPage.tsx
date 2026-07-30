@@ -16,7 +16,6 @@ import { ModelPicker } from '../components/ModelPicker.js';
 import { ThemeToggle } from '../components/ThemeToggle.js';
 import {
   readStoredActiveConversationId,
-  readStoredModel,
   readStoredTheme,
   storeActiveConversationId,
   storeModel,
@@ -308,15 +307,9 @@ export function ConversationPage({
    * The remembered model is only offered when the chosen engine actually has it,
    * since a model belongs to an engine and the server would refuse it otherwise.
    */
-  const create = (engine: string | undefined): void => {
+  const create = (engine: string | undefined, model: string | undefined): void => {
     void (async () => {
       try {
-        const chosen =
-          session?.engines.find((entry) => entry.name === engine) ?? session?.engines[0];
-        const stored = readStoredModel();
-        const model =
-          stored !== undefined && chosen?.models.includes(stored) === true ? stored : undefined;
-
         const conversation = await createConversation(sessionId, engine, model);
         setConversations((current) => [...current, conversation]);
         selectActiveId(conversation.id);
@@ -406,8 +399,8 @@ export function ConversationPage({
       current.map((item) => (item.id === activeId ? { ...item, model: newModel ?? null } : item)),
     );
 
-    // Remembered so a new conversation on an engine that has this model starts on
-    // it, which is the only thing the stored value is still used for.
+    // Kept as the last model the user picked. Nothing reads it back now that the new
+    // conversation dialog defaults to the engine's own first model.
     if (newModel !== undefined) {
       storeModel(newModel);
     }
@@ -468,8 +461,11 @@ export function ConversationPage({
             selectActiveId(id);
             setMenuOpen(false);
           }}
-          onCreate={(engine) => {
-            create(engine);
+          onCreate={(engine, model) => {
+            create(engine, model);
+            setMenuOpen(false);
+          }}
+          onOpenModal={() => {
             setMenuOpen(false);
           }}
           onDelete={(id) => {
@@ -508,12 +504,6 @@ export function ConversationPage({
             )}
           </div>
           <div className="main-head-controls">
-            <ModelPicker
-              models={activeModels}
-              selected={active?.model ?? undefined}
-              disabled={offline || activeId === undefined}
-              onChange={changeModel}
-            />
             <ThemeToggle theme={theme} onToggle={toggleTheme} />
           </div>
         </header>
@@ -526,7 +516,19 @@ export function ConversationPage({
 
         <MessageList messages={messages} activities={activities} streaming={streaming} />
 
-        <Composer disabled={sendDisabled} disabledReason={disabledReason} onSend={send} />
+        <Composer
+          disabled={sendDisabled}
+          disabledReason={disabledReason}
+          onSend={send}
+          modelPicker={
+            <ModelPicker
+              models={activeModels}
+              selected={active?.model ?? undefined}
+              disabled={offline || activeId === undefined}
+              onChange={changeModel}
+            />
+          }
+        />
       </main>
     </div>
   );

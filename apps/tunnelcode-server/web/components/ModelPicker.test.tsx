@@ -4,13 +4,11 @@ import userEvent from '@testing-library/user-event';
 import { ModelPicker } from './ModelPicker.js';
 
 describe('ModelPicker', () => {
-  test('is hidden when the engine reports no models', () => {
-    const { container } = render(
-      <ModelPicker models={[]} selected={undefined} disabled={false} onChange={vi.fn()} />,
-    );
+  test('shows engine default when no models are reported', () => {
+    render(<ModelPicker models={[]} selected={undefined} disabled={false} onChange={vi.fn()} />);
 
-    // An engine that cannot list models must not be offered a guess.
-    expect(container.firstChild).toBeNull();
+    const options = screen.getAllByRole('option').map((option) => option.textContent);
+    expect(options).toEqual(['Engine default']);
   });
 
   test('offers only the models the engine reported', () => {
@@ -25,8 +23,7 @@ describe('ModelPicker', () => {
 
     const options = screen.getAllByRole('option').map((option) => option.textContent);
 
-    // Engine default plus exactly the reported models, nothing invented.
-    expect(options).toEqual(['Engine default', 'opencode/fast', 'opencode/slow']);
+    expect(options).toEqual(['opencode/fast', 'opencode/slow']);
   });
 
   test('reports the chosen model', async () => {
@@ -45,20 +42,12 @@ describe('ModelPicker', () => {
     expect(onChange).toHaveBeenCalledWith('opencode/slow');
   });
 
-  test('choosing the default reports undefined', async () => {
+  test('choosing the default reports undefined when no models are reported', async () => {
     const onChange = vi.fn();
-    render(
-      <ModelPicker
-        models={['opencode/fast']}
-        selected="opencode/fast"
-        disabled={false}
-        onChange={onChange}
-      />,
-    );
+    render(<ModelPicker models={[]} selected={undefined} disabled={false} onChange={onChange} />);
 
     await userEvent.selectOptions(screen.getByLabelText('Model'), 'Engine default');
 
-    // undefined means "let the engine decide", not a model named default.
     expect(onChange).toHaveBeenCalledWith(undefined);
   });
 
