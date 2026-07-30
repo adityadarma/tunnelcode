@@ -1,0 +1,19 @@
+node_modules/
+dist/
+bundle/
+*.tgz
+*.tsbuildinfo
+
+.DS_Store
+
+.remotecode/
+data/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+.env
+.env.local
+# Committed on purpose: it documents the variables without holding any values.
+!.env.example

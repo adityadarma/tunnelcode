@@ -1,0 +1,14 @@
+node_modules
+**/node_modules
+**/dist
+**/bundle
+**/*.tgz
+**/*.tsbuildinfo
+data
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.git
+.DS_Store
+.env
+.env.local

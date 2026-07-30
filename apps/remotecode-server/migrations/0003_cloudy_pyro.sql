@@ -1,0 +1,1 @@
+ALTER TABLE `messages` ADD `partial` integer DEFAULT false NOT NULL;

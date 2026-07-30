@@ -1,0 +1,9 @@
+packages:
+  - apps/*
+  - packages/*
+
+# better-sqlite3 compiles a native binding, and drizzle-kit ships esbuild.
+# Both need their install scripts to run.
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true

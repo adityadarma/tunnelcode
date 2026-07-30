@@ -1,0 +1,6 @@
+node_modules/
+dist/
+pnpm-lock.yaml
+
+# Spec documents are maintained by hand (PROJECT.md is under architecture freeze).
+*.md
