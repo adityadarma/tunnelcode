@@ -138,7 +138,6 @@ function buildTurns(
     }
   }
 
-
   return turns;
 }
 
@@ -376,7 +375,6 @@ export function MessageList({
       </div>
     );
   }
-
 
   const turns = buildTurns(messages, activities, streaming);
 
