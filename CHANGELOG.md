@@ -6,6 +6,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The CLI and the server image share one version and ship from a single `v*` tag.
 
+## [0.1.1] - 2026-07-30
+
+### Changed
+
+- `engine` is the only name the config accepts for the engine setting. The schema
+  no longer rewrites a `defaultEngine` field left by a pre-release build, so a
+  config carrying the old name fails validation instead of being migrated. See
+  ADR-019.
+- The menu, prompts, and Setup confirmations are colored, and the selected choice
+  is marked with `❯`. Color is dropped when stdout is not a TTY, when `NO_COLOR`
+  is set, or when `TERM` is `dumb`, so piped output stays plain.
+- The environment check renders as a single framed panel with a pass or fail mark
+  per line, and reports the config path and its status on one line rather than two.
+
+### Removed
+
+- The decorative `⚡` glyph before tool activity in the web app. The tool name and
+  its target already carry the meaning.
+
 ## [0.1.0] - 2026-07-30
 
 First release. TunnelCode runs an AI coding agent on your own machine and lets you
@@ -127,4 +146,5 @@ between the browser, a server, and a local agent.
   visible prompt rather than something the surrounding shell or a cloned repository
   can decide.
 
+[0.1.1]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.1.1
 [0.1.0]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.1.0

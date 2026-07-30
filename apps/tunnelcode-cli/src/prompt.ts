@@ -1,4 +1,5 @@
 import { writeOut, writeRaw } from './output.js';
+import { bold, cyan, cyanBold, dim } from './style.js';
 
 /**
  * Terminal prompts used by the in-app menu.
@@ -105,10 +106,19 @@ function takeBufferedLine(): string | undefined {
   const line = pending.slice(0, newline);
   pending = pending.slice(newline + 1);
 
+  // A pipe written on Windows ends its lines with CRLF. Left in place the CR
+  // becomes part of the answer, so a server URL would carry an invisible
+  // trailing character and fail validation.
   return line.replace(/\r$/, '');
 }
 
-/** Reads one line, used when stdin is not a TTY. */
+/**
+ * Reads one line, used when stdin is not a TTY.
+ *
+ * stdin is paused and unref'd once the line arrives. A referenced stdin holds
+ * the event loop open, so a CLI waiting on the network would ignore SIGINT and
+ * never exit.
+ */
 async function readLine(): Promise<string | typeof CANCELLED> {
   const buffered = takeBufferedLine();
 
@@ -168,9 +178,11 @@ async function readLine(): Promise<string | typeof CANCELLED> {
 
 function renderChoices<T>(choices: readonly Choice<T>[], active: number): void {
   choices.forEach((choice, index) => {
-    const marker = index === active ? '>' : ' ';
-    const hint = choice.hint === undefined ? '' : `  ${choice.hint}`;
-    writeRaw(`\u001b[2K${marker} ${choice.label}${hint}\n`);
+    const isActive = index === active;
+    const marker = isActive ? cyanBold('❯') : ' ';
+    const label = isActive ? bold(cyan(choice.label)) : dim(choice.label);
+    const hint = choice.hint === undefined ? '' : dim(`  ${choice.hint}`);
+    writeRaw(`\u001b[2K  ${marker} ${label}${hint}\n`);
   });
 }
 
@@ -191,7 +203,7 @@ export async function select<T>(
   }
 
   writeOut('');
-  writeOut(title);
+  writeOut(cyanBold(`❖ ${title}`));
   writeOut('');
 
   if (!process.stdin.isTTY) {
@@ -272,11 +284,11 @@ export async function ask(options: AskOptions): Promise<string | typeof CANCELLE
   writeOut('');
 
   if (current !== undefined) {
-    writeOut(`Current  ${current}`);
-    writeOut('Press Enter to keep it.');
+    writeOut(`  ${dim('Current')}  ${cyan(current)}`);
+    writeOut(dim('  Press Enter to keep it.'));
   }
 
-  writeRaw(`${options.label}: `);
+  writeRaw(`  ${bold(options.label)}: `);
 
   const answer = await readLine();
 

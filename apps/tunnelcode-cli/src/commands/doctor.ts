@@ -2,6 +2,7 @@ import { ConfigError, globalConfigPath, loadGlobalConfig } from '@tunnelcode/con
 import type { GlobalConfig } from '@tunnelcode/config';
 import { ENGINE_NAMES, createEngine } from '@tunnelcode/engine';
 import { writeOut } from '../output.js';
+import { bold, cyanBold, green, red, yellow } from '../style.js';
 
 const REQUIRED_NODE_MAJOR = 22;
 
@@ -38,40 +39,58 @@ async function check(): Promise<CheckResult> {
 export async function runDoctor(): Promise<number> {
   const major = Number.parseInt(process.versions.node.split('.')[0] ?? '0', 10);
   const nodeOk = major >= REQUIRED_NODE_MAJOR;
-  const nodeStatus = nodeOk ? 'ok' : `needs >= ${String(REQUIRED_NODE_MAJOR)}`;
-
   const config = await check();
 
+  const okIcon = green('✔');
+  const errIcon = red('✖');
+
   writeOut('');
-  writeOut(`platform   ${process.platform} ${process.arch}`);
-  writeOut(`node       ${process.versions.node} ${nodeStatus}`);
-  writeOut(`workspace  ${process.cwd()}`);
-  writeOut(`config     ${globalConfigPath()}`);
-  writeOut(`           ${config.status}`);
+  writeOut(cyanBold('┌── Environment Diagnostics ──────────────────────┐'));
+  writeOut(cyanBold('│'));
+
+  writeOut(
+    `  ${nodeOk ? okIcon : errIcon} ${bold('platform')}   ${process.platform} ${process.arch}`,
+  );
+  writeOut(
+    `  ${nodeOk ? okIcon : errIcon} ${bold('node')}       ${process.versions.node} ${
+      nodeOk ? green('ok') : red(`needs >= ${String(REQUIRED_NODE_MAJOR)}`)
+    }`,
+  );
+  writeOut(`  ${okIcon} ${bold('workspace')}  ${process.cwd()}`);
+  writeOut(
+    `  ${!config.failed ? okIcon : errIcon} ${bold('config')}     ${globalConfigPath()} ${
+      config.status === 'ok' ? green('ok') : yellow(config.status)
+    }`,
+  );
 
   let engineOk = false;
 
   if (config.value !== undefined) {
     const engine = createEngine(config.value.engine);
 
-    writeOut('');
-    writeOut(`server     ${config.value.server.url}`);
-    writeOut(`device     ${config.value.device.name}`);
+    writeOut(cyanBold('│'));
+    writeOut(`  ${okIcon} ${bold('server')}     ${config.value.server.url}`);
+    writeOut(`  ${okIcon} ${bold('device')}     ${config.value.device.name}`);
 
     if (engine === undefined) {
-      writeOut(`engine     ${config.value.engine} unknown`);
-      writeOut(`           available: ${ENGINE_NAMES.join(', ')}`);
+      writeOut(
+        `  ${errIcon} ${bold('engine')}     ${red(config.value.engine)} (unknown, available: ${ENGINE_NAMES.join(', ')})`,
+      );
     } else {
       engineOk = await engine.isAvailable();
       writeOut(
-        `engine     ${engine.name} (${engine.command}) ${engineOk ? 'ok' : 'not found on PATH'}`,
+        `  ${engineOk ? okIcon : errIcon} ${bold('engine')}     ${engine.name} (${engine.command}) ${
+          engineOk ? green('ok') : red('not found on PATH')
+        }`,
       );
     }
   }
 
+  writeOut(cyanBold('└─────────────────────────────────────────────────┘'));
+
   if (config.value === undefined && !config.failed) {
     writeOut('');
-    writeOut('No configuration yet. Choose a setting above to create it.');
+    writeOut(yellow('  No configuration yet. Choose a setting above to create it.'));
   }
 
   return nodeOk && config.value !== undefined && engineOk ? 0 : 1;

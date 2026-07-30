@@ -8,6 +8,7 @@ import { CANCELLED, ask, select } from '../prompt.js';
 import type { Choice } from '../prompt.js';
 import { writeErr, writeOut } from '../output.js';
 import { resolveDefaultServerUrl } from '../server-url.js';
+import { cyan, dim, green } from '../style.js';
 
 const DEFAULT_ENGINE: EngineName = 'opencode';
 
@@ -64,7 +65,7 @@ async function editServerUrl(draft: GlobalConfig): Promise<void> {
   }
 
   await writeGlobalConfig({ ...draft, server: { url: answer } });
-  writeOut(`Server URL set to ${answer}`);
+  writeOut(green(`Server URL set to ${cyan(answer)}`));
 }
 
 async function editDeviceName(draft: GlobalConfig): Promise<void> {
@@ -75,7 +76,7 @@ async function editDeviceName(draft: GlobalConfig): Promise<void> {
   }
 
   await writeGlobalConfig({ ...draft, device: { name: answer } });
-  writeOut(`Device name set to ${answer}`);
+  writeOut(green(`Device name set to ${cyan(answer)}`));
 }
 
 async function editEngine(draft: GlobalConfig): Promise<void> {
@@ -93,7 +94,7 @@ async function editEngine(draft: GlobalConfig): Promise<void> {
   }
 
   await writeGlobalConfig({ ...draft, engine: choice });
-  writeOut(`Engine set to ${choice}`);
+  writeOut(green(`Engine set to ${cyan(choice)}`));
 }
 
 /**
@@ -138,7 +139,7 @@ export async function runSetupMenu(): Promise<void> {
     // behind rather than only the field that was touched.
     if (stored === undefined) {
       writeOut('');
-      writeOut(`Configuration stored at ${globalConfigPath()}`);
+      writeOut(dim(`Configuration stored at ${globalConfigPath()}`));
     }
   }
 }
