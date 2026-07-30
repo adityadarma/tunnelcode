@@ -1,28 +1,42 @@
+import { isRecord } from '@tunnelcode/shared';
 import { z } from 'zod';
 
-export const globalConfigSchema = z.object({
-  server: z.object({
-    url: z.url(),
-  }),
-  device: z.object({
-    name: z.string().min(1),
-  }),
-  defaultEngine: z.string().min(1),
-});
+/**
+ * Accepts a config written by an earlier build, which called this field
+ * `defaultEngine` because an engine could also be set per project.
+ *
+ * Without this an upgrade fails validation and the CLI exits before it can offer
+ * the menu that would fix it. The value is rewritten under the current name the
+ * next time anything is saved.
+ */
+function withLegacyEngine(value: unknown): unknown {
+  if (!isRecord(value) || 'engine' in value || !('defaultEngine' in value)) {
+    return value;
+  }
 
-export const workspaceConfigSchema = z.object({
-  engine: z.string().min(1),
-});
+  const { defaultEngine, ...rest } = value;
 
-export type GlobalConfig = z.infer<typeof globalConfigSchema>;
-export type WorkspaceConfig = z.infer<typeof workspaceConfigSchema>;
+  return { ...rest, engine: defaultEngine };
+}
 
 /**
- * Effective configuration after the workspace config has been applied on top of
- * the global config.
+ * Configuration for this machine, the only configuration there is.
+ *
+ * One engine rather than a default plus a per-project override: the project
+ * config was removed, so there is nothing left for a default to be defaulted
+ * against. See ADR-019.
  */
-export interface ResolvedConfig {
-  serverUrl: string;
-  deviceName: string;
-  engine: string;
-}
+export const globalConfigSchema = z.preprocess(
+  withLegacyEngine,
+  z.object({
+    server: z.object({
+      url: z.url(),
+    }),
+    device: z.object({
+      name: z.string().min(1),
+    }),
+    engine: z.string().min(1),
+  }),
+);
+
+export type GlobalConfig = z.infer<typeof globalConfigSchema>;

@@ -1,14 +1,12 @@
 #!/usr/bin/env node
-import { loadEnvFile } from '@tunnelcode/shared';
 import { run } from './cli.js';
 import { writeErr } from './output.js';
 
-// Before any command reads process.env, so a .env file can point the CLI at a
-// server without editing the stored config.
-loadEnvFile();
-
+// No argument parsing and no .env: every setting comes from the menu, so the
+// server this agent talks to cannot be changed by a flag, an environment
+// variable, or a .env file in whatever directory it was started from. See ADR-018.
 try {
-  process.exitCode = await run(process.argv.slice(2));
+  process.exitCode = await run();
 } catch (error) {
   writeErr(error instanceof Error ? error.message : 'Unexpected error.');
   process.exitCode = 1;

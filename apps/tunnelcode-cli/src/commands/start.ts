@@ -1,122 +1,92 @@
-import {
-  ConfigError,
-  loadGlobalConfig,
-  loadWorkspaceConfig,
-  mergeConfig,
-  readOrCreateDeviceId,
-} from '@tunnelcode/config';
+import { loadGlobalConfig, readOrCreateDeviceId } from '@tunnelcode/config';
+import type { GlobalConfig } from '@tunnelcode/config';
 import { ENGINE_NAMES, createEngine } from '@tunnelcode/engine';
-import type { EngineEvent } from '@tunnelcode/engine';
+import type { Engine } from '@tunnelcode/engine';
 import { runPairingSession } from '../pairing/session.js';
-import { serverUrlFromEnvironment } from '../server-url.js';
-import { writeErr, writeOut, writeRaw } from '../output.js';
+import { writeErr, writeOut } from '../output.js';
 
-interface StartOptions {
-  prompt?: string;
+/**
+ * Configuration and engine the agent needs, or undefined when something is
+ * missing. The reason is printed here, because the caller only has to decide
+ * whether to return to the menu.
+ */
+interface Ready {
+  config: GlobalConfig;
+  engine: Engine;
 }
 
 /**
- * Starts the agent for the current working directory. Config must resolve first,
- * because the agent needs a server URL and an engine before it can do anything.
+ * Resolves what a session needs: a stored config plus an engine on PATH.
+ *
+ * Only the stored config is read. The environment is not consulted and no
+ * project directory is looked at, so the only way to change any of this is the
+ * setup menu. See ADR-018 and ADR-019.
  */
-export async function runStart(options: StartOptions): Promise<number> {
-  const cwd = process.cwd();
+async function prepare(cwd: string): Promise<Ready | undefined> {
+  const config = await loadGlobalConfig();
 
-  try {
-    const global = await loadGlobalConfig();
+  if (config === undefined) {
+    writeErr('No configuration yet. Choose Setup first.');
+    return undefined;
+  }
 
-    if (global === undefined) {
-      writeErr('No global config found. Run tunnelcode setup first.');
-      return 1;
-    }
+  const engine = createEngine(config.engine);
 
-    const workspace = await loadWorkspaceConfig(cwd);
-    const merged = mergeConfig(global, workspace);
+  if (engine === undefined) {
+    writeErr(`Unknown engine: ${config.engine}`);
+    writeErr(`Available engines: ${ENGINE_NAMES.join(', ')}`);
+    writeErr('Choose Setup to pick a different one.');
+    return undefined;
+  }
 
-    // The environment overrides the stored server, so pointing the agent at
-    // another deployment does not require rewriting the config.
-    const override = serverUrlFromEnvironment();
-    const resolved = override === undefined ? merged : { ...merged, serverUrl: override };
-    const engine = createEngine(resolved.engine);
+  writeOut('');
+  writeOut(`workspace  ${cwd}`);
+  writeOut(`server     ${config.server.url}`);
+  writeOut(`device     ${config.device.name}`);
 
-    if (engine === undefined) {
-      writeErr(`Unknown engine: ${resolved.engine}`);
-      writeErr(`Available engines: ${ENGINE_NAMES.join(', ')}`);
-      return 1;
-    }
+  const available = await engine.isAvailable();
 
-    const available = await engine.isAvailable();
+  writeOut(
+    `engine     ${engine.name} (${engine.command}) ${available ? 'ok' : 'not found on PATH'}`,
+  );
+  writeOut('');
 
-    writeOut('tunnelcode start');
-    writeOut('');
-    writeOut(`workspace  ${cwd}`);
-    writeOut(`server     ${resolved.serverUrl}`);
-    writeOut(`device     ${resolved.deviceName}`);
-    writeOut(
-      `engine     ${engine.name} (${engine.command}) ${available ? 'ok' : 'not found on PATH'}`,
+  if (!available) {
+    writeErr(
+      `Cannot find ${engine.command} on PATH. Install it or choose another engine in Setup.`,
     );
-    writeOut('');
-
-    if (!available) {
-      writeErr(`Cannot find ${engine.command} on PATH. Install it or pick another engine.`);
-      return 1;
-    }
-
-    // A prompt runs the engine once and exits, which is useful for checking an
-    // engine without pairing a browser.
-    if (options.prompt !== undefined) {
-      return await streamPrompt(engine.prompt(options.prompt, { cwd }));
-    }
-
-    // Asked once at startup, since the browser may only pick from what the
-    // engine chosen here can actually serve.
-    const models = await engine.listModels();
-
-    return await runPairingSession({
-      serverUrl: resolved.serverUrl,
-      deviceId: await readOrCreateDeviceId(cwd),
-      deviceName: resolved.deviceName,
-      workspace: cwd,
-      engine,
-      models,
-    });
-  } catch (error) {
-    if (error instanceof ConfigError) {
-      writeErr(`${error.path}: ${error.message}`);
-      return 1;
-    }
-    throw error;
+    return undefined;
   }
+
+  return { config, engine };
 }
 
 /**
- * Prints engine output as it arrives. Deltas go to stdout without a trailing
- * newline so the answer reads as one continuous stream.
+ * Starts a pairing session for the current working directory.
+ *
+ * The directory is still what the agent works in, it is just no longer a place
+ * configuration is read from.
+ *
+ * Returns the exit code, so a session that ended in a fatal error is reported as
+ * one rather than dropping the user back into the menu as though nothing happened.
  */
-async function streamPrompt(events: AsyncGenerator<EngineEvent>): Promise<number> {
-  let failed = false;
+export async function runStart(cwd: string): Promise<number> {
+  const ready = await prepare(cwd);
 
-  for await (const event of events) {
-    switch (event.type) {
-      case 'delta':
-        writeRaw(event.text);
-        break;
-      case 'log':
-        writeErr(event.text);
-        break;
-      case 'error':
-        writeErr(event.message);
-        failed = true;
-        break;
-      case 'done':
-        writeOut('');
-        if (event.exitCode !== 0) {
-          writeErr(`Engine exited with code ${String(event.exitCode)}.`);
-          failed = true;
-        }
-        break;
-    }
+  if (ready === undefined) {
+    return 1;
   }
 
-  return failed ? 1 : 0;
+  // Asked once at startup, since the browser may only pick from what the engine
+  // chosen here can actually serve.
+  const models = await ready.engine.listModels();
+
+  return runPairingSession({
+    serverUrl: ready.config.server.url,
+    deviceId: await readOrCreateDeviceId(cwd),
+    deviceName: ready.config.device.name,
+    workspace: cwd,
+    engine: ready.engine,
+    models,
+  });
 }

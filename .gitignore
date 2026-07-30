@@ -6,7 +6,6 @@ bundle/
 
 .DS_Store
 
-.tunnelcode/
 .claude/
 data/
 *.sqlite

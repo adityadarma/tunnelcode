@@ -48,11 +48,8 @@ Build the tunnelcode CLI application.
 ### Tasks
 
 - [x] CLI entrypoint
-- [x] CLI argument parser
-- [x] Command: setup
-- [x] Command: init
-- [x] Command: doctor
-- [x] Command: start
+- [x] Start the agent for the current workspace
+- [x] Report the environment
 
 Acceptance
 
@@ -68,21 +65,17 @@ Build the configuration loader.
 
 ### Tasks
 
-- [x] Global config loader
-- [x] Workspace config loader
+- [x] Config loader
 - [x] Config validation
-- [x] Config merge
 - [x] Config writer
 
 Acceptance
 
-Global config
+Configuration is per user, in one file. See ADR-019.
 
 ~/.config/tunnelcode/tunnelcode.json
 
-Workspace config
-
-.tunnelcode/config.json
+%APPDATA%/TunnelCode/tunnelcode.json on Windows
 
 ---
 
@@ -316,3 +309,44 @@ Refreshing while an answer is streaming shows the answer once it finishes, witho
 the next prompt being refused for no visible reason.
 
 An engine that stops responding ends its turn instead of blocking the device.
+
+---
+
+# Milestone 13 — In-App Menu
+
+## Goal
+
+Make the app the only place the CLI is configured, so neither the surrounding shell
+nor a file inside a project can decide what the agent does. See ADR-018 and
+ADR-019.
+
+### Tasks
+
+- [x] Terminal list and text prompts, no new dependency
+- [x] Main menu: Continue, Setup, Exit
+- [x] Setup menu: server URL, device name, engine, check environment
+- [x] Write each setting as soon as it is answered
+- [x] Refuse a server URL that is not http or https
+- [x] The CLI takes no arguments and no options
+- [x] The CLI does not read .env
+- [x] The CLI does not read TUNNELCODE_SERVER_URL, HOST, or PORT
+- [x] One config per user, no project config
+- [x] One engine setting, named engine
+- [x] Keep loading an earlier config that says defaultEngine
+- [x] Report the working directory without reading a config from it
+- [x] Menu tests driving the real process
+- [x] Test: the environment cannot point the agent at another server
+- [x] Test: a config file in the working directory is ignored
+- [x] Test: an earlier config still loads and the current name wins
+
+Acceptance
+
+`tunnelcode` with no arguments opens the menu.
+
+Nothing in the environment can change which server the agent connects to.
+
+Setup offers one engine setting.
+
+A config file left in a project directory changes nothing.
+
+A config written by an earlier build does not fail validation.

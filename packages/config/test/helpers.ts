@@ -34,14 +34,3 @@ export async function withTempHome<T>(run: (home: string) => Promise<T>): Promis
     await rm(home, { recursive: true, force: true });
   }
 }
-
-/** Creates an isolated workspace directory for a test. */
-export async function withTempDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
-  const dir = await mkdtemp(join(tmpdir(), 'tunnelcode-ws-'));
-
-  try {
-    return await run(dir);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-}

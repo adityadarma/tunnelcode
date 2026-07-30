@@ -67,6 +67,10 @@ jobs:
 
       # Installing the tarball outside the workspace is the only way to catch a
       # manifest that cannot actually be installed.
+      #
+      # The CLI takes no options, so it is smoke-tested by opening the menu and
+      # answering Exit. Stdin is a pipe here, which is the path the prompts take
+      # when they cannot read keypresses.
       - name: Verify the tarball installs and runs
         working-directory: apps/tunnelcode-cli/bundle
         run: |
@@ -74,8 +78,10 @@ jobs:
           mkdir -p /tmp/verify && cd /tmp/verify
           npm init -y > /dev/null
           npm i /tmp/tunnelcode-*.tgz
-          ./node_modules/.bin/tunnelcode --version
-          ./node_modules/.bin/tunnelcode --help > /dev/null
+          # Output goes to a file rather than into grep: grep -q exits on its
+          # first match and closes the pipe, which the CLI then reports as EPIPE.
+          printf '3\n' | ./node_modules/.bin/tunnelcode > /tmp/menu.txt
+          grep -q Continue /tmp/menu.txt
 
       - name: Publish to npm
         if: github.event_name == 'push'

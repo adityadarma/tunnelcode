@@ -213,6 +213,8 @@ Windows
 
 ## Workspace Config
 
+Status: Superseded by ADR-019.
+
 Decision
 
 A workspace has its own config.
@@ -359,3 +361,105 @@ an engine that is not coming back.
 
 Deltas are not stored, so an answer streamed while no browser was attached cannot
 be recovered. Waiting for the turn to finish is what restores it.
+
+---
+
+# ADR-018
+
+## CLI Interface
+
+Decision
+
+The CLI takes no arguments and no options.
+
+Running `tunnelcode` opens a menu:
+
+Continue
+
+Scan the QR to pair.
+
+Setup
+
+Settings, each one written as soon as it is answered.
+
+Exit
+
+Setup contains:
+
+Server URL
+
+Device name
+
+Default engine
+
+Engine for this project
+
+Check environment
+
+The CLI does not read a `.env` file.
+
+The CLI does not read the environment to decide which server to talk to. The
+server URL comes from the stored config, and the only way to change it is the
+setup menu.
+
+The server still reads `.env`, and the bundled default server URL is still baked
+in at publish time as the value used when nothing is stored yet.
+
+Reason
+
+The agent reads and writes files on the machine it runs on, so the server it
+reports to is the single most sensitive setting there is. A flag or an environment
+variable makes that setting something the surrounding shell can decide, which
+means a stray `.env` in a cloned repository, an exported variable in a shell
+profile, or a copied command line can silently point the agent at another server.
+
+One menu removes the ambiguity: what the user sees on screen is what is stored,
+and every change is a deliberate answer to a visible prompt.
+
+A menu is also the shorter path for the common case. Pairing needs no arguments,
+and the settings are few enough that a list is easier than remembering flag names.
+
+---
+
+# ADR-019
+
+## One Config Per User
+
+Supersedes ADR-012.
+
+Decision
+
+Configuration is per user. There is one config file:
+
+macOS/Linux
+
+~/.config/tunnelcode/tunnelcode.json
+
+Windows
+
+%APPDATA%/TunnelCode/tunnelcode.json
+
+A project directory is never read from. `.tunnelcode/config.json` no longer
+exists, and a file left there by an earlier version is ignored.
+
+There is one engine setting, named `engine`.
+
+A config written by an earlier build using `defaultEngine` is still accepted, and
+the value is rewritten under the current name the next time anything is saved.
+
+The working directory still decides what the agent works in and still derives the
+device id. It just no longer decides configuration.
+
+Reason
+
+A default engine only makes sense when something can override it. With the project
+config gone there is nothing left to override it, so a default and an override
+were two names for one value, and the menu showed the same engine twice.
+
+A config file inside a project also travels: it gets committed, cloned, and copied
+between machines, which makes the engine that runs on this machine something a
+repository can decide. That is the same objection as ADR-018, one level down.
+
+Per user is also the honest scope for the other two settings. The server URL and
+the device name were already machine wide, so the project config existed for a
+single field.

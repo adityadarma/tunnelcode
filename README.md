@@ -41,16 +41,15 @@ pnpm --filter tunnelcode-server start
 It listens on `127.0.0.1:3000` by default and serves the web app from the same
 port.
 
-Configure the machine once, then start the agent from any project directory:
+Then run the CLI from the project directory you want the agent to work in:
 
 ```sh
-pnpm exec tunnelcode setup --server http://127.0.0.1:3000
 cd /path/to/your/project
-pnpm exec tunnelcode init --engine opencode
-pnpm exec tunnelcode start
+pnpm exec tunnelcode
 ```
 
-`start` prints a QR code and an 8 letter pairing code.
+That opens a menu. Choose Setup on the first run to set the server URL, then
+Continue to print a QR code and an 8 letter pairing code.
 
 ## Pairing
 
@@ -64,35 +63,53 @@ session ends after one hour without conversation.
 
 ## CLI
 
-| Command             | Purpose                             |
-| ------------------- | ----------------------------------- |
-| `tunnelcode`        | Start the agent (same as `start`)   |
-| `tunnelcode setup`  | Write the global configuration      |
-| `tunnelcode init`   | Write the workspace configuration   |
-| `tunnelcode doctor` | Check the environment               |
+`tunnelcode` takes no arguments and no options. Everything is chosen in the app.
+See ADR-018 for why.
 
-Useful flags: `--server`, `--device`, `--engine`, `--force`, and `--prompt` to run
-one prompt without pairing.
+```
+tunnelcode
+  Continue   scan QR to pair
+  Setup
+  Exit
+```
+
+Setup holds four entries: Server URL, Device name, Engine, and Check environment.
+
+Each field is written as soon as it is answered, so leaving the menu never
+discards a change. Arrow keys and Enter move through the lists, Escape goes back.
 
 ## Configuration
 
-Global, per machine:
+Configuration is per user. There is one file:
 
 - macOS and Linux: `~/.config/tunnelcode/tunnelcode.json`
 - Windows: `%APPDATA%/TunnelCode/tunnelcode.json`
 
-Workspace, per project: `.tunnelcode/config.json`. The workspace engine overrides
-the global default, so each project can use a different engine.
+```json
+{
+  "server": { "url": "https://server.example.com" },
+  "device": { "name": "MacBook Pro" },
+  "engine": "opencode"
+}
+```
+
+A project directory is never read from. The working directory decides what the
+agent works in and derives its device id, but not how it is configured. See
+ADR-019.
 
 ## Environment variables
 
-Both the server and the CLI read a `.env` file at startup. Copy `.env.example` to
-`.env` to begin. The search walks upward from the working directory, so a `.env` at
-the repository root is found even though `pnpm --filter tunnelcode-server start`
-runs inside the package. `ENV_FILE=/path/to/file` loads a specific file instead.
+The server reads a `.env` file at startup. Copy `.env.example` to `.env` to begin.
+The search walks upward from the working directory, so a `.env` at the repository
+root is found even though `pnpm --filter tunnelcode-server start` runs inside the
+package. `ENV_FILE=/path/to/file` loads a specific file instead.
 
 Real environment variables always win over the file, so `PORT=8080 pnpm start`
 still works.
+
+The CLI reads neither. It has no environment variables at all: every setting comes
+from the Setup menu, so nothing in the surrounding shell can decide which server
+the agent reports to. See ADR-018.
 
 Read by the server:
 
@@ -108,27 +125,9 @@ Changing `HOST` away from `127.0.0.1` exposes an agent that can read and write
 files on the paired machine. Only do that on a network you trust, and read the
 Security section first.
 
-Read by the CLI to decide which server to talk to:
-
-| Variable                | Default                  | Purpose                          |
-| ----------------------- | ------------------------ | -------------------------------- |
-| `TUNNELCODE_SERVER_URL` | built from host and port | Full server URL, wins over both  |
-| `HOST`                  | `localhost`              | Host in the URL                  |
-| `PORT`                  | `3000`                   | Port in the URL                  |
-
-A `HOST` of `0.0.0.0` is a bind address, not something a client can reach, so the
-URL falls back to `localhost`.
-
-These override the server URL stored in the global config, so pointing the agent at
-another deployment does not require rewriting it. Precedence for `start`, most
-specific first: `--server`, then `TUNNELCODE_SERVER_URL`, then `HOST`/`PORT`, then
-the stored config, then the URL baked in at publish time.
-
-To make a change permanent instead:
-
-```sh
-tunnelcode setup --force --server http://127.0.0.1:3000
-```
+The CLI decides which server to talk to from the stored config alone. Precedence,
+most specific first: the stored config, then the URL baked in at publish time,
+then `http://localhost:3000`. Change it in Setup, Server URL.
 
 Read by the dev server (`dev:web`):
 
@@ -142,9 +141,10 @@ So a server on another port needs no file edits:
 
 ```sh
 PORT=8080 pnpm --filter tunnelcode-server start
-PORT=8080 pnpm exec tunnelcode setup --force
 PORT=8080 pnpm --filter tunnelcode-server dev:web
 ```
+
+The CLI is not in that list: point it at the new port in Setup, Server URL.
 
 ## Docker
 
@@ -239,8 +239,8 @@ pnpm --filter tunnelcode bundle   # writes apps/tunnelcode-cli/bundle
 The default server URL is baked in at bundle time from the
 `TUNNELCODE_DEFAULT_SERVER_URL` repository variable. A published CLI has no
 repository to read, so the deployment it talks to has to be decided when the
-artifact is built. It remains a default: a written config, `TUNNELCODE_SERVER_URL`,
-`HOST`/`PORT`, and `--server` all override it.
+artifact is built. It remains a default: it is only used until something is stored,
+and the Setup menu overrides it.
 
 ```sh
 TUNNELCODE_DEFAULT_SERVER_URL=https://rc.example.com pnpm --filter tunnelcode bundle

@@ -1,8 +1,7 @@
 export { ConfigError } from './error.js';
 export { machineIdPath, readOrCreateDeviceId } from './device-id.js';
-export { globalConfigPath, workspaceConfigPath } from './paths.js';
-export { loadGlobalConfig, loadWorkspaceConfig } from './load.js';
-export { mergeConfig } from './merge.js';
-export { writeGlobalConfig, writeWorkspaceConfig } from './write.js';
-export { globalConfigSchema, workspaceConfigSchema } from './schema.js';
-export type { GlobalConfig, ResolvedConfig, WorkspaceConfig } from './schema.js';
+export { globalConfigPath } from './paths.js';
+export { loadGlobalConfig } from './load.js';
+export { writeGlobalConfig } from './write.js';
+export { globalConfigSchema } from './schema.js';
+export type { GlobalConfig } from './schema.js';

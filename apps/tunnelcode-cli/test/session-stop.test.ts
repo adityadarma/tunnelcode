@@ -28,7 +28,17 @@ interface Fixture {
   binDir: string;
 }
 
-async function withFixture<T>(run: (fixture: Fixture) => Promise<T>): Promise<T> {
+/**
+ * Creates an isolated home holding the fake engine.
+ *
+ * The server URL is written into the config, because that is now the only place
+ * the CLI reads it from: no flag and no environment variable can point it
+ * somewhere else. See ADR-018.
+ */
+async function withFixture<T>(
+  serverUrl: string,
+  run: (fixture: Fixture) => Promise<T>,
+): Promise<T> {
   const home = await mkdtemp(join(tmpdir(), 'tunnelcode-stop-home-'));
   const binDir = await mkdtemp(join(tmpdir(), 'tunnelcode-stop-bin-'));
 
@@ -41,9 +51,9 @@ async function withFixture<T>(run: (fixture: Fixture) => Promise<T>): Promise<T>
   await writeFile(
     join(configDir, 'tunnelcode.json'),
     JSON.stringify({
-      server: { url: 'http://127.0.0.1:1' },
+      server: { url: serverUrl },
       device: { name: 'Test Mac' },
-      defaultEngine: 'opencode',
+      engine: 'opencode',
     }),
     'utf8',
   );
@@ -56,22 +66,29 @@ async function withFixture<T>(run: (fixture: Fixture) => Promise<T>): Promise<T>
   }
 }
 
-/** Starts the CLI with an isolated home and the fake engine on PATH. */
-function startCli(fixture: Fixture, serverUrl: string): ChildProcess {
-  return spawn(process.execPath, ['./dist/index.js'], {
+/**
+ * Starts the CLI with an isolated home and the fake engine on PATH, then picks
+ * Continue from the menu.
+ *
+ * Stdin is a pipe rather than ignored, since the menu has to be answered before
+ * a session exists to interrupt.
+ */
+function startCli(fixture: Fixture): ChildProcess {
+  const child = spawn(process.execPath, ['./dist/index.js'], {
     cwd: process.cwd(),
     env: {
       ...process.env,
       HOME: fixture.home,
       PATH: `${fixture.binDir}:${process.env['PATH'] ?? ''}`,
-      TUNNELCODE_SERVER_URL: serverUrl,
-      // The CLI walks upward for a .env at startup and would find the one in this
-      // repository, pointing it at whatever the developer is running. A path that
-      // does not exist makes it skip the file entirely.
-      ENV_FILE: join(fixture.home, 'no-such.env'),
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'pipe'],
   });
+
+  // Left open: closing it would end the menu's line reader, and a closed stdin
+  // reads as a refusal.
+  child.stdin?.write('1\n');
+
+  return child;
 }
 
 /** Resolves once the CLI has written something matching, or rejects on timeout. */
@@ -110,52 +127,63 @@ async function waitForExit(child: ChildProcess, timeoutMs: number): Promise<numb
   });
 }
 
-test('Ctrl+C ends a CLI that is waiting to pair', async () => {
-  await withFixture(async (fixture) => {
-    // A server that accepts the connection and registers the device, which is the
-    // state the CLI sits in while showing its QR code.
-    const server = new WebSocketServer({ port: 0, path: '/ws/cli' });
-    const sockets: WebSocket[] = [];
-
-    server.on('connection', (socket) => {
-      sockets.push(socket);
-      socket.on('message', () => {
-        socket.send(JSON.stringify({ type: 'registered', deviceId: 'device-1' }));
-      });
-    });
-
-    await new Promise<void>((resolve) => {
-      server.on('listening', resolve);
-    });
-
-    const address = server.address();
-    const port = typeof address === 'object' && address !== null ? address.port : 0;
-    const child = startCli(fixture, `http://127.0.0.1:${String(port)}`);
-
-    try {
-      await waitForOutput(child, /Waiting for a browser to pair/);
-
-      child.kill('SIGINT');
-      const code = await waitForExit(child, 15000);
-
-      // Undefined means the process ignored the signal and kept running, which is
-      // what left the pairing code held until the machine was rebooted.
-      assert.notEqual(code, undefined, 'the CLI did not exit after SIGINT');
-      assert.equal(code, 0);
-    } finally {
-      child.kill('SIGKILL');
-      for (const socket of sockets) {
-        socket.terminate();
-      }
-      server.close();
-    }
+/** Starts a listening WebSocket server and reports the URL to configure. */
+async function listen(server: WebSocketServer): Promise<string> {
+  await new Promise<void>((resolve) => {
+    server.on('listening', resolve);
   });
+
+  const address = server.address();
+  const port = typeof address === 'object' && address !== null ? address.port : 0;
+
+  return `http://127.0.0.1:${String(port)}`;
+}
+
+test('Ctrl+C ends a CLI that is waiting to pair', async () => {
+  // A server that accepts the connection and registers the device, which is the
+  // state the CLI sits in while showing its QR code.
+  const server = new WebSocketServer({ port: 0, path: '/ws/cli' });
+  const sockets: WebSocket[] = [];
+
+  server.on('connection', (socket) => {
+    sockets.push(socket);
+    socket.on('message', () => {
+      socket.send(JSON.stringify({ type: 'registered', deviceId: 'device-1' }));
+    });
+  });
+
+  const url = await listen(server);
+
+  try {
+    await withFixture(url, async (fixture) => {
+      const child = startCli(fixture);
+
+      try {
+        await waitForOutput(child, /Waiting for a browser to pair/);
+
+        child.kill('SIGINT');
+        const code = await waitForExit(child, 15000);
+
+        // Undefined means the process ignored the signal and kept running, which
+        // is what left the pairing code held until the machine was rebooted.
+        assert.notEqual(code, undefined, 'the CLI did not exit after SIGINT');
+        assert.equal(code, 0);
+      } finally {
+        child.kill('SIGKILL');
+      }
+    });
+  } finally {
+    for (const socket of sockets) {
+      socket.terminate();
+    }
+    server.close();
+  }
 });
 
 test('Ctrl+C ends a CLI that is waiting to reconnect', async () => {
-  await withFixture(async (fixture) => {
-    // Nothing is listening here, so the CLI is inside its reconnect backoff.
-    const child = startCli(fixture, 'http://127.0.0.1:1');
+  // Nothing is listening on port 1, so the CLI is inside its reconnect backoff.
+  await withFixture('http://127.0.0.1:1', async (fixture) => {
+    const child = startCli(fixture);
 
     try {
       await waitForOutput(child, /Reconnecting in/);
@@ -173,37 +201,36 @@ test('Ctrl+C ends a CLI that is waiting to reconnect', async () => {
 });
 
 test('the CLI releases its connection when stopped', async () => {
-  await withFixture(async (fixture) => {
-    const server = new WebSocketServer({ port: 0, path: '/ws/cli' });
-    const closed: Promise<void> = new Promise((resolve) => {
-      server.on('connection', (socket) => {
-        socket.on('message', () => {
-          socket.send(JSON.stringify({ type: 'registered', deviceId: 'device-1' }));
-        });
-        socket.on('close', () => {
-          resolve();
-        });
+  const server = new WebSocketServer({ port: 0, path: '/ws/cli' });
+  const closed: Promise<void> = new Promise((resolve) => {
+    server.on('connection', (socket) => {
+      socket.on('message', () => {
+        socket.send(JSON.stringify({ type: 'registered', deviceId: 'device-1' }));
+      });
+      socket.on('close', () => {
+        resolve();
       });
     });
-
-    await new Promise<void>((resolve) => {
-      server.on('listening', resolve);
-    });
-
-    const address = server.address();
-    const port = typeof address === 'object' && address !== null ? address.port : 0;
-    const child = startCli(fixture, `http://127.0.0.1:${String(port)}`);
-
-    try {
-      await waitForOutput(child, /Waiting for a browser to pair/);
-      child.kill('SIGINT');
-
-      // The server frees a pairing code when the socket closes, so a CLI that
-      // exits without closing would leave its code unusable.
-      await closed;
-    } finally {
-      child.kill('SIGKILL');
-      server.close();
-    }
   });
+
+  const url = await listen(server);
+
+  try {
+    await withFixture(url, async (fixture) => {
+      const child = startCli(fixture);
+
+      try {
+        await waitForOutput(child, /Waiting for a browser to pair/);
+        child.kill('SIGINT');
+
+        // The server frees a pairing code when the socket closes, so a CLI that
+        // exits without closing would leave its code unusable.
+        await closed;
+      } finally {
+        child.kill('SIGKILL');
+      }
+    });
+  } finally {
+    server.close();
+  }
 });

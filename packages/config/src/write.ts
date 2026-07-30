@@ -1,9 +1,9 @@
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { ConfigError } from './error.js';
-import { globalConfigPath, workspaceConfigPath } from './paths.js';
-import { globalConfigSchema, workspaceConfigSchema } from './schema.js';
-import type { GlobalConfig, WorkspaceConfig } from './schema.js';
+import { globalConfigPath } from './paths.js';
+import { globalConfigSchema } from './schema.js';
+import type { GlobalConfig } from './schema.js';
 
 /**
  * Writes JSON to disk atomically: write a sibling temp file, then rename over
@@ -30,11 +30,5 @@ async function writeJsonFile(path: string, value: unknown): Promise<void> {
 export async function writeGlobalConfig(config: GlobalConfig): Promise<string> {
   const path = globalConfigPath();
   await writeJsonFile(path, globalConfigSchema.parse(config));
-  return path;
-}
-
-export async function writeWorkspaceConfig(cwd: string, config: WorkspaceConfig): Promise<string> {
-  const path = workspaceConfigPath(cwd);
-  await writeJsonFile(path, workspaceConfigSchema.parse(config));
   return path;
 }

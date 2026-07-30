@@ -123,27 +123,43 @@ examples/
 
 # CLI
 
-Commands
+The CLI takes no arguments and no options. See ADR-018.
 
 tunnelcode
 
-Start agent
+Opens the menu.
 
-tunnelcode setup
+Menu
 
-Setup global configuration
+Continue
 
-tunnelcode init
+Scan the QR to pair.
 
-Create project configuration
+Setup
 
-tunnelcode doctor
+Exit
 
-Environment validation
+Setup
+
+Server URL
+
+Device name
+
+Engine
+
+Check environment
+
+Back
+
+The CLI does not read a .env file.
+
+The CLI does not read the environment to decide which server to talk to.
 
 ---
 
-# Global Configuration
+# Configuration
+
+Configuration is per user. There is one config file. See ADR-019.
 
 macOS
 
@@ -168,22 +184,13 @@ Example
     "name": "MacBook Pro"
   },
 
-  "defaultEngine": "opencode"
-}
-
----
-
-# Workspace Configuration
-
-.tunnelcode/config.json
-
-Example
-
-{
   "engine": "opencode"
 }
 
-Workspace configuration overrides global configuration.
+A project directory is never read from.
+
+The working directory decides what the agent works in and derives the device id.
+It does not decide configuration.
 
 ---
 
