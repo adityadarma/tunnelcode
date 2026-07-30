@@ -1,11 +1,11 @@
 name: Release
 
-# Each app releases on its own tag, so a change to one does not ship the other.
-#   remotecode-v0.2.0        -> publishes the CLI to npm
-#   remotecode-server-v0.2.0 -> pushes the server image to ghcr
+# One tag releases both apps, because the CLI and the server speak the same
+# protocol and a version mismatch between them is the failure worth avoiding.
+#   v0.2.0 -> pushes the server image to ghcr, then publishes the CLI to npm
 on:
   push:
-    tags: ['remotecode-v*', 'remotecode-server-v*']
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       dry_run:
@@ -15,8 +15,9 @@ on:
 
 jobs:
   cli:
-    # A manual run builds both apps, since it never publishes anything.
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref_name, 'remotecode-v')
+    # Runs after the image, because an npm version cannot be republished while a
+    # GHCR tag can be overwritten. The reversible artifact ships first.
+    needs: image
     runs-on: ubuntu-latest
 
     permissions:
@@ -36,17 +37,20 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: pnpm
 
-      # A tag that disagrees with the manifest would publish a version nobody
-      # asked for, and npm would reject a version that was already published.
-      - name: Verify the tag matches the manifest version
+      # A tag that disagrees with a manifest would publish a version nobody asked
+      # for, and npm would reject a version that was already published. Both apps
+      # are checked because one tag now ships both.
+      - name: Verify the tag matches both manifest versions
         if: github.event_name == 'push'
         run: |
-          tagged="${GITHUB_REF_NAME#remotecode-v}"
-          manifest=$(node -p "require('./apps/remotecode/package.json').version")
-          if [ "$tagged" != "$manifest" ]; then
-            echo "tag is $tagged but apps/remotecode/package.json is $manifest"
-            exit 1
-          fi
+          tagged="${GITHUB_REF_NAME#v}"
+          for app in tunnelcode-cli tunnelcode-server; do
+            manifest=$(node -p "require('./apps/$app/package.json').version")
+            if [ "$tagged" != "$manifest" ]; then
+              echo "tag is $tagged but apps/$app/package.json is $manifest"
+              exit 1
+            fi
+          done
 
       - run: pnpm install --frozen-lockfile
 
@@ -58,30 +62,29 @@ jobs:
       # by default is decided here. A user's config and environment still win.
       - name: Bundle the CLI
         env:
-          REMOTECODE_DEFAULT_SERVER_URL: ${{ vars.REMOTECODE_DEFAULT_SERVER_URL }}
-        run: pnpm --filter remotecode bundle
+          TUNNELCODE_DEFAULT_SERVER_URL: ${{ vars.TUNNELCODE_DEFAULT_SERVER_URL }}
+        run: pnpm --filter tunnelcode bundle
 
       # Installing the tarball outside the workspace is the only way to catch a
       # manifest that cannot actually be installed.
       - name: Verify the tarball installs and runs
-        working-directory: apps/remotecode/bundle
+        working-directory: apps/tunnelcode-cli/bundle
         run: |
           npm pack --pack-destination /tmp
           mkdir -p /tmp/verify && cd /tmp/verify
           npm init -y > /dev/null
-          npm i /tmp/remotecode-*.tgz
-          ./node_modules/.bin/remotecode --version
-          ./node_modules/.bin/remotecode --help > /dev/null
+          npm i /tmp/tunnelcode-*.tgz
+          ./node_modules/.bin/tunnelcode --version
+          ./node_modules/.bin/tunnelcode --help > /dev/null
 
       - name: Publish to npm
         if: github.event_name == 'push'
-        working-directory: apps/remotecode/bundle
+        working-directory: apps/tunnelcode-cli/bundle
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public --provenance
 
   image:
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref_name, 'remotecode-server-v')
     runs-on: ubuntu-latest
 
     permissions:
@@ -100,15 +103,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # The tag prefix is stripped so the image reads 0.2.0 rather than
-      # remotecode-server-v0.2.0. The sha tag keeps manual runs taggable, since
-      # metadata-action needs at least one tag to build.
+      # The tag prefix is stripped so the image reads 0.2.0 rather than v0.2.0.
+      # The sha tag keeps manual runs taggable, since metadata-action needs at
+      # least one tag to build.
       - id: meta
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=match,pattern=remotecode-server-v(.*),group=1
+            type=match,pattern=v(.*),group=1
             type=raw,value=latest,enable=${{ github.event_name == 'push' }}
             type=sha
 

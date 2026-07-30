@@ -1,7 +1,7 @@
 services:
-  remotecode:
-    image: ghcr.io/adityadarma/remotecode:latest
-    container_name: remotecode
+  app:
+    image: ghcr.io/adityadarma/tunnelcode:latest
+    container_name: tunnelcode
     restart: unless-stopped
     ports:
       - "3000:3000"

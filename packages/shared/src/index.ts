@@ -1,4 +1,4 @@
-export const APP_NAME = 'remotecode';
+export const APP_NAME = 'tunnelcode';
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

@@ -1,4 +1,4 @@
-# RemoteCode Coding Rules
+# TunnelCode Coding Rules
 
 - Do not use `any`.
 - Use TypeScript strict mode.

@@ -1,4 +1,4 @@
-# RemoteCode Development Tasks
+# TunnelCode Development Tasks
 
 Status: MVP
 Version: 1.0
@@ -43,7 +43,7 @@ Acceptance
 
 ## Goal
 
-Build the remotecode CLI application.
+Build the tunnelcode CLI application.
 
 ### Tasks
 
@@ -56,7 +56,7 @@ Build the remotecode CLI application.
 
 Acceptance
 
-- remotecode runs
+- tunnelcode runs
 
 ---
 
@@ -78,11 +78,11 @@ Acceptance
 
 Global config
 
-~/.config/remotecode/remotecode.json
+~/.config/tunnelcode/tunnelcode.json
 
 Workspace config
 
-.remotecode/config.json
+.tunnelcode/config.json
 
 ---
 

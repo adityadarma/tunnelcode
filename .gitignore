@@ -6,7 +6,7 @@ bundle/
 
 .DS_Store
 
-.remotecode/
+.tunnelcode/
 .claude/
 data/
 *.sqlite

@@ -13,7 +13,7 @@ export async function withFakeEngine<T>(
   script: string,
   run: () => Promise<T>,
 ): Promise<T> {
-  const dir = await mkdtemp(join(tmpdir(), 'remotecode-bin-'));
+  const dir = await mkdtemp(join(tmpdir(), 'tunnelcode-bin-'));
   const file = join(dir, name);
   const previous = process.env['PATH'] ?? '';
 
@@ -32,7 +32,7 @@ export async function withFakeEngine<T>(
 /** Removes a command from PATH, so "not installed" can be tested. */
 export async function withEmptyPath<T>(run: () => Promise<T>): Promise<T> {
   const previous = process.env['PATH'] ?? '';
-  const dir = await mkdtemp(join(tmpdir(), 'remotecode-empty-'));
+  const dir = await mkdtemp(join(tmpdir(), 'tunnelcode-empty-'));
 
   // Keeps the system tools the lookup itself needs, without any engine.
   process.env['PATH'] = `${dir}:/usr/bin:/bin`;

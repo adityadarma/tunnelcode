@@ -1,0 +1,33 @@
+{
+  "name": "tunnelcode",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "tunnelcode": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b",
+    "start": "node ./dist/index.js",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "bundle": "node scripts/bundle.mjs"
+  },
+  "dependencies": {
+    "@tunnelcode/config": "workspace:*",
+    "@tunnelcode/engine": "workspace:*",
+    "@tunnelcode/protocol": "workspace:*",
+    "@tunnelcode/shared": "workspace:*",
+    "qrcode": "1.5.4",
+    "ws": "8.21.1"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.2",
+    "@types/qrcode": "1.5.6",
+    "@types/ws": "8.18.1",
+    "esbuild": "0.28.1"
+  }
+}

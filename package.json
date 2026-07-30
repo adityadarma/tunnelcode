@@ -16,7 +16,7 @@
     "test": "pnpm build && pnpm -r test"
   },
   "devDependencies": {
-    "remotecode": "workspace:*",
+    "tunnelcode": "workspace:*",
     "@eslint/js": "10.0.1",
     "@types/node": "26.1.2",
     "eslint": "10.8.0",

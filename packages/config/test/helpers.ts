@@ -11,7 +11,7 @@ import { join } from 'node:path';
 export async function withTempHome<T>(run: (home: string) => Promise<T>): Promise<T> {
   const previous = process.env['HOME'];
   const previousAppData = process.env['APPDATA'];
-  const home = await mkdtemp(join(tmpdir(), 'remotecode-test-'));
+  const home = await mkdtemp(join(tmpdir(), 'tunnelcode-test-'));
 
   process.env['HOME'] = home;
   process.env['APPDATA'] = join(home, 'AppData', 'Roaming');
@@ -37,7 +37,7 @@ export async function withTempHome<T>(run: (home: string) => Promise<T>): Promis
 
 /** Creates an isolated workspace directory for a test. */
 export async function withTempDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
-  const dir = await mkdtemp(join(tmpdir(), 'remotecode-ws-'));
+  const dir = await mkdtemp(join(tmpdir(), 'tunnelcode-ws-'));
 
   try {
     return await run(dir);

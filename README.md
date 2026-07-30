@@ -1,8 +1,8 @@
-# RemoteCode
+# TunnelCode
 
 Run an AI coding agent on your own machine and drive it from a browser.
 
-RemoteCode is a bridge between the browser, a server, and a local AI agent. It is
+TunnelCode is a bridge between the browser, a server, and a local AI agent. It is
 not an IDE and not an AI provider. See `PROJECT.md` for the full specification and
 `DECISIONS.md` for the architecture decisions.
 
@@ -17,7 +17,7 @@ not an IDE and not an AI provider. See `PROJECT.md` for the full specification a
 The CLI is published to npm as a single bundled file:
 
 ```sh
-npm i -g remotecode
+npm i -g tunnelcode
 ```
 
 The server is not on npm. It ships only as a Docker image, since it needs SQLite
@@ -35,7 +35,7 @@ pnpm build
 Start the server:
 
 ```sh
-pnpm --filter remotecode-server start
+pnpm --filter tunnelcode-server start
 ```
 
 It listens on `127.0.0.1:3000` by default and serves the web app from the same
@@ -44,10 +44,10 @@ port.
 Configure the machine once, then start the agent from any project directory:
 
 ```sh
-pnpm exec remotecode setup --server http://127.0.0.1:3000
+pnpm exec tunnelcode setup --server http://127.0.0.1:3000
 cd /path/to/your/project
-pnpm exec remotecode init --engine opencode
-pnpm exec remotecode start
+pnpm exec tunnelcode init --engine opencode
+pnpm exec tunnelcode start
 ```
 
 `start` prints a QR code and an 8 letter pairing code.
@@ -66,10 +66,10 @@ session ends after one hour without conversation.
 
 | Command             | Purpose                             |
 | ------------------- | ----------------------------------- |
-| `remotecode`        | Start the agent (same as `start`)   |
-| `remotecode setup`  | Write the global configuration      |
-| `remotecode init`   | Write the workspace configuration   |
-| `remotecode doctor` | Check the environment               |
+| `tunnelcode`        | Start the agent (same as `start`)   |
+| `tunnelcode setup`  | Write the global configuration      |
+| `tunnelcode init`   | Write the workspace configuration   |
+| `tunnelcode doctor` | Check the environment               |
 
 Useful flags: `--server`, `--device`, `--engine`, `--force`, and `--prompt` to run
 one prompt without pairing.
@@ -78,17 +78,17 @@ one prompt without pairing.
 
 Global, per machine:
 
-- macOS and Linux: `~/.config/remotecode/remotecode.json`
-- Windows: `%APPDATA%/RemoteCode/remotecode.json`
+- macOS and Linux: `~/.config/tunnelcode/tunnelcode.json`
+- Windows: `%APPDATA%/TunnelCode/tunnelcode.json`
 
-Workspace, per project: `.remotecode/config.json`. The workspace engine overrides
+Workspace, per project: `.tunnelcode/config.json`. The workspace engine overrides
 the global default, so each project can use a different engine.
 
 ## Environment variables
 
 Both the server and the CLI read a `.env` file at startup. Copy `.env.example` to
 `.env` to begin. The search walks upward from the working directory, so a `.env` at
-the repository root is found even though `pnpm --filter remotecode-server start`
+the repository root is found even though `pnpm --filter tunnelcode-server start`
 runs inside the package. `ENV_FILE=/path/to/file` loads a specific file instead.
 
 Real environment variables always win over the file, so `PORT=8080 pnpm start`
@@ -100,7 +100,7 @@ Read by the server:
 | --------------- | ------------------------ | --------------------------------- |
 | `HOST`          | `127.0.0.1`              | Bind address                      |
 | `PORT`          | `3000`                   | Port for HTTP and WebSocket       |
-| `DATABASE_FILE` | `data/remotecode.sqlite` | SQLite location                   |
+| `DATABASE_FILE` | `data/tunnelcode.sqlite` | SQLite location                   |
 | `LOG_LEVEL`     | `info`                   | `fatal` through `trace`, `silent` |
 | `ENV_FILE`      | nearest `.env`           | Environment file to load          |
 
@@ -112,7 +112,7 @@ Read by the CLI to decide which server to talk to:
 
 | Variable                | Default                  | Purpose                          |
 | ----------------------- | ------------------------ | -------------------------------- |
-| `REMOTECODE_SERVER_URL` | built from host and port | Full server URL, wins over both  |
+| `TUNNELCODE_SERVER_URL` | built from host and port | Full server URL, wins over both  |
 | `HOST`                  | `localhost`              | Host in the URL                  |
 | `PORT`                  | `3000`                   | Port in the URL                  |
 
@@ -121,13 +121,13 @@ URL falls back to `localhost`.
 
 These override the server URL stored in the global config, so pointing the agent at
 another deployment does not require rewriting it. Precedence for `start`, most
-specific first: `--server`, then `REMOTECODE_SERVER_URL`, then `HOST`/`PORT`, then
+specific first: `--server`, then `TUNNELCODE_SERVER_URL`, then `HOST`/`PORT`, then
 the stored config, then the URL baked in at publish time.
 
 To make a change permanent instead:
 
 ```sh
-remotecode setup --force --server http://127.0.0.1:3000
+tunnelcode setup --force --server http://127.0.0.1:3000
 ```
 
 Read by the dev server (`dev:web`):
@@ -141,16 +141,16 @@ Read by the dev server (`dev:web`):
 So a server on another port needs no file edits:
 
 ```sh
-PORT=8080 pnpm --filter remotecode-server start
-PORT=8080 pnpm exec remotecode setup --force
-PORT=8080 pnpm --filter remotecode-server dev:web
+PORT=8080 pnpm --filter tunnelcode-server start
+PORT=8080 pnpm exec tunnelcode setup --force
+PORT=8080 pnpm --filter tunnelcode-server dev:web
 ```
 
 ## Docker
 
 ```sh
-docker build -t remotecode .
-docker run -d -p 3000:3000 -v remotecode-data:/data remotecode
+docker build -t tunnelcode .
+docker run -d -p 3000:3000 -v tunnelcode-data:/data tunnelcode
 ```
 
 The image binds `0.0.0.0` inside the container, so the published port is what
@@ -181,8 +181,8 @@ uses Vitest, because component tests need a DOM.
 
 ```sh
 pnpm test                                  # everything
-pnpm --filter remotecode-server test:server  # node:test only
-pnpm --filter remotecode-server test:web     # Vitest only
+pnpm --filter tunnelcode-server test:server  # node:test only
+pnpm --filter tunnelcode-server test:web     # Vitest only
 ```
 
 Tests import built output, since Node's type stripping does not rewrite the `.js`
@@ -195,50 +195,55 @@ and a server on an ephemeral port. Engines are replaced by fake executables on
 Run the web app with hot reload against a running server:
 
 ```sh
-pnpm --filter remotecode-server dev:web
+pnpm --filter tunnelcode-server dev:web
 ```
 
 After changing the database schema:
 
 ```sh
-pnpm --filter remotecode-server db:generate
+pnpm --filter tunnelcode-server db:generate
 ```
 
 Migrations are additive only. See `RULES.md`.
 
 ## Releasing
 
-Each app releases on its own tag, so shipping one does not ship the other.
+One tag releases both apps. The CLI and the server speak the same protocol, so a
+version mismatch between them is the failure worth avoiding.
 
-| Tag                        | What it releases                 |
-| -------------------------- | -------------------------------- |
-| `remotecode-v0.2.0`        | the CLI, published to npm        |
-| `remotecode-server-v0.2.0` | the server image, pushed to GHCR |
+| Tag      | What it releases                                       |
+| -------- | ------------------------------------------------------ |
+| `v0.2.0` | the server image to GHCR, then the CLI published to npm |
 
 ```sh
-git tag remotecode-v0.2.0 && git push origin remotecode-v0.2.0
+git tag v0.1.0 && git push origin v0.1.0
 ```
 
-The version in the tag has to match `apps/remotecode/package.json`, or the
-workflow fails before it builds anything. A `workflow_dispatch` run builds both
-apps and publishes neither, which is how you check a release without cutting one.
+The version in the tag has to match both `apps/tunnelcode-cli/package.json` and
+`apps/tunnelcode-server/package.json`, or the workflow fails before it builds
+anything. Bump the two together. A `workflow_dispatch` run builds both apps and
+publishes neither, which is how you check a release without cutting one.
 
-The CLI is bundled into one file with esbuild. The four `@remotecode/*` workspace
+The image is pushed before the CLI is published, because a GHCR tag can be
+overwritten while an npm version cannot be republished. If the image build fails,
+nothing reaches npm.
+
+The CLI is bundled into one file with esbuild. The four `@tunnelcode/*` workspace
 packages are inlined, because `workspace:*` cannot be resolved from the registry
 and would break `npm install` for everyone. Only `ws` and `qrcode` stay external.
 
 ```sh
-pnpm --filter remotecode bundle   # writes apps/remotecode/bundle
+pnpm --filter tunnelcode bundle   # writes apps/tunnelcode-cli/bundle
 ```
 
 The default server URL is baked in at bundle time from the
-`REMOTECODE_DEFAULT_SERVER_URL` repository variable. A published CLI has no
+`TUNNELCODE_DEFAULT_SERVER_URL` repository variable. A published CLI has no
 repository to read, so the deployment it talks to has to be decided when the
-artifact is built. It remains a default: a written config, `REMOTECODE_SERVER_URL`,
+artifact is built. It remains a default: a written config, `TUNNELCODE_SERVER_URL`,
 `HOST`/`PORT`, and `--server` all override it.
 
 ```sh
-REMOTECODE_DEFAULT_SERVER_URL=https://rc.example.com pnpm --filter remotecode bundle
+TUNNELCODE_DEFAULT_SERVER_URL=https://rc.example.com pnpm --filter tunnelcode bundle
 ```
 
 The server is released as a Docker image to GHCR. It is never published to npm.

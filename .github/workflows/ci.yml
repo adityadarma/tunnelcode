@@ -50,11 +50,11 @@ jobs:
           context: .
           push: false
           load: true
-          tags: remotecode:ci
+          tags: tunnelcode:ci
 
       - name: Start the container
         run: |
-          docker run -d --name remotecode-ci -p 3000:3000 remotecode:ci
+          docker run -d --name tunnelcode-ci -p 3000:3000 tunnelcode:ci
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:3000/health > /dev/null; then
               echo "healthy"
@@ -63,9 +63,9 @@ jobs:
             sleep 2
           done
           echo "the server never became healthy"
-          docker logs remotecode-ci
+          docker logs tunnelcode-ci
           exit 1
 
       - name: Stop the container
         if: always()
-        run: docker rm -f remotecode-ci || true
+        run: docker rm -f tunnelcode-ci || true

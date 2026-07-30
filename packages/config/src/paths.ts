@@ -1,8 +1,8 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-const GLOBAL_FILE = 'remotecode.json';
-const WORKSPACE_DIR = '.remotecode';
+const GLOBAL_FILE = 'tunnelcode.json';
+const WORKSPACE_DIR = '.tunnelcode';
 const WORKSPACE_FILE = 'config.json';
 
 /**
@@ -14,10 +14,10 @@ export function globalConfigPath(): string {
     const appData = process.env['APPDATA'];
     const base =
       appData !== undefined && appData !== '' ? appData : join(homedir(), 'AppData', 'Roaming');
-    return join(base, 'RemoteCode', GLOBAL_FILE);
+    return join(base, 'TunnelCode', GLOBAL_FILE);
   }
 
-  return join(homedir(), '.config', 'remotecode', GLOBAL_FILE);
+  return join(homedir(), '.config', 'tunnelcode', GLOBAL_FILE);
 }
 
 /**

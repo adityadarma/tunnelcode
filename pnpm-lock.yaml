@@ -23,9 +23,9 @@ importers:
       prettier:
         specifier: 3.9.6
         version: 3.9.6
-      remotecode:
+      tunnelcode:
         specifier: workspace:*
-        version: link:apps/remotecode
+        version: link:apps/tunnelcode-cli
       typescript:
         specifier: 6.0.3
         version: 6.0.3
@@ -33,18 +33,18 @@ importers:
         specifier: 8.65.0
         version: 8.65.0(eslint@10.8.0)(typescript@6.0.3)
 
-  apps/remotecode:
+  apps/tunnelcode-cli:
     dependencies:
-      '@remotecode/config':
+      '@tunnelcode/config':
         specifier: workspace:*
         version: link:../../packages/config
-      '@remotecode/engine':
+      '@tunnelcode/engine':
         specifier: workspace:*
         version: link:../../packages/engine
-      '@remotecode/protocol':
+      '@tunnelcode/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
-      '@remotecode/shared':
+      '@tunnelcode/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       qrcode:
@@ -67,7 +67,7 @@ importers:
         specifier: 0.28.1
         version: 0.28.1
 
-  apps/remotecode-server:
+  apps/tunnelcode-server:
     dependencies:
       '@fastify/rate-limit':
         specifier: 11.1.0
@@ -78,13 +78,13 @@ importers:
       '@fastify/websocket':
         specifier: 11.3.0
         version: 11.3.0
-      '@remotecode/config':
+      '@tunnelcode/config':
         specifier: workspace:*
         version: link:../../packages/config
-      '@remotecode/protocol':
+      '@tunnelcode/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
-      '@remotecode/shared':
+      '@tunnelcode/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       better-sqlite3:
@@ -148,7 +148,7 @@ importers:
 
   packages/config:
     dependencies:
-      '@remotecode/shared':
+      '@tunnelcode/shared':
         specifier: workspace:*
         version: link:../shared
       zod:
@@ -161,10 +161,10 @@ importers:
 
   packages/engine:
     dependencies:
-      '@remotecode/protocol':
+      '@tunnelcode/protocol':
         specifier: workspace:*
         version: link:../protocol
-      '@remotecode/shared':
+      '@tunnelcode/shared':
         specifier: workspace:*
         version: link:../shared
     devDependencies:

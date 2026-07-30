@@ -1,4 +1,4 @@
-# RemoteCode
+# TunnelCode
 
 Version: 1.0.0
 
@@ -9,15 +9,15 @@ Architecture Freeze
 
 # Overview
 
-RemoteCode is an application that lets an AI Coding Agent run locally on the user machine while all interaction happens through the browser.
+TunnelCode is an application that lets an AI Coding Agent run locally on the user machine while all interaction happens through the browser.
 
 This project is inspired by OpenCode, but the UI is split out into a web app so the user can control the agent from anywhere as long as the device is online.
 
-RemoteCode is not an IDE.
+TunnelCode is not an IDE.
 
-RemoteCode is not an AI Provider.
+TunnelCode is not an AI Provider.
 
-RemoteCode is a bridge between Browser, Server and Local AI Agent.
+TunnelCode is a bridge between Browser, Server and Local AI Agent.
 
 ---
 
@@ -95,10 +95,10 @@ QR
 
 apps/
 
-remotecode/
+tunnelcode/
 CLI Application
 
-remotecode-server/
+tunnelcode-server/
 Backend + Web
 
 packages/
@@ -125,19 +125,19 @@ examples/
 
 Commands
 
-remotecode
+tunnelcode
 
 Start agent
 
-remotecode setup
+tunnelcode setup
 
 Setup global configuration
 
-remotecode init
+tunnelcode init
 
 Create project configuration
 
-remotecode doctor
+tunnelcode doctor
 
 Environment validation
 
@@ -147,15 +147,15 @@ Environment validation
 
 macOS
 
-~/.config/remotecode/remotecode.json
+~/.config/tunnelcode/tunnelcode.json
 
 Linux
 
-~/.config/remotecode/remotecode.json
+~/.config/tunnelcode/tunnelcode.json
 
 Windows
 
-%APPDATA%/RemoteCode/remotecode.json
+%APPDATA%/TunnelCode/tunnelcode.json
 
 Example
 
@@ -175,7 +175,7 @@ Example
 
 # Workspace Configuration
 
-.remotecode/config.json
+.tunnelcode/config.json
 
 Example
 
@@ -555,7 +555,7 @@ Test Suite
 
 The MVP is considered done when:
 
-User runs remotecode
+User runs tunnelcode
 
 ↓
 

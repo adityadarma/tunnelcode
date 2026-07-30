@@ -3,7 +3,7 @@ dist/
 pnpm-lock.yaml
 
 # Written by drizzle-kit, so formatting them would be undone on the next generate.
-apps/remotecode-server/migrations/
+apps/tunnelcode-server/migrations/
 
 # Spec documents are maintained by hand (PROJECT.md is under architecture freeze).
 *.md

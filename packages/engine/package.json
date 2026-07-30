@@ -1,5 +1,5 @@
 {
-  "name": "@remotecode/engine",
+  "name": "@tunnelcode/engine",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -20,8 +20,8 @@
     "test": "node --test \"test/**/*.test.ts\""
   },
   "dependencies": {
-    "@remotecode/protocol": "workspace:*",
-    "@remotecode/shared": "workspace:*"
+    "@tunnelcode/protocol": "workspace:*",
+    "@tunnelcode/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "26.1.2"

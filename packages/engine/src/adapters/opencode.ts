@@ -16,7 +16,7 @@ const MODEL_PATTERN = /^[\w.-]+\/[\w./-]+$/;
  * the answer never appears. Supplying one keeps the run to the actual work. The
  * value is never shown to the user, since the conversation carries its own title.
  */
-const SESSION_TITLE = 'remotecode';
+const SESSION_TITLE = 'tunnelcode';
 
 interface TextPart {
   id?: unknown;

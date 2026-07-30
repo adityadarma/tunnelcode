@@ -36,7 +36,7 @@ async function withEnv<T>(
 }
 
 async function withTempTree<T>(run: (dir: string) => Promise<T>): Promise<T> {
-  const dir = await mkdtemp(join(tmpdir(), 'remotecode-env-'));
+  const dir = await mkdtemp(join(tmpdir(), 'tunnelcode-env-'));
 
   try {
     return await run(dir);
@@ -63,7 +63,7 @@ test('a .env file in the working directory is loaded', async () => {
 
 test('a .env higher up the tree is found', async () => {
   await withTempTree(async (dir) => {
-    const nested = join(dir, 'apps', 'remotecode-server');
+    const nested = join(dir, 'apps', 'tunnelcode-server');
     await mkdir(nested, { recursive: true });
     await writeFile(join(dir, '.env'), 'HOST=10.0.0.9\n', 'utf8');
 

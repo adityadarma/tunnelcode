@@ -1,4 +1,4 @@
-# RemoteCode Architecture Decisions
+# TunnelCode Architecture Decisions
 
 Status: Locked
 
@@ -201,11 +201,11 @@ Global config is stored at:
 
 macOS/Linux
 
-~/.config/remotecode/remotecode.json
+~/.config/tunnelcode/tunnelcode.json
 
 Windows
 
-%APPDATA%/RemoteCode/remotecode.json
+%APPDATA%/TunnelCode/tunnelcode.json
 
 ---
 
@@ -219,7 +219,7 @@ A workspace has its own config.
 
 Location
 
-.remotecode/config.json
+.tunnelcode/config.json
 
 Reason
 
@@ -299,11 +299,11 @@ The approval number never travels in a URL.
 
 Decision
 
-RemoteCode is not an IDE.
+TunnelCode is not an IDE.
 
 Reason
 
-RemoteCode is a bridge.
+TunnelCode is a bridge.
 
 Not an editor.
 

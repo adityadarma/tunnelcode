@@ -4,7 +4,7 @@ import { APP_NAME, isRecord } from '../dist/index.js';
 
 test('the app name is stable', () => {
   // Used in output and in config paths, so a change here is a breaking change.
-  assert.equal(APP_NAME, 'remotecode');
+  assert.equal(APP_NAME, 'tunnelcode');
 });
 
 test('a plain object is a record', () => {
