@@ -131,46 +131,13 @@ function buildTurns(
     }
   }
 
-  // Interleave text and activities chronologically within assistant turns
+  // Sort items within assistant turns strictly chronologically by timestamp
   for (const turn of turns) {
     if (turn.kind === 'assistant') {
-      const textItems = turn.items.filter(
-        (it): it is Extract<AssistantItem, { kind: 'text' }> => it.kind === 'text',
-      );
-      const activityItems = turn.items.filter(
-        (it): it is Extract<AssistantItem, { kind: 'activity' }> => it.kind === 'activity',
-      );
-
-      if (textItems.length > 0 && activityItems.length > 0) {
-        const firstText = textItems[0];
-        if (firstText !== undefined) {
-          const paragraphs = firstText.content.split(/\n\n+/);
-          // If first text was finalized after activities but has multiple paragraphs,
-          // paragraph 1 preceded activities and paragraph 2+ followed activities.
-          if (
-            paragraphs.length > 1 &&
-            paragraphs[0] !== undefined &&
-            activityItems.some((act) => act.at < firstText.at)
-          ) {
-            const leadingText = paragraphs[0];
-            const trailingText = paragraphs.slice(1).join('\n\n');
-
-            const reordered: AssistantItem[] = [
-              { ...firstText, content: leadingText, at: turn.createdAt - 1 },
-              ...activityItems.sort((a, b) => a.at - b.at),
-              { ...firstText, id: `${firstText.id}-rest`, content: trailingText, at: firstText.at },
-              ...textItems.slice(1),
-            ];
-            turn.items = reordered;
-          } else {
-            turn.items.sort((a, b) => a.at - b.at);
-          }
-        }
-      } else {
-        turn.items.sort((a, b) => a.at - b.at);
-      }
+      turn.items.sort((a, b) => a.at - b.at);
     }
   }
+
 
   return turns;
 }
@@ -372,11 +339,44 @@ export function MessageList({
 
   if (messages.length === 0 && activities.length === 0 && streaming === undefined) {
     return (
-      <div className="messages empty">
-        <p className="muted">No messages yet. Ask something to get started.</p>
+      <div className="messages empty-state-container">
+        <div className="empty-hero-glow" />
+        <div className="empty-hero-content">
+          <div className="empty-icon-badge">
+            <svg
+              width="36"
+              height="36"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
+          </div>
+          <h2 className="empty-title">What would you like to build?</h2>
+          <p className="muted empty-subtitle">No messages yet. Ask something to get started.</p>
+          <div className="empty-features-grid">
+            <div className="feature-chip">
+              <span className="chip-icon">⚡</span>
+              <span>Terminal Tunneling</span>
+            </div>
+            <div className="feature-chip">
+              <span className="chip-icon">🔒</span>
+              <span>Secure Pairing</span>
+            </div>
+            <div className="feature-chip">
+              <span className="chip-icon">🤖</span>
+              <span>Multi-Engine Selection</span>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
+
 
   const turns = buildTurns(messages, activities, streaming);
 

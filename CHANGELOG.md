@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The CLI and the server image share one version and ship from a single `v*` tag.
 
+## [0.2.1] - 2026-07-30
+
+### Changed
+
+- Re-designed the landing page and empty conversation state for a more modern, glassmorphic UI.
+- Fixed a bug where terminal activities (e.g. bash commands) were occasionally misordered relative to chat messages due to incorrect newline splitting logic.
+- Improved overall mobile responsiveness.
+
 ## [0.2.0] - 2026-07-30
 
 The engine is now chosen in the browser rather than in the terminal, once per
