@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import type { Db } from './client.js';
-import { devices, sessions } from './schema.js';
+import { conversations, devices, sessions } from './schema.js';
 
 export interface PersistSessionInput {
   sessionId: string;
@@ -15,6 +15,7 @@ export interface SessionDetail {
   deviceId: string;
   deviceName: string;
   workspace: string;
+  /** Engine the session was paired with, the starting point for a new conversation. */
   engine: string;
 }
 
@@ -92,6 +93,32 @@ export class SessionRepository {
       .from(sessions)
       .innerJoin(devices, eq(devices.id, sessions.deviceId))
       .where(eq(sessions.id, sessionId))
+      .limit(1)
+      .all();
+
+    return rows[0];
+  }
+
+  /**
+   * The session a conversation belongs to.
+   *
+   * Read when a conversation is changed on its own, without a session id in the
+   * path: the device behind it is what decides whether an engine or a model is
+   * allowed, and only the session knows which device that is.
+   */
+  findSessionForConversation(conversationId: string): SessionDetail | undefined {
+    const rows = this.db
+      .select({
+        id: sessions.id,
+        deviceId: sessions.deviceId,
+        deviceName: devices.name,
+        workspace: sessions.workspace,
+        engine: sessions.engine,
+      })
+      .from(conversations)
+      .innerJoin(sessions, eq(sessions.id, conversations.sessionId))
+      .innerJoin(devices, eq(devices.id, sessions.deviceId))
+      .where(eq(conversations.id, conversationId))
       .limit(1)
       .all();
 

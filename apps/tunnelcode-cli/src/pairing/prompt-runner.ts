@@ -12,7 +12,13 @@ import type { CliMessage } from '@tunnelcode/protocol';
 const SILENCE_TIMEOUT_MS = 5 * 60 * 1000;
 
 export interface PromptRunnerOptions {
-  engine: Engine;
+  /**
+   * Engines available on this machine, by name.
+   *
+   * A map rather than one engine, because the engine is chosen per conversation
+   * and every turn names the one it needs. See ADR-020.
+   */
+  engines: Map<string, Engine>;
   cwd: string;
   send: (message: CliMessage) => void;
   /** Called on conversation activity, which is what resets the idle timeout. */
@@ -44,15 +50,31 @@ export class PromptRunner {
   async run(
     turnId: string,
     text: string,
+    engineName: string,
     model: string | undefined,
     resume: string | undefined,
   ): Promise<void> {
-    const { engine, cwd, send, onActivity } = this.options;
+    const { engines, cwd, send, onActivity } = this.options;
 
     // One prompt at a time: the engine runs against a real working directory, so
-    // overlapping runs could fight over the same files.
+    // overlapping runs could fight over the same files. This holds across engines
+    // too, since they all write to the same workspace.
     if (this.running) {
       send({ type: 'turn_error', turnId, message: 'The agent is still answering.' });
+      return;
+    }
+
+    const engine = engines.get(engineName);
+
+    // The server only ever names an engine this CLI registered, so this means the
+    // two have gone out of step. Reported as a failed turn rather than ignored:
+    // the browser is waiting for an answer either way.
+    if (engine === undefined) {
+      send({
+        type: 'turn_error',
+        turnId,
+        message: `Engine ${engineName} is not available on this machine.`,
+      });
       return;
     }
 

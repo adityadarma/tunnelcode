@@ -11,6 +11,15 @@ export interface Turn {
   sessionId: string;
   deviceId: string;
   conversationId: string;
+  /**
+   * Engine answering this turn.
+   *
+   * A device runs several engines now, so the device alone no longer says which
+   * one produced an engine session id, and an id only means something to the
+   * engine that issued it. Recorded here because this is the only thing that
+   * knows which engine the prompt was actually sent to. See ADR-020.
+   */
+  engine: string;
   startedAt: number;
 }
 

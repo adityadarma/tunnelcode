@@ -24,10 +24,22 @@ export const cliMessageSchema = z.discriminatedUnion('type', [
     deviceName: z.string().min(1),
     // Recorded with the session so stored history says where it ran.
     workspace: z.string().min(1),
-    engine: z.string().min(1),
-    // Models the engine reported. The browser may only pick from this list, so
-    // it can never ask for a model the chosen engine cannot serve.
-    models: z.array(z.string().min(1)),
+    /**
+     * Engines that are both supported and installed on this machine, each with
+     * the models it reported.
+     *
+     * A list rather than one name, because the engine is chosen per conversation
+     * in the browser. Sending only what is installed is what stops the browser
+     * offering an engine this machine cannot run. See ADR-020.
+     */
+    engines: z
+      .array(
+        z.object({
+          name: z.string().min(1),
+          models: z.array(z.string().min(1)),
+        }),
+      )
+      .min(1),
   }),
   z.object({
     type: z.literal('approve'),
@@ -135,6 +147,12 @@ export const serverToCliMessageSchema = z.discriminatedUnion('type', [
     type: z.literal('prompt'),
     turnId: turnIdSchema,
     text: z.string().min(1),
+    /**
+     * Engine to answer with, taken from the conversation rather than from
+     * configuration. Always one of the engines this CLI registered, so it can
+     * always be run. See ADR-020.
+     */
+    engine: z.string().min(1),
     model: z.string().min(1).optional(),
     // Engine conversation to continue, recorded when an earlier turn in this
     // conversation reported one. Absent starts the engine fresh.
@@ -154,11 +172,17 @@ export const browserMessageSchema = z.discriminatedUnion('type', [
     type: z.literal('attach'),
     sessionId: sessionIdSchema,
   }),
+  /**
+   * A prompt for one conversation.
+   *
+   * The engine and the model are not sent: they belong to the conversation and
+   * are read from it on the server, so two tabs cannot disagree about which
+   * engine is answering. See ADR-020.
+   */
   z.object({
     type: z.literal('prompt'),
     conversationId: conversationIdSchema,
     text: z.string().min(1),
-    model: z.string().min(1).optional(),
   }),
   // The user ended the session from the browser. The agent runs on the paired
   // machine, so ending it has to reach the CLI, not just clear the browser.

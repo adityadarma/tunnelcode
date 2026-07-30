@@ -1,22 +1,27 @@
 import { loadGlobalConfig, readOrCreateDeviceId } from '@tunnelcode/config';
 import type { GlobalConfig } from '@tunnelcode/config';
-import { ENGINE_NAMES, createEngine } from '@tunnelcode/engine';
-import type { Engine } from '@tunnelcode/engine';
+import { ENGINE_NAMES, discoverEngines } from '@tunnelcode/engine';
+import type { AvailableEngine } from '@tunnelcode/engine';
 import { runPairingSession } from '../pairing/session.js';
 import { writeErr, writeOut } from '../output.js';
 
 /**
- * Configuration and engine the agent needs, or undefined when something is
- * missing. The reason is printed here, because the caller only has to decide
- * whether to return to the menu.
+ * Configuration plus the engines this machine can run, or undefined when
+ * something is missing. The reason is printed here, because the caller only has
+ * to decide whether to return to the menu.
  */
 interface Ready {
   config: GlobalConfig;
-  engine: Engine;
+  engines: AvailableEngine[];
 }
 
 /**
- * Resolves what a session needs: a stored config plus an engine on PATH.
+ * Resolves what a session needs: a stored config plus at least one engine on
+ * PATH.
+ *
+ * Every supported engine that is installed is offered, not just one, because the
+ * engine is chosen per conversation in the browser. The config still names one,
+ * which is the engine a new conversation starts with. See ADR-020.
  *
  * Only the stored config is read. The environment is not consulted and no
  * project directory is looked at, so the only way to change any of this is the
@@ -30,35 +35,43 @@ async function prepare(cwd: string): Promise<Ready | undefined> {
     return undefined;
   }
 
-  const engine = createEngine(config.engine);
-
-  if (engine === undefined) {
-    writeErr(`Unknown engine: ${config.engine}`);
-    writeErr(`Available engines: ${ENGINE_NAMES.join(', ')}`);
-    writeErr('Choose Setup to pick a different one.');
-    return undefined;
-  }
+  const engines = await discoverEngines();
 
   writeOut('');
   writeOut(`workspace  ${cwd}`);
   writeOut(`server     ${config.server.url}`);
   writeOut(`device     ${config.device.name}`);
 
-  const available = await engine.isAvailable();
-
-  writeOut(
-    `engine     ${engine.name} (${engine.command}) ${available ? 'ok' : 'not found on PATH'}`,
-  );
-  writeOut('');
-
-  if (!available) {
+  if (engines.length === 0) {
+    writeOut(`engines    ${ENGINE_NAMES.join(', ')} (none found on PATH)`);
+    writeOut('');
     writeErr(
-      `Cannot find ${engine.command} on PATH. Install it or choose another engine in Setup.`,
+      `Cannot find any engine on PATH. Install one of: ${ENGINE_NAMES.join(', ')}, then try again.`,
     );
     return undefined;
   }
 
-  return { config, engine };
+  // The preferred one is marked, since that is what a new conversation starts
+  // with unless the browser picks another.
+  writeOut(
+    `engines    ${engines
+      .map((engine) => (engine.name === config.engine ? `${engine.name} (default)` : engine.name))
+      .join(', ')}`,
+  );
+
+  // A configured engine that is not installed is worth saying out loud: the
+  // session still runs, but a new conversation will start on a different one.
+  if (!engines.some((engine) => engine.name === config.engine)) {
+    writeOut(
+      `           ${config.engine} is configured but not installed, using ${
+        engines[0]?.name ?? ''
+      }`,
+    );
+  }
+
+  writeOut('');
+
+  return { config, engines };
 }
 
 /**
@@ -77,16 +90,19 @@ export async function runStart(cwd: string): Promise<number> {
     return 1;
   }
 
-  // Asked once at startup, since the browser may only pick from what the engine
-  // chosen here can actually serve.
-  const models = await ready.engine.listModels();
+  // The configured engine is put first, because the browser starts a new
+  // conversation on the first of the list. That keeps the Setup choice meaningful
+  // without making it the only choice. A configured engine that is not installed
+  // simply is not in the list, so the next installed one leads.
+  const engines = [...ready.engines].sort((left, right) =>
+    left.name === ready.config.engine ? -1 : right.name === ready.config.engine ? 1 : 0,
+  );
 
   return runPairingSession({
     serverUrl: ready.config.server.url,
     deviceId: await readOrCreateDeviceId(cwd),
     deviceName: ready.config.device.name,
     workspace: cwd,
-    engine: ready.engine,
-    models,
+    engines,
   });
 }

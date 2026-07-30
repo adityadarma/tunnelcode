@@ -4,15 +4,30 @@
  * is correct because a code is only valid while its CLI session runs.
  * See ADR-006 and ADR-014.
  */
+/**
+ * An engine the device can run, with the models it reported.
+ *
+ * Both are needed to validate a browser's choice: an engine that is not here
+ * cannot answer, and a model that is not in its list cannot be asked for.
+ */
+export interface DeviceEngine {
+  name: string;
+  models: string[];
+}
+
 export interface Device {
   id: string;
   name: string;
   code: string;
   /** Where the CLI is running, recorded with the session when it pairs. */
   workspace: string;
-  engine: string;
-  /** Models the engine reported, the only models a browser may choose. */
-  models: string[];
+  /**
+   * Engines installed on the machine, in the order the browser should offer them.
+   *
+   * A list rather than one engine, because each conversation picks its own. The
+   * first is what a new conversation starts on. See ADR-020.
+   */
+  engines: DeviceEngine[];
   /** True once a browser has paired with this device. */
   paired: boolean;
   createdAt: number;
@@ -33,8 +48,7 @@ export interface RegisterDeviceInput {
   code: string;
   name: string;
   workspace: string;
-  engine: string;
-  models: string[];
+  engines: DeviceEngine[];
 }
 
 export interface DeviceServiceOptions {
@@ -101,8 +115,7 @@ export class DeviceService {
       name: input.name,
       code: input.code,
       workspace: input.workspace,
-      engine: input.engine,
-      models: input.models,
+      engines: input.engines,
       // A reconnect keeps the paired flag: the code is single use, so it must not
       // become claimable again just because the connection dropped.
       paired: existing?.paired ?? false,
@@ -121,6 +134,16 @@ export class DeviceService {
 
   findById(id: string): Device | undefined {
     return this.byId.get(id);
+  }
+
+  /**
+   * One engine of a device, or undefined when it cannot run that engine.
+   *
+   * The absent case is how a stored conversation naming an engine that is no
+   * longer installed is caught, so it is normal rather than exceptional.
+   */
+  findEngine(deviceId: string, engine: string): DeviceEngine | undefined {
+    return this.byId.get(deviceId)?.engines.find((entry) => entry.name === engine);
   }
 
   markPaired(id: string): void {

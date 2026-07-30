@@ -53,8 +53,7 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
             code: message.code,
             name: message.deviceName,
             workspace: message.workspace,
-            engine: message.engine,
-            models: message.models,
+            engines: message.engines,
           });
 
           if (!result.ok) {
@@ -107,7 +106,10 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
               deviceId,
               deviceName: device.name,
               workspace: device.workspace,
-              engine: device.engine,
+              // The leading engine, which is what a conversation created in this
+              // session starts on. Registration requires at least one, so the
+              // fallback is only here to satisfy the type.
+              engine: device.engines[0]?.name ?? '',
             });
           }
 
@@ -154,20 +156,15 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
           }
           return;
 
-        case 'turn_session': {
-          if (deviceId === undefined) {
-            return;
-          }
-
-          // The engine name is recorded with the id, because an id only means
-          // something to the engine that issued it.
-          const device = devices.findById(deviceId);
-
-          if (device !== undefined) {
-            relay.engineSession(deviceId, message.turnId, message.engineSessionId, device.engine);
+        case 'turn_session':
+          if (deviceId !== undefined) {
+            // The engine name is recorded with the id, because an id only means
+            // something to the engine that issued it. It comes from the turn
+            // rather than the device: a device runs several engines now, and only
+            // the turn knows which one answered.
+            relay.engineSession(deviceId, message.turnId, message.engineSessionId);
           }
           return;
-        }
 
         case 'turn_done':
           if (deviceId !== undefined) {

@@ -17,8 +17,7 @@ const register = {
   deviceId: 'device-1',
   deviceName: 'Test Mac',
   workspace: '/work',
-  engine: 'opencode',
-  models: ['opencode/fast'],
+  engines: [{ name: 'opencode', models: ['opencode/fast'] }],
 };
 
 test('health reports the database is reachable', async () => {

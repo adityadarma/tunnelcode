@@ -87,7 +87,9 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
         return;
       }
 
-      if (conversationRepository.findById(message.conversationId) === undefined) {
+      const conversation = conversationRepository.findById(message.conversationId);
+
+      if (conversation === undefined) {
         reply({ type: 'error', message: 'Unknown conversation.' });
         return;
       }
@@ -99,12 +101,34 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
         return;
       }
 
-      // A model the engine never reported is refused here, so the CLI is never
-      // asked for something its engine cannot serve.
-      if (message.model !== undefined && !device.models.includes(message.model)) {
-        reply({ type: 'error', message: 'That model is not available on this device.' });
+      // Read from the conversation rather than the message: the engine belongs to
+      // the conversation, so two tabs cannot disagree about which one answers.
+      // A conversation created before conversations had an engine falls back to the
+      // one its session was paired with. See ADR-020.
+      const engineName =
+        conversation.engine ?? sessionRepository.findSessionDetail(sessionId)?.engine;
+      const engine =
+        engineName === undefined ? undefined : devices.findEngine(deviceId, engineName);
+
+      // The engine was installed when the conversation was created but is not now.
+      // Named in the message, because "offline" would send the user looking at the
+      // wrong thing.
+      if (engine === undefined) {
+        reply({
+          type: 'error',
+          message: `Engine ${engineName ?? 'unknown'} is no longer available on this device.`,
+        });
         return;
       }
+
+      // A model the engine never reported is refused here, so the CLI is never
+      // asked for something its engine cannot serve. This can happen without any
+      // browser doing anything wrong: the engine may have dropped a model since the
+      // conversation chose it.
+      const model =
+        conversation.model !== null && engine.models.includes(conversation.model)
+          ? conversation.model
+          : undefined;
 
       // Checked before storing, so a refused prompt does not end up in the
       // history as a question without an answer.
@@ -137,6 +161,9 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
         sessionId,
         deviceId,
         conversationId: message.conversationId,
+        // Recorded on the turn, because an engine session id reported later only
+        // means something to the engine that issued it.
+        engine: engine.name,
       });
 
       // Continuing the engine conversation is what gives the agent memory of
@@ -144,7 +171,7 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
       // id, since an id means nothing to a different engine.
       const engineSession = conversationRepository.findEngineSession(message.conversationId);
       const resume =
-        engineSession !== undefined && engineSession.engine === device.engine
+        engineSession !== undefined && engineSession.engine === engine.name
           ? engineSession.id
           : undefined;
 
@@ -152,7 +179,8 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
         type: 'prompt',
         turnId: turn.id,
         text: message.text,
-        ...(message.model !== undefined ? { model: message.model } : {}),
+        engine: engine.name,
+        ...(model !== undefined ? { model } : {}),
         ...(resume !== undefined ? { resume } : {}),
       });
     };

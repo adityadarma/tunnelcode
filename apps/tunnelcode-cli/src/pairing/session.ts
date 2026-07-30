@@ -1,4 +1,5 @@
-import type { Engine } from '@tunnelcode/engine';
+import { createEngine } from '@tunnelcode/engine';
+import type { AvailableEngine, Engine } from '@tunnelcode/engine';
 import { PairingClient } from './client.js';
 import { askApproval } from './approval.js';
 import { buildCliSocketUrl, buildLoginUrl, generatePairingCode } from './code.js';
@@ -12,8 +13,13 @@ export interface PairingSessionOptions {
   deviceId: string;
   deviceName: string;
   workspace: string;
-  engine: Engine;
-  models: string[];
+  /**
+   * Engines this machine can run, in the order the browser should see them.
+   *
+   * All of them are offered, because a conversation picks its own engine. See
+   * ADR-020.
+   */
+  engines: AvailableEngine[];
 }
 
 /** Backoff between reconnect attempts, capped so it keeps retrying. */
@@ -185,8 +191,7 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
     deviceId: options.deviceId,
     deviceName: options.deviceName,
     workspace: options.workspace,
-    engine: options.engine.name,
-    models: options.models,
+    engines: options.engines.map((engine) => ({ name: engine.name, models: engine.models })),
 
     onRegistered: () => {
       local.registered = true;
@@ -197,8 +202,8 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
       }
     },
 
-    onPrompt: async (turnId, text, model, resume) => {
-      await runner.run(turnId, text, model, resume);
+    onPrompt: async (turnId, text, engineName, model, resume) => {
+      await runner.run(turnId, text, engineName, model, resume);
     },
 
     onPairRequest: async (approvalNumber) => {
@@ -239,8 +244,21 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
     },
   });
 
+  // Built from the same list that was registered, so a prompt can only ever name
+  // an engine this machine actually has. Adapters are stateless, so one instance
+  // per engine is reused for every turn.
+  const engines = new Map<string, Engine>();
+
+  for (const available of options.engines) {
+    const engine = createEngine(available.name);
+
+    if (engine !== undefined) {
+      engines.set(available.name, engine);
+    }
+  }
+
   const runner = new PromptRunner({
-    engine: options.engine,
+    engines,
     cwd: options.workspace,
     send: (message) => {
       client.report(message);

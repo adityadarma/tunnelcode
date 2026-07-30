@@ -1,20 +1,31 @@
-import type { Conversation } from '../api.js';
+import type { Conversation, DeviceEngine } from '../api.js';
+import { NewConversationButton } from './NewConversationButton.js';
 
 interface ConversationListProps {
   conversations: Conversation[];
   activeId: string | undefined;
+  /** Engines the paired machine can run, offered when starting a conversation. */
+  engines: DeviceEngine[];
+  /** True while the device is offline, when a new conversation cannot be created. */
+  createDisabled: boolean;
   onSelect: (id: string) => void;
-  onCreate: () => void;
+  onCreate: (engine: string | undefined) => void;
   onDelete?: (id: string) => void;
 }
 
 /**
  * Conversation switcher. Untitled entries fall back to a label rather than an
  * empty row, since a conversation is only named once its first prompt arrives.
+ *
+ * Each row names the engine and model it runs on, because those are fixed per
+ * conversation now and the list is where two conversations are compared.
+ * See ADR-020.
  */
 export function ConversationList({
   conversations,
   activeId,
+  engines,
+  createDisabled,
   onSelect,
   onCreate,
   onDelete,
@@ -40,12 +51,7 @@ export function ConversationList({
           </svg>
           <h2>Conversations</h2>
         </div>
-        <button type="button" className="btn-new" onClick={onCreate}>
-          <span aria-hidden="true" className="btn-new-icon">
-            +
-          </span>{' '}
-          New
-        </button>
+        <NewConversationButton engines={engines} disabled={createDisabled} onCreate={onCreate} />
       </div>
 
       {sortedConversations.length === 0 ? (
@@ -75,7 +81,17 @@ export function ConversationList({
                 >
                   <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
                 </svg>
-                <span className="item-title">{conversation.title ?? 'Untitled conversation'}</span>
+                <span className="item-text">
+                  <span className="item-title">
+                    {conversation.title ?? 'Untitled conversation'}
+                  </span>
+                  {conversation.engine !== null && (
+                    <span className="item-meta">
+                      {conversation.engine}
+                      {conversation.model !== null && ` · ${conversation.model}`}
+                    </span>
+                  )}
+                </span>
               </button>
               {onDelete !== undefined && (
                 <button

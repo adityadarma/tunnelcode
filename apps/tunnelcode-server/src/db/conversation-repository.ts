@@ -29,6 +29,13 @@ export interface StoredActivity {
 export interface StoredConversation {
   id: string;
   title: string | null;
+  /**
+   * Engine every prompt here runs through. Null on a conversation created before
+   * conversations had one, which falls back to the engine of its session.
+   */
+  engine: string | null;
+  /** Model asked for, or null to let the engine decide. */
+  model: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -62,18 +69,52 @@ function deriveTitle(text: string): string {
 export class ConversationRepository {
   constructor(private readonly db: Db) {}
 
-  create(sessionId: string): StoredConversation {
+  /**
+   * Creates a conversation on one engine.
+   *
+   * The engine is fixed here and never updated afterwards: the agent builds up
+   * context inside an engine session, and moving the conversation elsewhere would
+   * throw that away without saying so. The model is optional, meaning the engine
+   * default. See ADR-020.
+   */
+  create(sessionId: string, engine: string, model?: string): StoredConversation {
     const now = Date.now();
     const row = {
       id: randomUUID(),
       sessionId,
       title: null,
+      engine,
+      model: model ?? null,
       createdAt: now,
       updatedAt: now,
     };
 
     this.db.insert(conversations).values(row).run();
-    return { id: row.id, title: row.title, createdAt: now, updatedAt: now };
+
+    return {
+      id: row.id,
+      title: row.title,
+      engine: row.engine,
+      model: row.model,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  /**
+   * Changes the model a conversation asks for.
+   *
+   * Allowed where changing the engine is not: a different model of the same engine
+   * still understands the engine session, so the context carries over.
+   */
+  setModel(conversationId: string, model: string | undefined): boolean {
+    const result = this.db
+      .update(conversations)
+      .set({ model: model ?? null, updatedAt: Date.now() })
+      .where(eq(conversations.id, conversationId))
+      .run();
+
+    return result.changes > 0;
   }
 
   /**
@@ -205,6 +246,8 @@ export class ConversationRepository {
       .select({
         id: conversations.id,
         title: conversations.title,
+        engine: conversations.engine,
+        model: conversations.model,
         createdAt: conversations.createdAt,
         updatedAt: conversations.updatedAt,
       })
@@ -242,6 +285,8 @@ export class ConversationRepository {
       .select({
         id: conversations.id,
         title: conversations.title,
+        engine: conversations.engine,
+        model: conversations.model,
         createdAt: conversations.createdAt,
         updatedAt: conversations.updatedAt,
       })

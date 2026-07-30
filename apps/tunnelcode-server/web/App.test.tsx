@@ -23,7 +23,7 @@ function stubFetch(): void {
               workspace: '/work',
               engine: 'opencode',
               online: true,
-              models: [],
+              engines: [{ name: 'opencode', models: [] }],
             };
 
     return Promise.resolve({

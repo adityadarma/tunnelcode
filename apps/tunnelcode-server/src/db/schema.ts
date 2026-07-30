@@ -23,6 +23,13 @@ export const sessions = sqliteTable('sessions', {
     .notNull()
     .references(() => devices.id, { onDelete: 'cascade' }),
   workspace: text('workspace').notNull(),
+  /**
+   * Engine the session was paired with, which is what a conversation created in
+   * it starts on.
+   *
+   * No longer the engine every prompt runs through: a conversation records its
+   * own, and this is only the starting point. See ADR-020.
+   */
   engine: text('engine').notNull(),
   createdAt: integer('created_at').notNull(),
   endedAt: integer('ended_at'),
@@ -36,6 +43,24 @@ export const conversations = sqliteTable(
       .notNull()
       .references(() => sessions.id, { onDelete: 'cascade' }),
     title: text('title'),
+    /**
+     * Engine every prompt in this conversation runs through.
+     *
+     * Chosen once, when the conversation is created, and never changed: the agent
+     * accumulates context in an engine session, and moving a conversation to a
+     * different engine would abandon it silently. Null on a conversation created
+     * before this existed, which falls back to the engine of its session.
+     * See ADR-020.
+     */
+    engine: text('engine'),
+    /**
+     * Model this conversation currently asks for, or null to let the engine
+     * decide.
+     *
+     * Unlike the engine this can change: a model swap stays inside the same
+     * engine, so the engine session and its context survive it.
+     */
+    model: text('model'),
     /**
      * The engine's own conversation id, so the next prompt continues where the
      * last one left off instead of starting an agent with no memory.

@@ -11,8 +11,8 @@ export interface PairingClientOptions {
   deviceId: string;
   deviceName: string;
   workspace: string;
-  engine: string;
-  models: string[];
+  /** Engines this machine can run, each with the models it reported. */
+  engines: { name: string; models: string[] }[];
   /** Asked when the server forwards a pairing request. */
   onPairRequest: (approvalNumber: string) => Promise<boolean>;
   onRegistered: (deviceId: string) => void;
@@ -25,6 +25,8 @@ export interface PairingClientOptions {
   onPrompt: (
     turnId: string,
     text: string,
+    /** Engine the conversation runs on, always one this CLI registered. */
+    engine: string,
     model: string | undefined,
     resume: string | undefined,
   ) => Promise<void>;
@@ -53,8 +55,7 @@ export class PairingClient {
         deviceId: options.deviceId,
         deviceName: options.deviceName,
         workspace: options.workspace,
-        engine: options.engine,
-        models: options.models,
+        engines: options.engines,
       });
       this.pingTimer = setInterval(() => {
         this.send({ type: 'ping' });
@@ -148,7 +149,13 @@ export class PairingClient {
         return;
 
       case 'prompt':
-        await this.options.onPrompt(message.turnId, message.text, message.model, message.resume);
+        await this.options.onPrompt(
+          message.turnId,
+          message.text,
+          message.engine,
+          message.model,
+          message.resume,
+        );
         return;
 
       case 'pong':

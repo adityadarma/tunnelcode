@@ -203,7 +203,8 @@ The browser pairs through the UI, showing the approval number.
 
 The conversation layout renders stored history.
 
-The model picker only offers models from the engine chosen in the terminal.
+The model picker only offers models the conversation's engine reported.
+Superseded in part by Milestone 14: the engine is chosen in the browser now.
 
 ---
 
@@ -350,3 +351,43 @@ Setup offers one engine setting.
 A config file left in a project directory changes nothing.
 
 `engine` is the only name the config accepts for the engine setting.
+
+---
+
+# Milestone 14 — Engine Per Conversation
+
+## Goal
+
+Let the browser choose which engine answers, from the engines the machine actually
+has, without letting a running conversation lose its context. See ADR-020.
+
+### Tasks
+
+- [x] Discover the engines that are both supported and installed on PATH
+- [x] Register every installed engine with its own models
+- [x] Refuse to start a session when no engine is installed
+- [x] Setup engine becomes the engine a new conversation starts on
+- [x] Record the engine and the model on the conversation
+- [x] Choose the engine when creating a conversation, never after
+- [x] Change the model of an existing conversation
+- [x] Resolve engine and model on the server, not from the prompt
+- [x] Route each prompt to the engine its conversation names
+- [x] Show the engine and model of every conversation in the list
+- [x] Unit: discovery reports only the intersection, with per-engine models
+- [x] Unit: a prompt naming an uninstalled engine fails its turn
+- [x] Unit: a device lookup validates a model against its own engine
+- [x] Integration: a model belonging to another engine is refused
+- [x] Integration: a conversation keeps its engine across prompts
+- [x] Integration: the model can be changed, the engine cannot
+- [x] UI: one engine creates directly, several offer a choice
+
+Acceptance
+
+The browser starts a conversation on any engine the paired machine has installed.
+
+A conversation answers on that engine for its whole life, so the agent never
+silently loses the context it built up.
+
+The model can be changed within the conversation's engine.
+
+A machine with no installed engine says so instead of pairing.

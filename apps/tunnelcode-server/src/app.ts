@@ -113,7 +113,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   registerPairRoutes(app, { devices, sessions, registry });
   registerSessionRoutes(app, { sessionRepository, devices });
   await registerWeb(app);
-  registerConversationRoutes(app, { conversationRepository, sessionRepository });
+  registerConversationRoutes(app, { conversationRepository, sessionRepository, devices });
 
   return app;
 }

@@ -1,6 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { connect, getJson, postEmpty, postJson, waitUntil, withServer } from './server-helpers.ts';
+import {
+  connect,
+  getJson,
+  patchJson,
+  postEmpty,
+  postJson,
+  waitUntil,
+  withServer,
+} from './server-helpers.ts';
 import type { Recorder } from './server-helpers.ts';
 
 interface CliEvent {
@@ -10,6 +18,9 @@ interface CliEvent {
   requestId?: string;
   message?: string;
   resume?: string;
+  /** Engine and model the server resolved from the conversation. */
+  engine?: string;
+  model?: string;
 }
 
 interface BrowserEvent {
@@ -37,8 +48,10 @@ const register = {
   deviceId: 'device-1',
   deviceName: 'Test Mac',
   workspace: '/work',
-  engine: 'opencode',
-  models: ['opencode/fast', 'opencode/slow'],
+  engines: [
+    { name: 'opencode', models: ['opencode/fast', 'opencode/slow'] },
+    { name: 'claude', models: ['sonnet', 'haiku'] },
+  ],
 };
 
 interface Paired {
@@ -77,14 +90,19 @@ function answer(cli: Recorder<CliEvent>, turnId: string, fragments: string[]): v
   cli.send({ type: 'turn_done', turnId, text: fragments.join('') });
 }
 
-test('the session reports the engine and its models', async () => {
+test('the session reports every engine the machine can run', async () => {
   await withServer(async ({ baseUrl }) => {
     const { cli, sessionId } = await pair(baseUrl);
     const session = await getJson(baseUrl, `/sessions/${sessionId}`);
 
+    // The leading engine is what a new conversation starts on, and each engine
+    // carries its own models so one engine's model is never offered for another.
     assert.equal(session.body['engine'], 'opencode');
     assert.equal(session.body['online'], true);
-    assert.deepEqual(session.body['models'], ['opencode/fast', 'opencode/slow']);
+    assert.deepEqual(session.body['engines'], [
+      { name: 'opencode', models: ['opencode/fast', 'opencode/slow'] },
+      { name: 'claude', models: ['sonnet', 'haiku'] },
+    ]);
 
     cli.close();
   });
@@ -306,23 +324,81 @@ test('a partial answer survives the failure that cut it short', async () => {
   });
 });
 
-test('a model the engine never reported is refused', async () => {
+test('a model belonging to another engine is refused', async () => {
   await withServer(async ({ baseUrl }) => {
-    const { cli, sessionId, conversationId } = await pair(baseUrl);
+    const { cli, sessionId } = await pair(baseUrl);
+
+    // sonnet is real, but it belongs to claude. Refused at creation, so the
+    // conversation is never left in a state it cannot answer in. See ADR-020.
+    const created = await postJson(baseUrl, `/sessions/${sessionId}/conversations`, {
+      engine: 'opencode',
+      model: 'sonnet',
+    });
+
+    assert.equal(created.status, 400);
+    assert.match(String(created.body['error']), /not available/);
+
+    cli.close();
+  });
+});
+
+test('a model of the chosen engine is accepted and used', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const { cli, sessionId } = await pair(baseUrl);
+
+    const created = await postJson(baseUrl, `/sessions/${sessionId}/conversations`, {
+      engine: 'claude',
+      model: 'haiku',
+    });
+
+    assert.equal(created.status, 201);
 
     const browser = await connect<BrowserEvent>(baseUrl, '/ws/browser');
     browser.send({ type: 'attach', sessionId });
     await browser.waitFor((events) => events.some((event) => event.type === 'attached'));
 
-    browser.send({ type: 'prompt', conversationId, text: 'hi', model: 'sonnet' });
-    await browser.waitFor((events) => events.some((event) => event.type === 'error'));
+    browser.send({ type: 'prompt', conversationId: String(created.body['id']), text: 'hi' });
+    await cli.waitFor((events) => events.some((event) => event.type === 'prompt'));
 
-    assert.match(browser.events.at(-1)?.message ?? '', /not available/);
+    // The prompt carries what the conversation chose, not what the browser sent:
+    // the browser sends neither.
+    const prompt = cli.events.find((event) => event.type === 'prompt');
+    assert.equal(prompt?.engine, 'claude');
+    assert.equal(prompt?.model, 'haiku');
 
-    // The CLI must never even be asked.
-    assert.equal(
-      cli.events.some((event) => event.type === 'prompt'),
-      false,
+    browser.close();
+    cli.close();
+  });
+});
+
+test('a conversation keeps its engine for every prompt', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const { cli, sessionId } = await pair(baseUrl);
+
+    const created = await postJson(baseUrl, `/sessions/${sessionId}/conversations`, {
+      engine: 'claude',
+    });
+    const conversationId = String(created.body['id']);
+
+    const browser = await connect<BrowserEvent>(baseUrl, '/ws/browser');
+    browser.send({ type: 'attach', sessionId });
+    await browser.waitFor((events) => events.some((event) => event.type === 'attached'));
+
+    browser.send({ type: 'prompt', conversationId, text: 'first' });
+    await cli.waitFor((events) => events.some((event) => event.type === 'prompt'));
+
+    const first = cli.events.find((event) => event.type === 'prompt');
+    answer(cli, String(first?.turnId), ['ok']);
+    await browser.waitFor((events) => events.some((event) => event.type === 'turn_done'));
+
+    browser.send({ type: 'prompt', conversationId, text: 'second' });
+    await cli.waitFor(() => cli.events.filter((event) => event.type === 'prompt').length === 2);
+
+    // The engine is fixed for the life of the conversation, because the agent's
+    // context lives in an engine session.
+    assert.deepEqual(
+      cli.events.filter((event) => event.type === 'prompt').map((event) => event.engine),
+      ['claude', 'claude'],
     );
 
     browser.close();
@@ -330,18 +406,75 @@ test('a model the engine never reported is refused', async () => {
   });
 });
 
-test('a reported model is accepted', async () => {
+test('the model of a conversation can be changed', async () => {
   await withServer(async ({ baseUrl }) => {
-    const { cli, sessionId, conversationId } = await pair(baseUrl);
+    const { cli, sessionId } = await pair(baseUrl);
+
+    const created = await postJson(baseUrl, `/sessions/${sessionId}/conversations`, {
+      engine: 'opencode',
+      model: 'opencode/fast',
+    });
+    const conversationId = String(created.body['id']);
+
+    const patched = await patchJson(baseUrl, `/conversations/${conversationId}`, {
+      model: 'opencode/slow',
+    });
+
+    assert.equal(patched.status, 200);
+    assert.equal(patched.body['model'], 'opencode/slow');
 
     const browser = await connect<BrowserEvent>(baseUrl, '/ws/browser');
     browser.send({ type: 'attach', sessionId });
     await browser.waitFor((events) => events.some((event) => event.type === 'attached'));
 
-    browser.send({ type: 'prompt', conversationId, text: 'hi', model: 'opencode/slow' });
+    browser.send({ type: 'prompt', conversationId, text: 'hi' });
     await cli.waitFor((events) => events.some((event) => event.type === 'prompt'));
 
+    // A model swap stays inside the same engine, so the engine session survives it.
+    const prompt = cli.events.find((event) => event.type === 'prompt');
+    assert.equal(prompt?.engine, 'opencode');
+    assert.equal(prompt?.model, 'opencode/slow');
+
     browser.close();
+    cli.close();
+  });
+});
+
+test('the engine of a conversation cannot be changed', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const { cli, sessionId } = await pair(baseUrl);
+
+    const created = await postJson(baseUrl, `/sessions/${sessionId}/conversations`, {
+      engine: 'opencode',
+    });
+    const conversationId = String(created.body['id']);
+
+    // Sent the way a client that assumed engines were switchable would send it.
+    // The field is ignored rather than honoured, and the model is validated against
+    // the engine the conversation already has.
+    const patched = await patchJson(baseUrl, `/conversations/${conversationId}`, {
+      engine: 'claude',
+      model: 'sonnet',
+    });
+
+    assert.equal(patched.status, 400);
+    assert.match(String(patched.body['error']), /not available/);
+
+    cli.close();
+  });
+});
+
+test('a conversation cannot be created on an engine the machine lacks', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const { cli, sessionId } = await pair(baseUrl);
+
+    const created = await postJson(baseUrl, `/sessions/${sessionId}/conversations`, {
+      engine: 'gemini',
+    });
+
+    assert.equal(created.status, 400);
+    assert.match(String(created.body['error']), /not available/);
+
     cli.close();
   });
 });

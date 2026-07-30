@@ -9,18 +9,37 @@ export interface PairStatusResponse {
   sessionId?: string;
 }
 
+/** An engine the paired machine can run, with the models it reported. */
+export interface DeviceEngine {
+  name: string;
+  models: string[];
+}
+
 export interface SessionDetail {
   id: string;
   deviceName: string;
   workspace: string;
+  /** Engine a new conversation starts on, as named in the terminal. */
   engine: string;
   online: boolean;
-  models: string[];
+  /**
+   * Every engine installed on the machine. A conversation picks one when it is
+   * created. Empty while the device is offline, since the list describes what the
+   * running CLI can serve. See ADR-020.
+   */
+  engines: DeviceEngine[];
 }
 
 export interface Conversation {
   id: string;
   title: string | null;
+  /**
+   * Engine every prompt in this conversation runs through, fixed when it was
+   * created. Null on a conversation from before conversations had one.
+   */
+  engine: string | null;
+  /** Model asked for, or null to let the engine decide. */
+  model: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -115,9 +134,47 @@ export async function listConversations(sessionId: string): Promise<Conversation
   return body.conversations;
 }
 
-export async function createConversation(sessionId: string): Promise<Conversation> {
+/**
+ * Creates a conversation on one engine.
+ *
+ * The engine is chosen here and never again: the agent's context lives in an
+ * engine session, so moving a conversation to another engine would abandon it.
+ * See ADR-020.
+ */
+export async function createConversation(
+  sessionId: string,
+  engine?: string,
+  model?: string,
+): Promise<Conversation> {
+  const choice = {
+    ...(engine !== undefined ? { engine } : {}),
+    ...(model !== undefined ? { model } : {}),
+  };
+
+  // Sent without a body when there is nothing to choose, so the request does not
+  // announce json it never sends. The server then falls back to the engine the
+  // terminal named.
+  const hasChoice = Object.keys(choice).length > 0;
+
   return request<Conversation>(`/sessions/${encodeURIComponent(sessionId)}/conversations`, {
     method: 'POST',
+    ...(hasChoice ? { body: JSON.stringify(choice) } : {}),
+  });
+}
+
+/**
+ * Changes the model of a conversation.
+ *
+ * Allowed where changing the engine is not: a different model of the same engine
+ * still understands the engine session, so the context survives.
+ */
+export async function updateConversationModel(
+  conversationId: string,
+  model: string | undefined,
+): Promise<Conversation> {
+  return request<Conversation>(`/conversations/${encodeURIComponent(conversationId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ model: model ?? null }),
   });
 }
 

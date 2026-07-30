@@ -400,14 +400,69 @@ select:focus {
   color: var(--accent);
 }
 
+.conversation-item .item-text {
+  display: grid;
+  gap: 0.15rem;
+  flex: 1;
+  min-width: 0;
+  width: 0;
+}
+
 .conversation-item .item-title {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-  width: 0;
+}
+
+/* Engine and model of the conversation, kept quiet so the title still leads. */
+.conversation-item .item-meta {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 400;
+}
+
+/* Anchors the engine menu to the button that opens it. */
+.new-conversation {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.engine-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.35rem);
+  z-index: 20;
+  min-width: 9rem;
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 25%);
+}
+
+.engine-menu-item {
+  display: block;
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: 0;
+  border-radius: 0.35rem;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.83rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.engine-menu-item:hover,
+.engine-menu-item:focus-visible {
+  background: var(--surface-2);
 }
 
 /* Device Status Section */
@@ -580,6 +635,21 @@ select:focus {
   white-space: nowrap;
   font-size: 1.05rem;
   color: var(--text);
+}
+
+/* Engine of the open conversation. Fixed for its life, so it reads as a label
+   rather than a control. */
+.engine-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 500;
 }
 
 .menu-button {

@@ -42,17 +42,19 @@ export class TurnRelay {
    * Nothing is sent to the browser: the id is only meaningful to the engine that
    * issued it, and it is not part of the transcript the user reads.
    */
-  engineSession(deviceId: string, turnId: string, engineSessionId: string, engine: string): void {
+  engineSession(deviceId: string, turnId: string, engineSessionId: string): void {
     const turn = this.options.turns.findForDevice(turnId, deviceId);
 
     if (turn === undefined) {
       return;
     }
 
+    // The engine comes from the turn, since that is what knows which engine the
+    // prompt was sent to.
     this.options.conversationRepository.setEngineSession(
       turn.conversationId,
       engineSessionId,
-      engine,
+      turn.engine,
     );
   }
 

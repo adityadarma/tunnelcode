@@ -5,6 +5,7 @@ import {
   pairingCodeSchema,
   parseBrowserMessage,
   parseCliMessage,
+  serverToCliMessageSchema,
 } from '../dist/index.js';
 
 test('a pairing code must be 8 uppercase letters', () => {
@@ -40,8 +41,7 @@ test('register requires every field the server records', () => {
     deviceId: 'device-1',
     deviceName: 'Test Mac',
     workspace: '/work',
-    engine: 'opencode',
-    models: ['opencode/fast'],
+    engines: [{ name: 'opencode', models: ['opencode/fast'] }],
   });
 
   assert.notEqual(parseCliMessage(complete), undefined);
@@ -52,11 +52,85 @@ test('register requires every field the server records', () => {
     code: 'ABCDEFGH',
     deviceName: 'Test Mac',
     workspace: '/work',
-    engine: 'opencode',
-    models: [],
+    engines: [{ name: 'opencode', models: [] }],
   });
 
   assert.equal(parseCliMessage(missingId), undefined);
+});
+
+test('register must offer at least one engine', () => {
+  // A CLI with no engine installed cannot answer anything, so registering one
+  // would only produce a session whose every prompt fails. See ADR-020.
+  const none = JSON.stringify({
+    type: 'register',
+    code: 'ABCDEFGH',
+    deviceId: 'device-1',
+    deviceName: 'Test Mac',
+    workspace: '/work',
+    engines: [],
+  });
+
+  assert.equal(parseCliMessage(none), undefined);
+});
+
+test('register carries the models of each engine separately', () => {
+  const parsed = parseCliMessage(
+    JSON.stringify({
+      type: 'register',
+      code: 'ABCDEFGH',
+      deviceId: 'device-1',
+      deviceName: 'Test Mac',
+      workspace: '/work',
+      engines: [
+        { name: 'opencode', models: ['opencode/fast'] },
+        { name: 'claude', models: ['sonnet', 'haiku'] },
+      ],
+    }),
+  );
+
+  // Models belong to an engine, so a browser can never offer one engine's model
+  // for another.
+  assert.equal(parsed?.type, 'register');
+  assert.deepEqual(parsed?.type === 'register' ? parsed.engines[1] : undefined, {
+    name: 'claude',
+    models: ['sonnet', 'haiku'],
+  });
+});
+
+test('a prompt to the CLI names the engine to run', () => {
+  assert.equal(
+    serverToCliMessageSchema.safeParse({
+      type: 'prompt',
+      turnId: 't1',
+      text: 'hi',
+      engine: 'claude',
+    }).success,
+    true,
+  );
+
+  // Without it the CLI would have to guess which of its engines to use.
+  assert.equal(
+    serverToCliMessageSchema.safeParse({ type: 'prompt', turnId: 't1', text: 'hi' }).success,
+    false,
+  );
+});
+
+test('a browser prompt carries no engine or model', () => {
+  // Both belong to the conversation and are read from it on the server, so two
+  // tabs cannot disagree about which engine answers. See ADR-020.
+  const parsed = parseBrowserMessage(
+    JSON.stringify({
+      type: 'prompt',
+      conversationId: 'c1',
+      text: 'hi',
+      engine: 'claude',
+      model: 'sonnet',
+    }),
+  );
+
+  assert.equal(parsed?.type, 'prompt');
+  assert.equal('engine' in (parsed ?? {}), false);
+  assert.equal('model' in (parsed ?? {}), false);
 });
 
 test('an empty prompt is refused', () => {
@@ -65,15 +139,6 @@ test('an empty prompt is refused', () => {
 
   const valid = JSON.stringify({ type: 'prompt', conversationId: 'c1', text: 'hello' });
   assert.notEqual(parseBrowserMessage(valid), undefined);
-});
-
-test('a prompt may omit the model', () => {
-  const parsed = parseBrowserMessage(
-    JSON.stringify({ type: 'prompt', conversationId: 'c1', text: 'hi' }),
-  );
-
-  assert.equal(parsed?.type, 'prompt');
-  assert.equal(parsed?.type === 'prompt' ? parsed.model : 'x', undefined);
 });
 
 test('attach requires a session id', () => {

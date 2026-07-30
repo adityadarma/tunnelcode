@@ -129,6 +129,24 @@ export async function postJson(
   };
 }
 
+export async function patchJson(
+  baseUrl: string,
+  path: string,
+  body: unknown,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  const text = await response.text();
+  return {
+    status: response.status,
+    body: text === '' ? {} : (JSON.parse(text) as Record<string, unknown>),
+  };
+}
+
 /**
  * POST with no body and no content-type, the way the browser sends a request that
  * carries everything in its path.

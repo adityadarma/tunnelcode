@@ -4,8 +4,20 @@ import userEvent from '@testing-library/user-event';
 import { ConversationList } from './ConversationList.js';
 
 const conversations = [
-  { id: 'c1', title: 'First question', createdAt: 1, updatedAt: 2 },
-  { id: 'c2', title: null, createdAt: 3, updatedAt: 4 },
+  {
+    id: 'c1',
+    title: 'First question',
+    engine: 'opencode',
+    model: 'opencode/fast',
+    createdAt: 1,
+    updatedAt: 2,
+  },
+  { id: 'c2', title: null, engine: 'claude', model: null, createdAt: 3, updatedAt: 4 },
+];
+
+const engines = [
+  { name: 'opencode', models: ['opencode/fast'] },
+  { name: 'claude', models: ['sonnet'] },
 ];
 
 describe('ConversationList', () => {
@@ -14,6 +26,8 @@ describe('ConversationList', () => {
       <ConversationList
         conversations={[]}
         activeId={undefined}
+        engines={engines}
+        createDisabled={false}
         onSelect={vi.fn()}
         onCreate={vi.fn()}
       />,
@@ -27,6 +41,8 @@ describe('ConversationList', () => {
       <ConversationList
         conversations={conversations}
         activeId="c1"
+        engines={engines}
+        createDisabled={false}
         onSelect={vi.fn()}
         onCreate={vi.fn()}
       />,
@@ -34,7 +50,25 @@ describe('ConversationList', () => {
 
     // A conversation is only named once its first prompt arrives, so the row must
     // not render empty until then.
-    expect(screen.getByRole('button', { name: 'Untitled conversation' })).toBeDefined();
+    expect(screen.getByRole('button', { name: /Untitled conversation/ })).toBeDefined();
+  });
+
+  test('each row names the engine it runs on', () => {
+    render(
+      <ConversationList
+        conversations={conversations}
+        activeId="c1"
+        engines={engines}
+        createDisabled={false}
+        onSelect={vi.fn()}
+        onCreate={vi.fn()}
+      />,
+    );
+
+    // The engine is fixed per conversation, so the list is where two of them are
+    // told apart.
+    expect(screen.getByText('opencode', { exact: false })).toBeDefined();
+    expect(screen.getByText('claude', { exact: false })).toBeDefined();
   });
 
   test('the active conversation is marked for assistive technology', () => {
@@ -42,16 +76,18 @@ describe('ConversationList', () => {
       <ConversationList
         conversations={conversations}
         activeId="c1"
+        engines={engines}
+        createDisabled={false}
         onSelect={vi.fn()}
         onCreate={vi.fn()}
       />,
     );
 
     expect(
-      screen.getByRole('button', { name: 'First question' }).getAttribute('aria-current'),
+      screen.getByRole('button', { name: /First question/ }).getAttribute('aria-current'),
     ).toBe('true');
     expect(
-      screen.getByRole('button', { name: 'Untitled conversation' }).getAttribute('aria-current'),
+      screen.getByRole('button', { name: /Untitled conversation/ }).getAttribute('aria-current'),
     ).toBeNull();
   });
 
@@ -61,22 +97,26 @@ describe('ConversationList', () => {
       <ConversationList
         conversations={conversations}
         activeId="c1"
+        engines={engines}
+        createDisabled={false}
         onSelect={onSelect}
         onCreate={vi.fn()}
       />,
     );
 
-    await userEvent.click(screen.getByRole('button', { name: 'Untitled conversation' }));
+    await userEvent.click(screen.getByRole('button', { name: /Untitled conversation/ }));
 
     expect(onSelect).toHaveBeenCalledWith('c2');
   });
 
-  test('the new button asks for a conversation', async () => {
+  test('one engine creates without asking which', async () => {
     const onCreate = vi.fn();
     render(
       <ConversationList
         conversations={conversations}
         activeId="c1"
+        engines={engines.slice(0, 1)}
+        createDisabled={false}
         onSelect={vi.fn()}
         onCreate={onCreate}
       />,
@@ -84,6 +124,44 @@ describe('ConversationList', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'New' }));
 
-    expect(onCreate).toHaveBeenCalledOnce();
+    // Nothing to choose between, so the engine is left to the server.
+    expect(onCreate).toHaveBeenCalledWith(undefined);
+  });
+
+  test('several engines ask which one to start on', async () => {
+    const onCreate = vi.fn();
+    render(
+      <ConversationList
+        conversations={conversations}
+        activeId="c1"
+        engines={engines}
+        createDisabled={false}
+        onSelect={vi.fn()}
+        onCreate={onCreate}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'New' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'claude' }));
+
+    // The engine is chosen here because it can never be changed afterwards.
+    expect(onCreate).toHaveBeenCalledWith('claude');
+  });
+
+  test('creating is refused while the device is offline', () => {
+    render(
+      <ConversationList
+        conversations={conversations}
+        activeId="c1"
+        engines={[]}
+        createDisabled
+        onSelect={vi.fn()}
+        onCreate={vi.fn()}
+      />,
+    );
+
+    // The engine list describes what the running CLI can serve, so there is
+    // nothing to create against while it is gone.
+    expect(screen.getByRole('button', { name: 'New' }).hasAttribute('disabled')).toBe(true);
   });
 });

@@ -8,11 +8,14 @@ interface ModelPickerProps {
 const DEFAULT_VALUE = '__default__';
 
 /**
- * Model selector.
+ * Model selector for the open conversation.
  *
- * The options come from the engine the terminal chose, so the browser can never
- * ask for a model that engine cannot serve. An engine that reports no models
- * hides the picker rather than offering a guess.
+ * The options come from the engine that conversation was created on, so the
+ * browser can never ask for a model that engine cannot serve. An engine that
+ * reports no models hides the picker rather than offering a guess.
+ *
+ * Only the model is switchable here. The engine is fixed when the conversation is
+ * created, because the agent's context lives in an engine session. See ADR-020.
  */
 export function ModelPicker({
   models,

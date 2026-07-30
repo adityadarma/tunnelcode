@@ -78,6 +78,23 @@ Setup holds four entries: Server URL, Device name, Engine, and Check environment
 Each field is written as soon as it is answered, so leaving the menu never
 discards a change. Arrow keys and Enter move through the lists, Escape goes back.
 
+## Engines
+
+The CLI offers every engine that is both supported here and installed on your
+machine. Nothing else is offered, so a choice made in the browser can always be
+served. If no engine is installed, the session does not start.
+
+The engine is chosen in the browser, once per conversation, when the conversation is
+created. It cannot be changed afterwards: the agent's memory of what was said lives
+in an engine session, and moving a conversation to another engine would abandon it
+without saying so. Start a new conversation to use a different engine.
+
+The model can be changed at any time, as long as it belongs to that conversation's
+engine.
+
+The Engine entry in Setup names what a new conversation starts on. A configured
+engine that is not installed is skipped in favour of one that is. See ADR-020.
+
 ## Configuration
 
 Configuration is per user. There is one file:

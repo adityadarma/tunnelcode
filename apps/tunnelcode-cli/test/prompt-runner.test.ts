@@ -68,14 +68,15 @@ test('a silent engine is cancelled instead of holding the device', async () => {
   const engine = new ScriptedEngine([{ type: 'delta', text: 'starting' }], true);
   const { sent, send } = collect();
   const runner = new PromptRunner({
-    engine,
+    // Keyed by name, because a prompt names the engine it needs now.
+    engines: new Map([[engine.name, engine]]),
     cwd: process.cwd(),
     send,
     onActivity: () => undefined,
     silenceTimeoutMs: 80,
   });
 
-  await runner.run('turn-1', 'hi', undefined, undefined);
+  await runner.run('turn-1', 'hi', engine.name, undefined, undefined);
 
   // The engine process has to actually be told to stop, not just ignored.
   assert.equal(engine.aborted, true);
@@ -89,14 +90,15 @@ test('a cancelled turn reports the text it already produced', async () => {
   const engine = new ScriptedEngine([{ type: 'delta', text: 'got this far' }], true);
   const { sent, send } = collect();
   const runner = new PromptRunner({
-    engine,
+    // Keyed by name, because a prompt names the engine it needs now.
+    engines: new Map([[engine.name, engine]]),
     cwd: process.cwd(),
     send,
     onActivity: () => undefined,
     silenceTimeoutMs: 80,
   });
 
-  await runner.run('turn-1', 'hi', undefined, undefined);
+  await runner.run('turn-1', 'hi', engine.name, undefined, undefined);
 
   // The server can only keep what the CLI reports, so the partial answer has to
   // travel with the failure rather than being dropped here.
@@ -108,14 +110,15 @@ test('a failure with nothing produced carries no text', async () => {
   const engine = new ScriptedEngine([{ type: 'error', message: 'not logged in' }], false);
   const { sent, send } = collect();
   const runner = new PromptRunner({
-    engine,
+    // Keyed by name, because a prompt names the engine it needs now.
+    engines: new Map([[engine.name, engine]]),
     cwd: process.cwd(),
     send,
     onActivity: () => undefined,
     silenceTimeoutMs: 500,
   });
 
-  await runner.run('turn-1', 'hi', undefined, undefined);
+  await runner.run('turn-1', 'hi', engine.name, undefined, undefined);
 
   // An empty answer is nothing to keep, so the field is left off entirely.
   const error = sent.find((message) => message.type === 'turn_error');
@@ -126,14 +129,15 @@ test('a cancelled turn is reported once, not twice', async () => {
   const engine = new ScriptedEngine([{ type: 'delta', text: 'hello' }], true);
   const { sent, send } = collect();
   const runner = new PromptRunner({
-    engine,
+    // Keyed by name, because a prompt names the engine it needs now.
+    engines: new Map([[engine.name, engine]]),
     cwd: process.cwd(),
     send,
     onActivity: () => undefined,
     silenceTimeoutMs: 60,
   });
 
-  await runner.run('turn-1', 'hi', undefined, undefined);
+  await runner.run('turn-1', 'hi', engine.name, undefined, undefined);
 
   // Aborting makes the engine report a failure of its own, which would otherwise
   // reach the user as a second, more confusing message.
@@ -179,14 +183,15 @@ test('an engine that keeps talking is never cancelled', async () => {
   const engine = new SlowButTalkingEngine();
   const { sent, send } = collect();
   const runner = new PromptRunner({
-    engine,
+    // Keyed by name, because a prompt names the engine it needs now.
+    engines: new Map([[engine.name, engine]]),
     cwd: process.cwd(),
     send,
     onActivity: () => undefined,
     silenceTimeoutMs: 80,
   });
 
-  await runner.run('turn-1', 'hi', undefined, undefined);
+  await runner.run('turn-1', 'hi', engine.name, undefined, undefined);
 
   // Total runtime is about 180ms against an 80ms limit, so measuring the whole
   // turn instead of the gaps would have killed a healthy answer.
@@ -207,14 +212,15 @@ test('a finished turn frees the runner for the next prompt', async () => {
   );
   const { sent, send } = collect();
   const runner = new PromptRunner({
-    engine,
+    // Keyed by name, because a prompt names the engine it needs now.
+    engines: new Map([[engine.name, engine]]),
     cwd: process.cwd(),
     send,
     onActivity: () => undefined,
     silenceTimeoutMs: 500,
   });
 
-  await runner.run('turn-1', 'hi', undefined, undefined);
+  await runner.run('turn-1', 'hi', engine.name, undefined, undefined);
 
   assert.equal(runner.isBusy(), false);
 
@@ -226,19 +232,20 @@ test('a second prompt while busy is refused', async () => {
   const engine = new ScriptedEngine([], true);
   const { sent, send } = collect();
   const runner = new PromptRunner({
-    engine,
+    // Keyed by name, because a prompt names the engine it needs now.
+    engines: new Map([[engine.name, engine]]),
     cwd: process.cwd(),
     send,
     onActivity: () => undefined,
     silenceTimeoutMs: 120,
   });
 
-  const first = runner.run('turn-1', 'hi', undefined, undefined);
+  const first = runner.run('turn-1', 'hi', engine.name, undefined, undefined);
   await wait(20);
 
   // One prompt at a time: the engine works against real files, so overlapping
   // runs could fight over the same directory.
-  await runner.run('turn-2', 'again', undefined, undefined);
+  await runner.run('turn-2', 'again', engine.name, undefined, undefined);
 
   const refusal = sent.find(
     (message) => message.type === 'turn_error' && message.turnId === 'turn-2',
@@ -246,6 +253,58 @@ test('a second prompt while busy is refused', async () => {
   assert.notEqual(refusal, undefined);
 
   await first;
+});
+
+test('a prompt naming an engine this machine lacks fails the turn', async () => {
+  const engine = new ScriptedEngine([{ type: 'delta', text: 'hello' }], false);
+  const { sent, send } = collect();
+  const runner = new PromptRunner({
+    engines: new Map([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    silenceTimeoutMs: 500,
+  });
+
+  await runner.run('turn-1', 'hi', 'gemini', undefined, undefined);
+
+  // The browser is waiting for an answer either way, so this is reported rather
+  // than ignored. The installed engine must not answer in its place.
+  const error = sent.find((message) => message.type === 'turn_error');
+  assert.match(error?.type === 'turn_error' ? error.message : '', /not available/);
+  assert.equal(typesOf(sent).includes('delta'), false);
+  assert.equal(runner.isBusy(), false);
+});
+
+test('each turn runs on the engine it names', async () => {
+  const fast = new ScriptedEngine(
+    [
+      { type: 'delta', text: 'from fast' },
+      { type: 'done', exitCode: 0 },
+    ],
+    false,
+  );
+  const slow = new SlowButTalkingEngine();
+  const { sent, send } = collect();
+
+  const runner = new PromptRunner({
+    engines: new Map<string, Engine>([
+      ['scripted', fast],
+      ['slow', slow],
+    ]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    silenceTimeoutMs: 500,
+  });
+
+  await runner.run('turn-1', 'hi', 'scripted', undefined, undefined);
+
+  // One machine now serves several engines, so the name on the turn is what
+  // decides which one answers. See ADR-020.
+  const done = sent.find((message) => message.type === 'turn_done');
+  assert.equal(done?.type === 'turn_done' ? done.text : '', 'from fast');
+  assert.equal(slow.aborted, false);
 });
 
 test('a refused tool call is forwarded without ending the turn', async () => {
@@ -259,14 +318,15 @@ test('a refused tool call is forwarded without ending the turn', async () => {
   );
   const { sent, send } = collect();
   const runner = new PromptRunner({
-    engine,
+    // Keyed by name, because a prompt names the engine it needs now.
+    engines: new Map([[engine.name, engine]]),
     cwd: process.cwd(),
     send,
     onActivity: () => undefined,
     silenceTimeoutMs: 500,
   });
 
-  await runner.run('turn-1', 'hi', undefined, undefined);
+  await runner.run('turn-1', 'hi', engine.name, undefined, undefined);
 
   const blocked = sent.find((message) => message.type === 'turn_blocked');
   assert.equal(blocked?.type === 'turn_blocked' ? blocked.tool : '', 'Write');

@@ -10,9 +10,9 @@ interface SessionRoutesOptions {
 /**
  * Session detail route.
  *
- * Models come from the live device rather than the database, because they
- * describe what the currently running CLI can serve. A session whose CLI has
- * stopped reports no models, which the UI shows as offline.
+ * Engines and their models come from the live device rather than the database,
+ * because they describe what the currently running CLI can serve. A session whose
+ * CLI has stopped reports none, which the UI shows as offline. See ADR-020.
  */
 export function registerSessionRoutes(app: FastifyInstance, options: SessionRoutesOptions): void {
   const { sessionRepository, devices } = options;
@@ -37,9 +37,12 @@ export function registerSessionRoutes(app: FastifyInstance, options: SessionRout
       id: detail.id,
       deviceName: detail.deviceName,
       workspace: detail.workspace,
+      // The engine a new conversation starts on, which is the one Setup named.
       engine: detail.engine,
       online: device !== undefined,
-      models: device?.models ?? [],
+      // Every engine installed on the machine, each with its own models. A
+      // conversation picks one of these when it is created.
+      engines: device?.engines ?? [],
     });
   });
 }

@@ -18,6 +18,8 @@ export type {
 } from './ids.js';
 export { pairPendingSchema, pairRequestSchema, pairResultSchema } from './pair.js';
 export type { PairPending, PairRequest, PairResult } from './pair.js';
+export { createConversationSchema, updateConversationSchema } from './conversation.js';
+export type { CreateConversationRequest, UpdateConversationRequest } from './conversation.js';
 export {
   browserMessageSchema,
   cliMessageSchema,

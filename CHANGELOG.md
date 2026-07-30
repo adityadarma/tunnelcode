@@ -6,6 +6,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The CLI and the server image share one version and ship from a single `v*` tag.
 
+## [Unreleased]
+
+### Added
+
+- The engine is chosen in the browser, once per conversation. The CLI offers every
+  engine that is both supported here and installed on the machine, so a choice made
+  in the browser can always be served. See ADR-020.
+- Each conversation records the engine it runs on and the model it asks for, and the
+  conversation list shows both.
+- `New` offers the installed engines when there is more than one, and creates
+  directly when there is only one.
+- The model of a conversation can be changed at any time, within that conversation's
+  engine.
+
+### Changed
+
+- The engine named in Setup is now what a new conversation starts on, rather than the
+  engine every prompt runs through. A configured engine that is not installed is
+  skipped in favour of one that is. Amends ADR-018 and ADR-019.
+- A conversation keeps its engine for life. Changing it is refused, because the
+  agent's context lives in an engine session and switching would abandon it silently.
+- A browser prompt no longer carries the engine or the model. The server reads both
+  from the conversation, so two tabs cannot disagree about which engine answers.
+- The session detail reports every installed engine with its own models, instead of
+  one engine and one flat model list.
+- A CLI with no installed engine reports that instead of starting a session.
+
 ## [0.1.1] - 2026-07-30
 
 ### Changed

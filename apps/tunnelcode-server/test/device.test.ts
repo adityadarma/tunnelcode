@@ -7,8 +7,7 @@ const base = {
   code: 'ABCDEFGH',
   name: 'Test Mac',
   workspace: '/work',
-  engine: 'opencode',
-  models: ['opencode/fast'],
+  engines: [{ name: 'opencode', models: ['opencode/fast'] }],
 };
 
 /**
@@ -81,14 +80,32 @@ test('a reconnect keeps the paired flag', () => {
   assert.equal(devices.findById('device-1')?.paired, true);
 });
 
-test('a reconnect refreshes engine and models', () => {
+test('a reconnect refreshes the engine list', () => {
   const devices = withLiveConnections();
   devices.register(base);
 
-  devices.register({ ...base, engine: 'claude', models: ['sonnet'] });
+  // An engine installed or removed between runs has to be picked up, otherwise the
+  // browser would keep offering an engine the machine no longer has.
+  devices.register({ ...base, engines: [{ name: 'claude', models: ['sonnet'] }] });
 
-  assert.equal(devices.findById('device-1')?.engine, 'claude');
-  assert.deepEqual(devices.findById('device-1')?.models, ['sonnet']);
+  assert.deepEqual(devices.findById('device-1')?.engines, [{ name: 'claude', models: ['sonnet'] }]);
+  assert.equal(devices.findEngine('device-1', 'opencode'), undefined);
+});
+
+test('an engine is looked up with its own models', () => {
+  const devices = withLiveConnections();
+  devices.register({
+    ...base,
+    engines: [
+      { name: 'opencode', models: ['opencode/fast'] },
+      { name: 'claude', models: ['sonnet'] },
+    ],
+  });
+
+  // Models belong to an engine, so one engine's model must never validate against
+  // another. See ADR-020.
+  assert.deepEqual(devices.findEngine('device-1', 'claude')?.models, ['sonnet']);
+  assert.equal(devices.findEngine('device-1', 'gemini'), undefined);
 });
 
 test('removing a device frees its code', () => {

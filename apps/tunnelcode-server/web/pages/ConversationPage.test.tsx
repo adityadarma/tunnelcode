@@ -48,6 +48,8 @@ class FakeSocket {
 const conversation = {
   id: 'conversation-1',
   title: 'Earlier question',
+  engine: 'opencode',
+  model: 'opencode/fast',
   createdAt: 1,
   updatedAt: 2,
 };
@@ -66,7 +68,7 @@ function stubFetch(): void {
             workspace: '/work',
             engine: 'opencode',
             online: true,
-            models: [],
+            engines: [{ name: 'opencode', models: ['opencode/fast', 'opencode/slow'] }],
           };
 
     return Promise.resolve({

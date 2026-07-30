@@ -5,6 +5,7 @@ import {
   listConversations,
   readSession,
   readTranscript,
+  updateConversationModel,
 } from '../api.js';
 import type { Activity, Conversation, Message, SessionDetail } from '../api.js';
 import { Composer } from '../components/Composer.js';
@@ -96,7 +97,6 @@ export function ConversationPage({
    * that, and switching conversations clears it.
    */
   const [runningTurn, setRunningTurn] = useState<RunningTurn | undefined>(undefined);
-  const [model, setModel] = useState<string | undefined>(() => readStoredModel());
   const [theme, setTheme] = useState<'light' | 'dark'>(() => readStoredTheme() ?? 'dark');
   const [error, setError] = useState<string | undefined>(undefined);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -235,16 +235,9 @@ export function ConversationPage({
 
   const refreshSession = useCallback(async (): Promise<void> => {
     try {
-      const detail = await readSession(sessionId);
-      setSession(detail);
-      const stored = readStoredModel();
-      if (stored !== undefined && detail.models.includes(stored)) {
-        setModel(stored);
-      } else if (detail.models.length > 0) {
-        setModel((current) =>
-          current !== undefined && detail.models.includes(current) ? current : detail.models[0],
-        );
-      }
+      // The model is no longer resolved here: it belongs to the conversation, and
+      // the server already stored one that its engine can serve.
+      setSession(await readSession(sessionId));
     } catch {
       onSessionLost();
     }
@@ -309,10 +302,22 @@ export function ConversationPage({
     })();
   }, [activeId]);
 
-  const create = (): void => {
+  /**
+   * Creates a conversation on one engine.
+   *
+   * The remembered model is only offered when the chosen engine actually has it,
+   * since a model belongs to an engine and the server would refuse it otherwise.
+   */
+  const create = (engine: string | undefined): void => {
     void (async () => {
       try {
-        const conversation = await createConversation(sessionId);
+        const chosen =
+          session?.engines.find((entry) => entry.name === engine) ?? session?.engines[0];
+        const stored = readStoredModel();
+        const model =
+          stored !== undefined && chosen?.models.includes(stored) === true ? stored : undefined;
+
+        const conversation = await createConversation(sessionId, engine, model);
         setConversations((current) => [...current, conversation]);
         selectActiveId(conversation.id);
       } catch (cause) {
@@ -377,17 +382,55 @@ export function ConversationPage({
       ),
     );
 
-    socket.sendPrompt(activeId, text, model);
+    socket.sendPrompt(activeId, text);
   };
 
+  const active = conversations.find((item) => item.id === activeId);
+
+  /**
+   * Changes the model of the open conversation.
+   *
+   * Stored on the server rather than only locally, because the model belongs to the
+   * conversation now: the next prompt is sent without one, and the server reads it
+   * back from there. The local list is updated first so the picker responds at once,
+   * and rolled back if the server refuses.
+   */
   const changeModel = (newModel: string | undefined): void => {
-    setModel(newModel);
+    if (activeId === undefined) {
+      return;
+    }
+
+    const previous = active?.model ?? null;
+
+    setConversations((current) =>
+      current.map((item) => (item.id === activeId ? { ...item, model: newModel ?? null } : item)),
+    );
+
+    // Remembered so a new conversation on an engine that has this model starts on
+    // it, which is the only thing the stored value is still used for.
     if (newModel !== undefined) {
       storeModel(newModel);
     }
+
+    void (async () => {
+      try {
+        await updateConversationModel(activeId, newModel);
+      } catch (cause) {
+        setConversations((current) =>
+          current.map((item) => (item.id === activeId ? { ...item, model: previous } : item)),
+        );
+        setError(cause instanceof Error ? cause.message : 'Cannot change the model.');
+      }
+    })();
   };
 
   const offline = !socket.online;
+
+  // Models of the engine this conversation was created on, which are the only ones
+  // it can be switched between. A conversation from before conversations had an
+  // engine falls back to the session's. See ADR-020.
+  const activeEngine = active?.engine ?? session?.engine;
+  const activeModels = session?.engines.find((entry) => entry.name === activeEngine)?.models ?? [];
 
   // A device answers one prompt at a time, so a turn running in another
   // conversation blocks this one too. Offering a composer whose prompt is certain
@@ -417,12 +460,16 @@ export function ConversationPage({
         <ConversationList
           conversations={conversations}
           activeId={activeId}
+          engines={session?.engines ?? []}
+          // The engine list describes what the running CLI can serve, so there is
+          // nothing to create against while the device is offline.
+          createDisabled={offline}
           onSelect={(id) => {
             selectActiveId(id);
             setMenuOpen(false);
           }}
-          onCreate={() => {
-            create();
+          onCreate={(engine) => {
+            create(engine);
             setMenuOpen(false);
           }}
           onDelete={(id) => {
@@ -453,13 +500,18 @@ export function ConversationPage({
             >
               ☰
             </button>
-            <h1>{conversations.find((item) => item.id === activeId)?.title ?? 'TunnelCode'}</h1>
+            <h1>{active?.title ?? 'TunnelCode'}</h1>
+            {activeEngine !== undefined && activeId !== undefined && (
+              <span className="engine-badge" title="Engine for this conversation">
+                {activeEngine}
+              </span>
+            )}
           </div>
           <div className="main-head-controls">
             <ModelPicker
-              models={session?.models ?? []}
-              selected={model}
-              disabled={offline}
+              models={activeModels}
+              selected={active?.model ?? undefined}
+              disabled={offline || activeId === undefined}
               onChange={changeModel}
             />
             <ThemeToggle theme={theme} onToggle={toggleTheme} />

@@ -396,6 +396,10 @@ Engine for this project
 
 Check environment
 
+Amended by ADR-020: Setup still owns the server URL and the device name. The
+engine setting is now the engine a new conversation starts on, and the browser may
+choose another from the engines installed on this machine.
+
 The CLI does not read a `.env` file.
 
 The CLI does not read the environment to decide which server to talk to. The
@@ -446,6 +450,9 @@ There is one engine setting, named `engine`. That is the only name the schema
 accepts. A config that names it anything else fails validation, and Setup writes
 the file again.
 
+Amended by ADR-020: `engine` is now the engine a new conversation starts on, not
+the engine every prompt runs through.
+
 The working directory still decides what the agent works in and still derives the
 device id. It just no longer decides configuration.
 
@@ -462,3 +469,66 @@ repository can decide. That is the same objection as ADR-018, one level down.
 Per user is also the honest scope for the other two settings. The server URL and
 the device name were already machine wide, so the project config existed for a
 single field.
+
+---
+
+# ADR-020
+
+## Engine Per Conversation
+
+Amends ADR-018 and ADR-019.
+
+Decision
+
+The engine is chosen per conversation, in the browser.
+
+The CLI offers the engines that are both supported by this project and installed on
+the machine. Nothing else is offered.
+
+A CLI with no installed engine does not start a session.
+
+A conversation records the engine it runs on. That engine is fixed for the life of
+the conversation and cannot be changed.
+
+A conversation also records the model it asks for. The model can be changed at any
+time, as long as it belongs to the conversation's engine.
+
+The engine a new conversation starts on is the one Setup named. A configured engine
+that is not installed is skipped, and the first installed one is used instead.
+
+A browser prompt carries neither the engine nor the model. The server reads both
+from the conversation.
+
+Reason
+
+The engine decides what the agent can do, and the machine already knows which
+engines it has. Asking the terminal to also decide which one answers made the
+terminal the only place a working choice could be made, from a device the user may
+not be near.
+
+Offering only the intersection is what makes the choice safe to expose. A supported
+engine that is not installed would fail at the first prompt, and an installed engine
+this project has no adapter for cannot be driven at all. Neither is worth showing.
+
+Per conversation rather than per session, because a session is a pairing and a
+pairing is not a unit of work. Two questions asked in the same workspace can want
+different engines, and ending a session to change engine would end the pairing too.
+
+The engine is fixed once because the agent's memory of what was said lives in an
+engine session, and an engine session id means nothing to a different engine.
+Switching would silently abandon that context: the conversation would look
+continuous while the agent had forgotten all of it. Starting a new conversation is
+the honest way to change engine, and it costs nothing.
+
+The model is not fixed, because a different model of the same engine still
+understands the engine session. The context survives, so there is nothing to
+protect.
+
+The prompt carries neither, because two browsers can be attached to one session. If
+the choice travelled with the prompt, two tabs could disagree about which engine
+answers the same conversation, and the last tab to send would win. Reading from the
+conversation makes that impossible.
+
+Setup keeps naming an engine because a new conversation still has to start
+somewhere, and a browser that expresses no preference should not get an arbitrary
+one.

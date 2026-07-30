@@ -1,8 +1,8 @@
 import { ConfigError, globalConfigPath, loadGlobalConfig } from '@tunnelcode/config';
 import type { GlobalConfig } from '@tunnelcode/config';
-import { ENGINE_NAMES, createEngine } from '@tunnelcode/engine';
+import { ENGINE_NAMES, discoverEngines } from '@tunnelcode/engine';
 import { writeOut } from '../output.js';
-import { bold, cyanBold, green, red, yellow } from '../style.js';
+import { bold, cyanBold, dim, green, red, yellow } from '../style.js';
 
 const REQUIRED_NODE_MAJOR = 22;
 
@@ -65,23 +65,39 @@ export async function runDoctor(): Promise<number> {
 
   let engineOk = false;
 
-  if (config.value !== undefined) {
-    const engine = createEngine(config.value.engine);
+  const stored = config.value;
 
+  if (stored !== undefined) {
     writeOut(cyanBold('│'));
-    writeOut(`  ${okIcon} ${bold('server')}     ${config.value.server.url}`);
-    writeOut(`  ${okIcon} ${bold('device')}     ${config.value.device.name}`);
+    writeOut(`  ${okIcon} ${bold('server')}     ${stored.server.url}`);
+    writeOut(`  ${okIcon} ${bold('device')}     ${stored.device.name}`);
 
-    if (engine === undefined) {
+    // Every supported engine is reported, not just the configured one: a session
+    // runs as long as one is installed, and the browser chooses per conversation.
+    // See ADR-020.
+    const installed = await discoverEngines();
+    engineOk = installed.length > 0;
+
+    for (const name of ENGINE_NAMES) {
+      const found = installed.find((engine) => engine.name === name);
+      const label = name === stored.engine ? `${name} ${dim('(default)')}` : name;
+
       writeOut(
-        `  ${errIcon} ${bold('engine')}     ${red(config.value.engine)} (unknown, available: ${ENGINE_NAMES.join(', ')})`,
+        found === undefined
+          ? `  ${errIcon} ${bold('engine')}     ${label} ${red('not found on PATH')}`
+          : `  ${okIcon} ${bold('engine')}     ${label} (${found.command}) ${green('ok')}${
+              found.models.length === 0 ? ` ${dim('no models reported')}` : ''
+            }`,
       );
-    } else {
-      engineOk = await engine.isAvailable();
+    }
+
+    // The configured engine is only a starting point now, so a missing one is worth
+    // saying without failing the check.
+    if (engineOk && !installed.some((engine) => engine.name === stored.engine)) {
       writeOut(
-        `  ${engineOk ? okIcon : errIcon} ${bold('engine')}     ${engine.name} (${engine.command}) ${
-          engineOk ? green('ok') : red('not found on PATH')
-        }`,
+        `  ${okIcon} ${bold('default')}    ${yellow(
+          `${stored.engine} is not installed, new conversations start on ${installed[0]?.name ?? ''}`,
+        )}`,
       );
     }
   }

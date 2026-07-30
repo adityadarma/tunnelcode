@@ -7,7 +7,11 @@ const PING_INTERVAL_MS = 30000;
 export interface SessionSocket {
   online: boolean;
   connected: boolean;
-  sendPrompt: (conversationId: string, text: string, model: string | undefined) => void;
+  /**
+   * Sends a prompt. The engine and the model are not passed: they belong to the
+   * conversation and the server reads them from it. See ADR-020.
+   */
+  sendPrompt: (conversationId: string, text: string) => void;
   disconnect: () => void;
 }
 
@@ -103,25 +107,15 @@ export function useSessionSocket({ sessionId, onMessage }: UseSessionSocketOptio
     };
   }, [sessionId]);
 
-  const sendPrompt = useCallback(
-    (conversationId: string, text: string, model: string | undefined): void => {
-      const socket = socketRef.current;
+  const sendPrompt = useCallback((conversationId: string, text: string): void => {
+    const socket = socketRef.current;
 
-      if (socket === undefined || socket.readyState !== WebSocket.OPEN) {
-        return;
-      }
+    if (socket === undefined || socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
 
-      socket.send(
-        JSON.stringify({
-          type: 'prompt',
-          conversationId,
-          text,
-          ...(model !== undefined ? { model } : {}),
-        }),
-      );
-    },
-    [],
-  );
+    socket.send(JSON.stringify({ type: 'prompt', conversationId, text }));
+  }, []);
 
   /**
    * Ends the session on the paired machine before the browser forgets it.

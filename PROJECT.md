@@ -147,6 +147,9 @@ Device name
 
 Engine
 
+The engine a new conversation starts on. The browser may choose another. See
+ADR-020.
+
 Check environment
 
 Back
@@ -368,6 +371,8 @@ Do not use the database as a realtime transport.
 
 Every conversation must be stored.
 
+A conversation records the engine it runs on and the model it asks for.
+
 AI streaming is not stored as it arrives.
 
 Buffer all deltas.
@@ -395,6 +400,23 @@ Gemini CLI
 Custom Engine
 
 Without changing business logic.
+
+Engine Selection
+
+The CLI offers the engines that are both supported here and installed on the
+machine. Nothing else is offered.
+
+A CLI with no installed engine does not start a session.
+
+The browser chooses the engine when it creates a conversation.
+
+A conversation keeps that engine for life. It cannot be changed.
+
+The model can be changed at any time, within the conversation's engine.
+
+The engine named in Setup is what a new conversation starts on.
+
+See ADR-020.
 
 ---
 
