@@ -89,6 +89,11 @@ export const cliMessageSchema = z.discriminatedUnion('type', [
     engineSessionId: z.string().min(1),
   }),
   z.object({
+    type: z.literal('turn_message'),
+    turnId: turnIdSchema,
+    text: z.string(),
+  }),
+  z.object({
     type: z.literal('turn_done'),
     turnId: turnIdSchema,
     // Full answer assembled by the CLI, stored as one message. See ADR-008.

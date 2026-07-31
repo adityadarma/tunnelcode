@@ -125,6 +125,33 @@ export class TurnRelay {
   }
 
   /**
+   * Stores an intermediate chunk of the answer and broadcasts it.
+   * Called when the engine pauses streaming text to execute a tool.
+   */
+  message(deviceId: string, turnId: string, text: string): void {
+    const turn = this.options.turns.findForDevice(turnId, deviceId);
+
+    if (turn === undefined || text === '') {
+      return;
+    }
+
+    const stored = this.options.conversationRepository.appendMessage(
+      turn.conversationId,
+      'assistant',
+      text,
+    );
+
+    this.options.browsers.broadcast(turn.sessionId, {
+      type: 'message',
+      conversationId: turn.conversationId,
+      id: stored.id,
+      role: 'assistant',
+      content: stored.content,
+      createdAt: stored.createdAt,
+    });
+  }
+
+  /**
    * Stores the finished answer and tells the browsers the turn is over.
    * An empty answer is not stored, since there is nothing to show later.
    */

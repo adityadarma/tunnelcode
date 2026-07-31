@@ -166,6 +166,12 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
           }
           return;
 
+        case 'turn_message':
+          if (deviceId !== undefined) {
+            relay.message(deviceId, message.turnId, message.text);
+          }
+          return;
+
         case 'turn_done':
           if (deviceId !== undefined) {
             relay.done(deviceId, message.turnId, message.text);

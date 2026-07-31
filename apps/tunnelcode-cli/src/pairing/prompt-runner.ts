@@ -158,6 +158,10 @@ export class PromptRunner {
             send({ type: 'turn_log', turnId, text: event.text });
             break;
           case 'activity':
+            if (answer !== '') {
+              send({ type: 'turn_message', turnId, text: answer });
+              answer = '';
+            }
             send({
               type: 'turn_activity',
               turnId,
@@ -166,6 +170,10 @@ export class PromptRunner {
             });
             break;
           case 'blocked':
+            if (answer !== '') {
+              send({ type: 'turn_message', turnId, text: answer });
+              answer = '';
+            }
             // The turn keeps running after a refusal, so this is reported rather
             // than treated as a failure. Without it the answer that follows would
             // reference work the user never saw refused.

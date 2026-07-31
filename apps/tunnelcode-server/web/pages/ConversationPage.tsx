@@ -514,7 +514,12 @@ export function ConversationPage({
           </p>
         )}
 
-        <MessageList messages={messages} activities={activities} streaming={streaming} />
+        <MessageList
+          messages={messages}
+          activities={activities}
+          streaming={streaming}
+          workspace={session?.workspace}
+        />
 
         <Composer
           disabled={sendDisabled}

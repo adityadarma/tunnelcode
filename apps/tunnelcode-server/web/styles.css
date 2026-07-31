@@ -77,8 +77,12 @@
     overflow-x: hidden;
     max-width: 100vw;
     width: 100%;
-    min-height: 100vh;
-    min-height: 100dvh;
+    height: 100%;
+  }
+
+  #root {
+    height: 100%;
+    width: 100%;
   }
 }
 
@@ -453,7 +457,7 @@
 
 /* Base Layout Classes */
 .layout {
-  @apply grid grid-cols-1 md:grid-cols-[17rem_1fr] h-dvh w-full max-w-full overflow-hidden relative bg-[var(--bg)];
+  @apply grid grid-cols-1 md:grid-cols-[17rem_1fr] h-full w-full max-w-full overflow-hidden relative bg-[var(--bg)];
 }
 
 .layout-overlay {
@@ -465,7 +469,7 @@
 }
 
 .sidebar {
-  @apply fixed inset-y-0 left-0 z-40 w-[min(18rem,85vw)] md:w-full md:static flex flex-col bg-[var(--surface)] border-r border-[var(--border)] transition-transform duration-300 ease-in-out md:translate-x-0 h-dvh overflow-hidden;
+  @apply fixed inset-y-0 left-0 z-40 w-[min(18rem,85vw)] md:w-full md:static flex flex-col bg-[var(--surface)] border-r border-[var(--border)] transition-transform duration-300 ease-in-out md:translate-x-0 h-full overflow-hidden;
   transform: translateX(-100%);
 }
 
@@ -627,7 +631,7 @@
 
 /* Main Screen */
 .main {
-  @apply flex flex-col min-w-0 h-dvh w-full max-w-full overflow-hidden bg-[var(--bg)];
+  @apply flex flex-col min-w-0 h-full w-full max-w-full overflow-hidden bg-[var(--bg)];
 }
 
 .main-head {
@@ -743,7 +747,11 @@
 }
 
 .activity-target {
-  @apply text-[var(--text)] opacity-85 overflow-hidden text-ellipsis whitespace-nowrap min-w-0 bg-[var(--surface-2)] px-1.5 py-0.5 rounded;
+  @apply text-[var(--text)] opacity-85 overflow-x-auto whitespace-nowrap min-w-0 bg-[var(--surface-2)] px-1.5 py-0.5 rounded;
+  scrollbar-width: none;
+}
+.activity-target::-webkit-scrollbar {
+  display: none;
 }
 
 .typing-indicator-row {
@@ -756,7 +764,7 @@
 }
 
 .composer-box {
-  @apply bg-[var(--surface-2)] border border-[var(--border)] rounded-2xl p-2.5 md:p-3 flex flex-col gap-1.5 shadow-md focus-within:border-[var(--accent)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)] transition-all w-full box-border;
+  @apply bg-[var(--surface-2)] border border-[var(--border)] rounded-2xl p-2.5 md:p-3 flex flex-col gap-1.5 shadow-md focus-within:border-[var(--accent)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)] transition-all w-full max-w-3xl mx-auto box-border;
 }
 
 .composer-box.disabled {

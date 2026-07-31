@@ -6,6 +6,8 @@ interface MessageListProps {
   activities: Activity[];
   /** Streamed assistant text that has not been stored yet. */
   streaming: string | undefined;
+  /** The workspace path of the current session, used to shorten paths. */
+  workspace?: string;
 }
 
 type AssistantItem =
@@ -131,7 +133,9 @@ function buildTurns(
     }
   }
 
-  // Sort items within assistant turns strictly chronologically by timestamp
+  // Sort items within assistant turns chronologically.
+  // The backend splits text streams into separate messages around tool calls,
+  // so chronological sorting naturally interleaves text and tools.
   for (const turn of turns) {
     if (turn.kind === 'assistant') {
       turn.items.sort((a, b) => a.at - b.at);
@@ -319,6 +323,93 @@ function renderFormattedContent(content: string): React.JSX.Element {
   );
 }
 
+function AssistantMessage({
+  turn,
+  workspace,
+}: {
+  turn: AssistantTurn;
+  workspace: string | undefined;
+}): React.JSX.Element {
+  return (
+    <article className="message message-assistant">
+      <header>
+        <span className="role">Assistant</span>
+        <time dateTime={new Date(turn.createdAt).toISOString()}>{formatTime(turn.createdAt)}</time>
+      </header>
+      <div className="assistant-content">
+        {turn.items.map((item) =>
+          item.kind === 'text' ? (
+            <div key={item.id} className="message-text-block">
+              {renderFormattedContent(item.content)}
+              {item.partial === true && (
+                <p className="partial-notice muted">Answer stopped before it finished.</p>
+              )}
+            </div>
+          ) : (
+            <ActivityItem key={item.id} activity={item.activity} workspace={workspace} />
+          ),
+        )}
+        {turn.isStreaming && (
+          <div className="typing-indicator-row">
+            <span className="typing-dot" />
+            <span className="typing-dot" />
+            <span className="typing-dot" />
+            <span className="muted">typing…</span>
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function ActivityItem({
+  activity,
+  workspace,
+}: {
+  activity: Activity;
+  workspace: string | undefined;
+}): React.JSX.Element {
+  let displayTarget = activity.target;
+
+  if (displayTarget !== undefined && workspace !== undefined) {
+    // Replace all occurrences of the workspace path with a dot (.)
+    // This handles both absolute paths and absolute paths within a command string
+    displayTarget = displayTarget.split(workspace + '/').join('./');
+    displayTarget = displayTarget.split(workspace).join('.');
+  }
+
+  return (
+    <div className="activity-pill-wrapper">
+      <p className={activity.blocked === true ? 'activity activity-blocked' : 'activity'}>
+        <span className="activity-tool">
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+          >
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+          <span>{activity.tool}</span>
+        </span>
+        {/* Said in words rather than by colour alone: a call that
+            never ran must not read like one that did. */}
+        {activity.blocked === true && <span className="activity-blocked-label">blocked</span>}
+        {displayTarget !== undefined && (
+          <span className="activity-target mono" title={displayTarget}>
+            {displayTarget}
+          </span>
+        )}
+        {activity.reason !== undefined && (
+          <span className="activity-target">{activity.reason}</span>
+        )}
+      </p>
+    </div>
+  );
+}
+
 /**
  * Ordered conversation history. Roles are labelled in text rather than by colour
  * alone, so the distinction survives without colour vision.
@@ -327,6 +418,7 @@ export function MessageList({
   messages,
   activities,
   streaming,
+  workspace,
 }: MessageListProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -415,38 +507,7 @@ export function MessageList({
                     )}
                   </div>
                 ) : (
-                  <div key={item.id} className="activity-pill-wrapper">
-                    <p
-                      className={
-                        item.activity.blocked === true ? 'activity activity-blocked' : 'activity'
-                      }
-                    >
-                      <span className="activity-tool">
-                        <svg
-                          width="12"
-                          height="12"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.5"
-                        >
-                          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-                        </svg>
-                        <span>{item.activity.tool}</span>
-                      </span>
-                      {/* Said in words rather than by colour alone: a call that
-                          never ran must not read like one that did. */}
-                      {item.activity.blocked === true && (
-                        <span className="activity-blocked-label">blocked</span>
-                      )}
-                      {item.activity.target !== undefined && (
-                        <span className="activity-target mono">{item.activity.target}</span>
-                      )}
-                      {item.activity.reason !== undefined && (
-                        <span className="activity-target">{item.activity.reason}</span>
-                      )}
-                    </p>
-                  </div>
+                  <ActivityItem key={item.id} activity={item.activity} workspace={workspace} />
                 ),
               )}
               {turn.isStreaming && (
