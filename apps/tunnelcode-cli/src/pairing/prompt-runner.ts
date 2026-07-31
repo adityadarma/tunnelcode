@@ -165,8 +165,17 @@ export class PromptRunner {
             send({
               type: 'turn_activity',
               turnId,
+              id: event.id,
               tool: event.tool,
               ...(event.target !== undefined ? { target: event.target } : {}),
+            });
+            break;
+          case 'activity_output':
+            send({
+              type: 'turn_activity_output',
+              turnId,
+              activityId: event.id,
+              output: event.output,
             });
             break;
           case 'blocked':

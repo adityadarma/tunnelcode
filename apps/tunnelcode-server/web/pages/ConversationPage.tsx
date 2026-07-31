@@ -43,6 +43,8 @@ interface ServerEvent {
   blocked?: unknown;
   reason?: unknown;
   activeTurn?: unknown;
+  activityId?: unknown;
+  output?: unknown;
 }
 
 /** A turn still being answered, as reported when the socket attaches. */
@@ -179,7 +181,15 @@ export function ConversationPage({
         );
 
         if (message.role === 'assistant') {
-          setStreaming(undefined);
+          // Not the end of the turn: the engine flushes its buffered text as a
+          // stored message every time it pauses to run a tool, so this arrives
+          // mid-answer too. Clearing the indicator here made it disappear for the
+          // whole length of every tool call, which is exactly the long wait that
+          // needs feedback. Only the accumulated text is dropped, since the stored
+          // message now carries it; `turn_done` is what ends the indicator.
+          // Kept undefined when nothing was pending, so a late message cannot
+          // raise an indicator for a turn that is already over.
+          setStreaming((current) => (current === undefined ? undefined : ''));
         }
         return;
       }
@@ -203,6 +213,22 @@ export function ConversationPage({
         );
         return;
       }
+
+      case 'activity_output': {
+        if (event.conversationId !== activeIdRef.current) {
+          return;
+        }
+
+        setActivities((current) =>
+          current.map((activity) =>
+            activity.id === String(event.activityId)
+              ? { ...activity, output: String(event.output) }
+              : activity,
+          ),
+        );
+        return;
+      }
+
 
       case 'delta': {
         if (event.conversationId !== activeIdRef.current) {
@@ -497,11 +523,6 @@ export function ConversationPage({
               ☰
             </button>
             <h1>{active?.title ?? 'TunnelCode'}</h1>
-            {activeEngine !== undefined && activeId !== undefined && (
-              <span className="engine-badge" title="Engine for this conversation">
-                {activeEngine}
-              </span>
-            )}
           </div>
           <div className="main-head-controls">
             <ThemeToggle theme={theme} onToggle={toggleTheme} />

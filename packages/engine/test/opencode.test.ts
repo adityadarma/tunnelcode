@@ -96,10 +96,10 @@ if (process.argv[2] === 'models') { process.stdout.write('opencode/fast\\n'); pr
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
 process.stdin.resume();
 process.stdin.on('end', () => {
-  out({ type: 'tool_use', part: { type: 'tool', tool: 'edit', callID: 'call_1', state: { status: 'running', input: { filePath: 'src/a.ts' } } } });
-  out({ type: 'tool_use', part: { type: 'tool', tool: 'edit', callID: 'call_1', state: { status: 'completed', input: { filePath: 'src/a.ts' } } } });
-  out({ type: 'tool_use', part: { type: 'tool', tool: 'bash', callID: 'call_2', state: { status: 'completed', input: { command: 'pnpm test' } } } });
-  out({ type: 'tool_use', part: { type: 'tool', tool: 'edit', callID: 'call_3', state: { status: 'completed', input: { filePath: 'src/b.ts' } } } });
+  out({ type: 'tool_use', part: { type: 'tool', id: 'call_1', tool: 'edit', callID: 'call_1', state: { status: 'running', input: { filePath: 'src/a.ts' } } } });
+  out({ type: 'tool_use', part: { type: 'tool', id: 'call_1', tool: 'edit', callID: 'call_1', state: { status: 'completed', input: { filePath: 'src/a.ts' } } } });
+  out({ type: 'tool_use', part: { type: 'tool', id: 'call_2', tool: 'bash', callID: 'call_2', state: { status: 'completed', input: { command: 'pnpm test' } } } });
+  out({ type: 'tool_use', part: { type: 'tool', id: 'call_1', tool: 'edit', callID: 'call_3', state: { status: 'completed', input: { filePath: 'src/b.ts' } } } });
   out({ type: 'text', part: { id: 'p1', type: 'text', text: 'Done.' } });
   process.exit(0);
 });
@@ -135,7 +135,7 @@ if (process.argv[2] === 'models') { process.stdout.write('opencode/fast\\n'); pr
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
 process.stdin.resume();
 process.stdin.on('end', () => {
-  out({ type: 'tool_use', sessionID: 'ses_1', part: { type: 'tool', tool: 'bash', callID: 'call_1', state: { status: 'error', input: { command: 'ls /nope' }, error: 'ls: /nope: No such file or directory' } } });
+  out({ type: 'tool_use', sessionID: 'ses_1', part: { type: 'tool', id: 'call_2', tool: 'bash', callID: 'call_1', state: { status: 'error', input: { command: 'ls /nope' }, error: 'ls: /nope: No such file or directory' } } });
   process.exit(0);
 });
 `;
@@ -275,9 +275,9 @@ test('a tool call is reported once, not per update', async () => {
     // same edit twice. Two edits with different callIDs must still both appear:
     // keying on the tool name alone would merge them.
     assert.deepEqual(activitiesOf(events), [
-      { type: 'activity', tool: 'edit', target: 'src/a.ts' },
-      { type: 'activity', tool: 'bash', target: 'pnpm test' },
-      { type: 'activity', tool: 'edit', target: 'src/b.ts' },
+      { type: 'activity', id: 'call_1', tool: 'edit', target: 'src/a.ts' },
+      { type: 'activity', id: 'call_2', tool: 'bash', target: 'pnpm test' },
+      { type: 'activity', id: 'call_1', tool: 'edit', id: 'call_3', target: 'src/b.ts' },
     ]);
   });
 });

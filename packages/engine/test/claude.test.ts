@@ -291,7 +291,7 @@ test('a tool call is reported with what it acted on', async () => {
     const events = await collect(new ClaudeEngine().prompt('hi', { cwd: process.cwd() }));
 
     assert.deepEqual(activitiesOf(events), [
-      { type: 'activity', tool: 'Write', target: '/tmp/note.txt' },
+      { type: 'activity', id: 'Write-1', tool: 'Write', target: '/tmp/note.txt' },
     ]);
   });
 });
@@ -322,8 +322,8 @@ test('several tool calls in one message are all reported', async () => {
     const events = await collect(new ClaudeEngine().prompt('hi', { cwd: process.cwd() }));
 
     assert.deepEqual(activitiesOf(events), [
-      { type: 'activity', tool: 'Read', target: 'a.ts' },
-      { type: 'activity', tool: 'Bash', target: 'ls -la' },
+      { type: 'activity', id: 't1', tool: 'Read', target: 'a.ts' },
+      { type: 'activity', id: 't2', tool: 'Bash', target: 'ls -la' },
     ]);
   });
 });

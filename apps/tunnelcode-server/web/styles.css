@@ -465,17 +465,15 @@
 }
 
 .layout.menu-open .layout-overlay {
-  @apply block;
+  @apply block md:!hidden;
 }
 
 .sidebar {
-  @apply fixed inset-y-0 left-0 z-40 w-[min(18rem,85vw)] md:w-full md:static flex flex-col bg-[var(--surface)] border-r border-[var(--border)] transition-transform duration-300 ease-in-out md:translate-x-0 h-full overflow-hidden;
-  transform: translateX(-100%);
+  @apply fixed inset-y-0 left-0 z-40 w-[min(18rem,85vw)] md:w-full md:static flex flex-col bg-[var(--surface)] border-r border-[var(--border)] transition-transform duration-300 ease-in-out -translate-x-full md:translate-x-0 h-full overflow-hidden;
 }
 
 .layout.menu-open .sidebar {
-  transform: translateX(0);
-  @apply shadow-2xl;
+  @apply translate-x-0 shadow-2xl md:shadow-none;
 }
 
 /* Sidebar Layout & Navigation */
@@ -646,10 +644,6 @@
   @apply font-semibold text-sm md:text-base text-[var(--text)] truncate min-w-0;
 }
 
-.engine-badge {
-  @apply hidden sm:inline-flex items-center shrink-0 px-2 py-0.5 border border-[var(--border)] rounded-full bg-[var(--surface-2)] text-[var(--muted)] text-[11px] font-medium max-w-[100px] truncate;
-}
-
 .menu-button {
   @apply inline-flex items-center justify-center p-1.5 rounded-lg text-lg leading-none md:hidden text-[var(--text)] hover:bg-[var(--surface-2)];
 }
@@ -738,8 +732,16 @@
   @apply my-1;
 }
 
+.activity-container {
+  @apply flex flex-col rounded-lg bg-[var(--surface-2)] border border-[var(--border)] overflow-hidden transition-all max-w-full;
+}
+
+.activity-container.activity-blocked {
+  @apply border-[var(--danger)];
+}
+
 .activity {
-  @apply inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[var(--surface-2)] border border-[var(--border)] text-xs text-[var(--muted)] max-w-full overflow-hidden;
+  @apply flex items-center gap-2 px-2.5 py-1 text-xs text-[var(--muted)] w-full m-0 select-none;
 }
 
 .activity-tool {
@@ -752,6 +754,18 @@
 }
 .activity-target::-webkit-scrollbar {
   display: none;
+}
+
+.activity-toggle-icon {
+  @apply ml-auto flex items-center justify-center text-[var(--muted)] opacity-70 hover:opacity-100 transition-opacity;
+}
+
+.activity-output-container {
+  @apply border-t border-[var(--border)] bg-[#0d1117] overflow-hidden max-h-96;
+}
+
+.activity-output-content {
+  @apply p-2 m-0 text-xs font-mono text-gray-300 overflow-y-auto max-h-96 whitespace-pre-wrap break-words;
 }
 
 .typing-indicator-row {

@@ -135,6 +135,8 @@ export const activities = sqliteTable(
     blocked: integer('blocked', { mode: 'boolean' }).notNull().default(false),
     /** Why the call was refused. Null on a call that was allowed to run. */
     reason: text('reason'),
+    /** Raw output of the tool execution, if the engine provided it. */
+    output: text('output'),
     createdAt: integer('created_at').notNull(),
   },
   (table) => [index('activities_conversation_idx').on(table.conversationId)],

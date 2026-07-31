@@ -764,7 +764,7 @@ test('an activity reaches the browser', async () => {
     await cli.waitFor((events) => events.some((event) => event.type === 'prompt'));
 
     const turnId = cli.events.find((event) => event.type === 'prompt')?.turnId ?? '';
-    cli.send({ type: 'turn_activity', turnId, tool: 'Write', target: 'src/a.ts' });
+    cli.send({ type: 'turn_activity', turnId, id: 'act1', tool: 'Write', target: 'src/a.ts' });
 
     await browser.waitFor((events) => events.some((event) => event.type === 'activity'));
 
@@ -790,7 +790,7 @@ test('an activity is stored for a later refresh', async () => {
     await cli.waitFor((events) => events.some((event) => event.type === 'prompt'));
 
     const turnId = cli.events.find((event) => event.type === 'prompt')?.turnId ?? '';
-    cli.send({ type: 'turn_activity', turnId, tool: 'Bash', target: 'pnpm test' });
+    cli.send({ type: 'turn_activity', turnId, id: 'act1', tool: 'Bash', target: 'pnpm test' });
     await browser.waitFor((events) => events.some((event) => event.type === 'activity'));
 
     const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
@@ -820,7 +820,7 @@ test('an activity is kept when the turn fails', async () => {
     await cli.waitFor((events) => events.some((event) => event.type === 'prompt'));
 
     const turnId = cli.events.find((event) => event.type === 'prompt')?.turnId ?? '';
-    cli.send({ type: 'turn_activity', turnId, tool: 'Write', target: 'src/a.ts' });
+    cli.send({ type: 'turn_activity', turnId, id: 'act1', tool: 'Write', target: 'src/a.ts' });
     await browser.waitFor((events) => events.some((event) => event.type === 'activity'));
 
     cli.send({ type: 'turn_error', turnId, message: 'the engine gave up' });
@@ -855,7 +855,7 @@ test('an activity for another device is ignored', async () => {
     const other = await connect<CliEvent>(baseUrl, '/ws/cli');
     other.send({ ...register, code: 'QQQQQQQQ', deviceId: 'device-2', workspace: '/other' });
     await other.waitFor((events) => events.some((event) => event.type === 'registered'));
-    other.send({ type: 'turn_activity', turnId, tool: 'Write', target: '/etc/passwd' });
+    other.send({ type: 'turn_activity', turnId, id: 'act1', tool: 'Write', target: '/etc/passwd' });
 
     const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
 
@@ -1196,7 +1196,7 @@ test('a tool call that ran is not marked as blocked', async () => {
     await cli.waitFor((events) => events.some((event) => event.type === 'prompt'));
 
     const turnId = cli.events.find((event) => event.type === 'prompt')?.turnId ?? '';
-    cli.send({ type: 'turn_activity', turnId, tool: 'Bash', target: 'pnpm test' });
+    cli.send({ type: 'turn_activity', turnId, id: 'act1', tool: 'Bash', target: 'pnpm test' });
     await browser.waitFor((events) => events.some((event) => event.type === 'activity'));
 
     const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`);

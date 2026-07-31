@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Activity, Message } from '../api.js';
 
 interface MessageListProps {
@@ -7,7 +7,7 @@ interface MessageListProps {
   /** Streamed assistant text that has not been stored yet. */
   streaming: string | undefined;
   /** The workspace path of the current session, used to shorten paths. */
-  workspace?: string;
+  workspace?: string | undefined;
 }
 
 type AssistantItem =
@@ -369,6 +369,7 @@ function ActivityItem({
   activity: Activity;
   workspace: string | undefined;
 }): React.JSX.Element {
+  const [expanded, setExpanded] = useState(false);
   let displayTarget = activity.target;
 
   if (displayTarget !== undefined && workspace !== undefined) {
@@ -378,34 +379,74 @@ function ActivityItem({
     displayTarget = displayTarget.split(workspace).join('.');
   }
 
+  const hasOutput = typeof activity.output === 'string' && activity.output.length > 0;
+
   return (
     <div className="activity-pill-wrapper">
-      <p className={activity.blocked === true ? 'activity activity-blocked' : 'activity'}>
-        <span className="activity-tool">
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-          >
-            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-          </svg>
-          <span>{activity.tool}</span>
-        </span>
-        {/* Said in words rather than by colour alone: a call that
-            never ran must not read like one that did. */}
-        {activity.blocked === true && <span className="activity-blocked-label">blocked</span>}
-        {displayTarget !== undefined && (
-          <span className="activity-target mono" title={displayTarget}>
-            {displayTarget}
+      <div className={`activity-container ${activity.blocked ? 'activity-blocked' : ''}`}>
+        <p
+          className="activity"
+          onClick={hasOutput ? () => setExpanded(!expanded) : undefined}
+          style={{ cursor: hasOutput ? 'pointer' : 'default' }}
+        >
+          <span className="activity-tool">
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+            >
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+            <span>{activity.tool}</span>
           </span>
+          {/* Said in words rather than by colour alone: a call that
+              never ran must not read like one that did. */}
+          {activity.blocked === true && <span className="activity-blocked-label">blocked</span>}
+          {displayTarget !== undefined && (
+            <span className="activity-target mono" title={displayTarget}>
+              {displayTarget}
+            </span>
+          )}
+          {activity.reason !== undefined && (
+            <span className="activity-target">{activity.reason}</span>
+          )}
+          {hasOutput && (
+            <span className="activity-toggle-icon">
+              {expanded ? (
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <polyline points="18 15 12 9 6 15"></polyline>
+                </svg>
+              ) : (
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              )}
+            </span>
+          )}
+        </p>
+        {expanded && hasOutput && (
+          <div className="activity-output-container">
+            <pre className="activity-output-content">{activity.output}</pre>
+          </div>
         )}
-        {activity.reason !== undefined && (
-          <span className="activity-target">{activity.reason}</span>
-        )}
-      </p>
+      </div>
     </div>
   );
 }

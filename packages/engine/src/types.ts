@@ -25,6 +25,8 @@ export interface EngineLog {
  */
 export interface EngineActivity {
   type: 'activity';
+  /** Unique ID for the tool call as provided by the engine. */
+  id: string;
   /** Tool name as the engine reported it, for example 'write' or 'bash'. */
   tool: string;
   /**
@@ -33,6 +35,17 @@ export interface EngineActivity {
    * an empty string.
    */
   target?: string;
+}
+
+/**
+ * Output from a tool call, if the engine reports it.
+ */
+export interface EngineActivityOutput {
+  type: 'activity_output';
+  /** The unique ID of the tool call this output belongs to. */
+  id: string;
+  /** The output string. */
+  output: string;
 }
 
 /**
@@ -76,6 +89,7 @@ export type EngineEvent =
   | EngineDelta
   | EngineLog
   | EngineActivity
+  | EngineActivityOutput
   | EngineSession
   | EngineBlocked
   | EngineDone

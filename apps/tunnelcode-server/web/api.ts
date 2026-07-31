@@ -30,6 +30,15 @@ export interface SessionDetail {
   engines: DeviceEngine[];
 }
 
+export interface ActivityOutput {
+  type: 'activity_output';
+  turnId: string;
+  activityId: string;
+  output: string;
+}
+
+
+
 export interface Conversation {
   id: string;
   title: string | null;
@@ -68,6 +77,7 @@ export interface Activity {
   blocked?: boolean;
   /** Why the call was refused, present only on a blocked one. */
   reason?: string;
+  output?: string;
   createdAt: number;
 }
 

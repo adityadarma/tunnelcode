@@ -23,6 +23,8 @@ export interface StoredActivity {
   blocked: boolean;
   /** Why the call was refused. Null on a call that was allowed to run. */
   reason: string | null;
+  /** The raw output of the tool execution. Null if not provided. */
+  output: string | null;
   createdAt: number;
 }
 
@@ -211,17 +213,19 @@ export class ConversationRepository {
    */
   appendActivity(
     conversationId: string,
+    id: string,
     tool: string,
     target: string | undefined,
     refusal?: { reason: string },
   ): StoredActivity {
     const now = Date.now();
     const activity: StoredActivity = {
-      id: randomUUID(),
+      id,
       tool,
       target: target ?? null,
       blocked: refusal !== undefined,
       reason: refusal?.reason ?? null,
+      output: null,
       createdAt: now,
     };
 
@@ -234,11 +238,19 @@ export class ConversationRepository {
         target: activity.target,
         blocked: activity.blocked,
         reason: activity.reason,
+        output: activity.output,
         createdAt: now,
       })
       .run();
 
     return activity;
+  }
+
+  /**
+   * Updates an existing activity with its tool output.
+   */
+  updateActivityOutput(activityId: string, output: string): void {
+    this.db.update(activities).set({ output }).where(eq(activities.id, activityId)).run();
   }
 
   findById(conversationId: string): StoredConversation | undefined {
@@ -324,6 +336,7 @@ export class ConversationRepository {
         target: activities.target,
         blocked: activities.blocked,
         reason: activities.reason,
+        output: activities.output,
         createdAt: activities.createdAt,
       })
       .from(activities)

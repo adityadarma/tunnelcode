@@ -218,7 +218,7 @@ test('deleting a conversation removes its messages and activities', async () => 
     const conversations = new ConversationRepository(handle.db);
     const conversation = conversations.create('session-1');
     conversations.appendMessage(conversation.id, 'user', 'hello');
-    conversations.appendActivity(conversation.id, 'Bash', 'ls');
+    conversations.appendActivity(conversation.id, 'id3', 'Bash', 'ls');
 
     assert.equal(conversations.delete(conversation.id), true);
     assert.equal(conversations.findById(conversation.id), undefined);
@@ -234,9 +234,9 @@ test('activities are stored in order', async () => {
     const conversations = new ConversationRepository(handle.db);
     const conversation = conversations.create('session-1');
 
-    conversations.appendActivity(conversation.id, 'Read', 'a.ts');
-    conversations.appendActivity(conversation.id, 'Write', 'b.ts');
-    conversations.appendActivity(conversation.id, 'Bash', 'pnpm test');
+    conversations.appendActivity(conversation.id, 'id1', 'Read', 'a.ts');
+    conversations.appendActivity(conversation.id, 'id2', 'Write', 'b.ts');
+    conversations.appendActivity(conversation.id, 'id3', 'Bash', 'pnpm test');
 
     assert.deepEqual(
       conversations.listActivities(conversation.id).map((item) => [item.tool, item.target]),
@@ -255,7 +255,7 @@ test('an activity without a target is stored as null', async () => {
     const conversations = new ConversationRepository(handle.db);
     const conversation = conversations.create('session-1');
 
-    const stored = conversations.appendActivity(conversation.id, 'TodoWrite', undefined);
+    const stored = conversations.appendActivity(conversation.id, 'id5', 'TodoWrite', undefined);
 
     // Null rather than an empty string, so "the engine did not say" stays
     // distinguishable from "it acted on nothing".
@@ -270,7 +270,7 @@ test('an activity never becomes a message', async () => {
     const conversations = new ConversationRepository(handle.db);
     const conversation = conversations.create('session-1');
 
-    conversations.appendActivity(conversation.id, 'Write', 'a.ts');
+    conversations.appendActivity(conversation.id, 'id2', 'Write', 'a.ts');
 
     // An activity is not conversation text, so it must not show up as one.
     assert.deepEqual(conversations.listMessages(conversation.id), []);
@@ -283,7 +283,7 @@ test('an activity does not name the conversation', async () => {
     const conversations = new ConversationRepository(handle.db);
     const conversation = conversations.create('session-1');
 
-    conversations.appendActivity(conversation.id, 'Write', 'a.ts');
+    conversations.appendActivity(conversation.id, 'id2', 'Write', 'a.ts');
 
     // The title comes from what the user asked, so a tool call must leave it
     // untouched and let the first prompt still name it.
@@ -299,7 +299,7 @@ test('activities survive reopening the database', async () => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
     const conversation = conversations.create('session-1');
-    conversations.appendActivity(conversation.id, 'Write', 'note.txt');
+    conversations.appendActivity(conversation.id, 'id2', 'Write', 'note.txt');
     handle.close();
 
     await reopenDb(file, async (reopened) => {
@@ -415,7 +415,7 @@ test('activities belong to their own conversation', async () => {
     const first = conversations.create('session-1');
     const second = conversations.create('session-1');
 
-    conversations.appendActivity(first.id, 'Read', 'a.ts');
+    conversations.appendActivity(first.id, 'id6', 'Read', 'a.ts');
 
     assert.equal(conversations.listActivities(first.id).length, 1);
     assert.deepEqual(conversations.listActivities(second.id), []);

@@ -68,6 +68,7 @@ export const cliMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('turn_activity'),
     turnId: turnIdSchema,
+    id: z.string().min(1),
     tool: z.string().min(1),
     // Absent when the engine did not say what the tool acted on.
     target: z.string().min(1).optional(),
@@ -92,6 +93,12 @@ export const cliMessageSchema = z.discriminatedUnion('type', [
     type: z.literal('turn_message'),
     turnId: turnIdSchema,
     text: z.string(),
+  }),
+  z.object({
+    type: z.literal('turn_activity_output'),
+    turnId: turnIdSchema,
+    activityId: z.string().min(1),
+    output: z.string(),
   }),
   z.object({
     type: z.literal('turn_done'),
@@ -263,6 +270,13 @@ export const serverToBrowserMessageSchema = z.discriminatedUnion('type', [
     /** Why the call was refused, present only on a blocked one. */
     reason: z.string().min(1).optional(),
     createdAt: z.number(),
+  }),
+  z.object({
+    type: z.literal('activity_output'),
+    conversationId: conversationIdSchema,
+    turnId: turnIdSchema,
+    activityId: z.string().min(1),
+    output: z.string(),
   }),
   z.object({
     type: z.literal('turn_done'),

@@ -8,6 +8,10 @@ The CLI and the server image share one version and ship from a single `v*` tag.
 
 ## [Unreleased]
 
+### Added
+
+- Added support for displaying tool execution outputs (e.g., bash output, read files) directly within the web chat interface.
+
 ### Changed
 
 - Refactored message streaming architecture to natively support true chronological interleaving of text and tool activities. The CLI now emits `turn_message` events precisely before executing tool calls, and the frontend sorts all events chronologically.

@@ -188,6 +188,80 @@ describe('ConversationPage turn state', () => {
     });
   });
 
+  test('a stored message mid-turn keeps the typing indicator up', async () => {
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+
+    await loadPage();
+
+    FakeSocket.latest?.deliver({
+      type: 'attached',
+      sessionId: 'session-1',
+      online: true,
+      activeTurn: { conversationId: 'conversation-1', turnId: 'turn-1' },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('typing…')).toBeDefined();
+    });
+
+    // The engine flushes its buffered text as a stored message every time it
+    // pauses to run a tool, so this arrives long before the turn is over. The
+    // indicator has to survive it, because the tool call that follows is exactly
+    // the long wait that needs feedback.
+    FakeSocket.latest?.deliver({
+      type: 'message',
+      conversationId: 'conversation-1',
+      id: 'm-1',
+      role: 'assistant',
+      content: 'Let me look at that file.',
+      createdAt: 10,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Let me look at that file.')).toBeDefined();
+      expect(screen.getByText('typing…')).toBeDefined();
+      expect(screen.getByLabelText('Message')).toHaveProperty('disabled', true);
+    });
+
+    FakeSocket.latest?.deliver({
+      type: 'turn_done',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    });
+
+    // Only the end of the turn takes it down.
+    await waitFor(() => {
+      expect(screen.queryByText('typing…')).toBeNull();
+      expect(screen.getByLabelText('Message')).toHaveProperty('disabled', false);
+    });
+  });
+
+  test('a message arriving with no turn running raises no indicator', async () => {
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+
+    await loadPage();
+
+    FakeSocket.latest?.deliver({ type: 'attached', sessionId: 'session-1', online: true });
+
+    // A message that outlives its turn must not reopen the indicator, or the
+    // composer would stay blocked with nothing on its way.
+    FakeSocket.latest?.deliver({
+      type: 'message',
+      conversationId: 'conversation-1',
+      id: 'm-2',
+      role: 'assistant',
+      content: 'late arrival',
+      createdAt: 20,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('late arrival')).toBeDefined();
+    });
+
+    expect(screen.queryByText('typing…')).toBeNull();
+    expect(screen.getByLabelText('Message')).toHaveProperty('disabled', false);
+  });
+
   test('a malformed active turn is treated as nothing running', async () => {
     render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
 

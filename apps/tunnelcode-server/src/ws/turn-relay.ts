@@ -65,7 +65,13 @@ export class TurnRelay {
    * already complete when reported, and a turn that fails halfway should still
    * show what it changed before failing.
    */
-  activity(deviceId: string, turnId: string, tool: string, target: string | undefined): void {
+  activity(
+    deviceId: string,
+    turnId: string,
+    id: string,
+    tool: string,
+    target: string | undefined,
+  ): void {
     const turn = this.options.turns.findForDevice(turnId, deviceId);
 
     if (turn === undefined) {
@@ -74,6 +80,7 @@ export class TurnRelay {
 
     const stored = this.options.conversationRepository.appendActivity(
       turn.conversationId,
+      id,
       tool,
       target,
     );
@@ -96,7 +103,7 @@ export class TurnRelay {
    * refusal is part of what the turn attempted. Nothing else reports it, so
    * without this the answer that follows has no visible cause.
    */
-  blocked(deviceId: string, turnId: string, tool: string, reason: string): void {
+  blocked(deviceId: string, turnId: string, id: string, tool: string, reason: string): void {
     const turn = this.options.turns.findForDevice(turnId, deviceId);
 
     if (turn === undefined) {
@@ -107,6 +114,7 @@ export class TurnRelay {
     // and why, and the reason already names what it tried to touch.
     const stored = this.options.conversationRepository.appendActivity(
       turn.conversationId,
+      id,
       tool,
       undefined,
       { reason },
@@ -121,6 +129,27 @@ export class TurnRelay {
       blocked: true,
       ...(stored.reason !== null ? { reason: stored.reason } : {}),
       createdAt: stored.createdAt,
+    });
+  }
+
+  /**
+   * Stores tool output when it arrives.
+   */
+  activityOutput(deviceId: string, turnId: string, activityId: string, output: string): void {
+    const turn = this.options.turns.findForDevice(turnId, deviceId);
+
+    if (turn === undefined) {
+      return;
+    }
+
+    this.options.conversationRepository.updateActivityOutput(activityId, output);
+
+    this.options.browsers.broadcast(turn.sessionId, {
+      type: 'activity_output',
+      conversationId: turn.conversationId,
+      turnId,
+      activityId,
+      output,
     });
   }
 

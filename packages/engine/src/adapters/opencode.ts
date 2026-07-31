@@ -206,6 +206,7 @@ export class OpenCodeEngine implements Engine {
 
           events.push({
             type: 'activity',
+            id,
             tool: part.tool,
             ...(target !== undefined ? { target } : {}),
           });

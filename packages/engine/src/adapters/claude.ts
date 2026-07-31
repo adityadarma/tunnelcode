@@ -215,31 +215,36 @@ export class ClaudeEngine implements Engine {
           return undefined;
         }
 
-        const blocked: EngineEvent[] = [];
+        const events: EngineEvent[] = [];
 
         for (const block of content as ContentBlock[]) {
-          if (block.type !== 'tool_result' || block.is_error !== true) {
+          if (block.type !== 'tool_result') {
             continue;
           }
 
           const reason = readResultText(block.content);
+          const id = typeof block.tool_use_id === 'string' ? block.tool_use_id : '';
+
+          if (id !== '' && reason !== '') {
+            events.push({
+              type: 'activity_output',
+              id,
+              output: reason,
+            });
+          }
 
           // An ordinary tool failure looks the same as a refusal here, and a
           // command that exited nonzero is the engine's business, not the user's.
-          if (!PERMISSION_PATTERN.test(reason)) {
-            continue;
+          if (block.is_error === true && PERMISSION_PATTERN.test(reason)) {
+            events.push({
+              type: 'blocked',
+              tool: toolNames.get(id) ?? 'tool',
+              reason: shortenReason(reason),
+            });
           }
-
-          const id = typeof block.tool_use_id === 'string' ? block.tool_use_id : '';
-
-          blocked.push({
-            type: 'blocked',
-            tool: toolNames.get(id) ?? 'tool',
-            reason: shortenReason(reason),
-          });
         }
 
-        return blocked.length === 0 ? undefined : blocked;
+        return events.length === 0 ? undefined : events;
       }
 
       if (parsed.type === 'result') {
@@ -273,15 +278,18 @@ export class ClaudeEngine implements Engine {
             continue;
           }
 
+          const id =
+            typeof block.id === 'string' && block.id !== ''
+              ? block.id
+              : `call_${Math.random().toString(36).substring(2, 8)}`;
           // Remembered so a refusal arriving later can name the tool it refused.
-          if (typeof block.id === 'string' && block.id !== '') {
-            toolNames.set(block.id, block.name);
-          }
+          toolNames.set(id, block.name);
 
           const target = readActivityTarget(block.input);
 
           activities.push({
             type: 'activity',
+            id,
             tool: block.name,
             ...(target !== undefined ? { target } : {}),
           });
