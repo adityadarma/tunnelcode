@@ -1,63 +1,36 @@
 import { captureOutput, isOnPath } from '../which.js';
-import { streamProcess } from '../process.js';
 import { readActivityTarget } from '../activity.js';
-import type { Engine, EngineEvent, PromptOptions } from '../types.js';
+import { startOpenCodeServer } from './opencode-server.js';
+import type { OpenCodeServerHandle, StartOpenCodeServer } from './opencode-server.js';
+import type {
+  Engine,
+  EngineEvent,
+  EnginePermissionDecision,
+  EnginePermissionRequest,
+  PromptOptions,
+} from '../types.js';
 
 const COMMAND = 'opencode';
 
-/** A model id looks like provider/model, which is what opencode run -m expects. */
+/** A model id looks like provider/model, which is what opencode reports. */
 const MODEL_PATTERN = /^[\w.-]+\/[\w./-]+$/;
 
 /**
  * Title given to a session the adapter starts.
  *
- * A new session without a title makes opencode name it from the prompt, and the
- * generated name arrives as the only text of the run: no tool is ever called and
- * the answer never appears. Supplying one keeps the run to the actual work. The
- * value is never shown to the user, since the conversation carries its own title.
+ * Never shown to the user, since the conversation carries its own title. Supplied
+ * so opencode does not spend the first turn inventing one.
  */
 const SESSION_TITLE = 'tunnelcode';
-
-interface TextPart {
-  id?: unknown;
-  type?: unknown;
-  text?: unknown;
-  /** Tool name, present on tool parts rather than text parts. */
-  tool?: unknown;
-  /**
-   * Identifies one call. Tool parts carry this instead of an id, so two calls to
-   * the same tool stay distinguishable.
-   */
-  callID?: unknown;
-  /** Call details, where the arguments live once the call is running. */
-  state?: { input?: unknown; status?: unknown; error?: unknown } | undefined;
-}
-
-interface OpenCodeLine {
-  type?: unknown;
-  part?: TextPart;
-  /** Present on every event, naming the session the run belongs to. */
-  sessionID?: unknown;
-}
-
-/**
- * How opencode reports a session id it cannot find.
- *
- * Only said on stderr; the process exits nonzero without printing any event, so
- * this is the only way to tell a stale id from a real failure.
- */
-const STALE_SESSION_PATTERN = /session not found/i;
 
 /**
  * How opencode words a tool call it refused on permission grounds.
  *
- * A failed call carries a plain error string, and a tool that simply exited
- * nonzero looks the same, so the wording is what separates "not allowed" from
- * "did not work", which the user does not need reported.
+ * Only consulted when nobody can be asked, which is the one case where opencode
+ * decides by itself.
  */
 const PERMISSION_PATTERN = /rejected permission|permission requested|requires approval/i;
 
-/** Keeps a refusal short enough to read as one line in a conversation. */
 const REASON_MAX_LENGTH = 200;
 
 function shortenReason(value: string): string {
@@ -65,32 +38,105 @@ function shortenReason(value: string): string {
   return flat.length <= REASON_MAX_LENGTH ? flat : `${flat.slice(0, REASON_MAX_LENGTH - 1)}…`;
 }
 
+interface ToolState {
+  status?: unknown;
+  input?: unknown;
+  output?: unknown;
+  error?: unknown;
+}
+
+interface EventPart {
+  id?: unknown;
+  type?: unknown;
+  text?: unknown;
+  tool?: unknown;
+  callID?: unknown;
+  messageID?: unknown;
+  state?: ToolState;
+}
+
+interface EventProperties {
+  sessionID?: unknown;
+  messageID?: unknown;
+  partID?: unknown;
+  field?: unknown;
+  delta?: unknown;
+  part?: EventPart;
+  info?: { id?: unknown; role?: unknown };
+  error?: unknown;
+  /** Carried by a permission ask. */
+  id?: unknown;
+  permission?: unknown;
+  patterns?: unknown;
+  always?: unknown;
+  metadata?: { command?: unknown };
+}
+
+interface ServerEvent {
+  type?: unknown;
+  properties?: EventProperties;
+}
+
+function readStrings(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+/** Turns a permission ask into the shape the caller answers. */
+function readPermissionRequest(properties: EventProperties): EnginePermissionRequest | undefined {
+  const id = typeof properties.id === 'string' ? properties.id : '';
+  const tool = typeof properties.permission === 'string' ? properties.permission : '';
+
+  if (id === '' || tool === '') {
+    return undefined;
+  }
+
+  const command =
+    typeof properties.metadata?.command === 'string' ? properties.metadata.command : '';
+
+  return {
+    id,
+    tool,
+    title: tool,
+    ...(command !== '' ? { target: command } : {}),
+    // opencode can cover several commands with one ask, which is why details is a
+    // list rather than a single string. See ADR-022.
+    details: readStrings(properties.patterns),
+    // Reworded into the rule syntax the machine stores grants in, since opencode
+    // offers bare globs with the tool left implied.
+    suggestions: readStrings(properties.always).map((glob) => `${tool}(${glob})`),
+  };
+}
+
 /**
  * OpenCode adapter.
  *
- * `opencode run --format json` prints one JSON event per line. Text events
- * carry the full text of a part rather than just the newest fragment, so the
- * adapter remembers what it already emitted per part and yields only the
- * suffix. Without that the browser would show the answer repeated.
+ * Driven as a client of a headless server rather than through `opencode run`:
+ * that command answers permission asks itself, and it answers by rejecting them,
+ * which nothing around it can intercept. See ADR-022.
  *
- * Tool parts are mapped to activities. The line announcing one is `tool_use`
- * while the part inside it is `tool`, and the call is identified by callID rather
- * than by an id, so both are handled here.
- *
- * The session id is read from `sessionID`, which every event carries and which
- * keeps its value across a resume, so the first line to report one wins.
+ * Text arrives as `message.part.delta` fragments. The full-text form of a part is
+ * used only as a fallback, because a part that streamed would otherwise be
+ * emitted twice.
  */
 export class OpenCodeEngine implements Engine {
   readonly name = 'opencode';
   readonly command = COMMAND;
 
+  private readonly startServer: StartOpenCodeServer;
+  private server: OpenCodeServerHandle | undefined;
+  private serverCwd: string | undefined;
+
+  constructor(options: { startServer?: StartOpenCodeServer } = {}) {
+    this.startServer = options.startServer ?? startOpenCodeServer;
+  }
+
   async isAvailable(): Promise<boolean> {
     return isOnPath(COMMAND);
   }
 
-  /**
-   * Reads the model list from `opencode models`, one id per line.
-   */
+  /** Reads the model list from `opencode models`, one id per line. */
   async listModels(): Promise<string[]> {
     const output = await captureOutput(COMMAND, ['models']);
 
@@ -108,197 +154,397 @@ export class OpenCodeEngine implements Engine {
     return this.run(text, options);
   }
 
+  /** Stops the server this adapter started, if any. */
+  stop(): void {
+    this.server?.stop();
+    this.server = undefined;
+    this.serverCwd = undefined;
+  }
+
   /**
-   * Runs the prompt, retrying once without the session id when opencode cannot
-   * find it.
+   * The server for a workspace, started on first use and reused after.
    *
-   * A stale id is expected rather than exceptional: engine sessions are stored
-   * outside this project and can be pruned at any time. Answering without the
-   * earlier context is far better than refusing to answer at all.
+   * One server per workspace: a session belongs to the directory its server runs
+   * in, so a different workspace needs its own.
    */
+  private async serverFor(cwd: string): Promise<OpenCodeServerHandle> {
+    if (this.server !== undefined && this.serverCwd === cwd) {
+      return this.server;
+    }
+
+    this.stop();
+    const started = await this.startServer(cwd);
+    this.server = started;
+    this.serverCwd = cwd;
+
+    return started;
+  }
+
   private async *run(text: string, options: PromptOptions): AsyncGenerator<EngineEvent> {
-    if (options.resume !== undefined) {
-      const attempt: EngineEvent[] = [];
-      let stale = false;
-      let committed = false;
+    let server: OpenCodeServerHandle;
 
-      for await (const event of this.attempt(text, options, options.resume)) {
-        // Anything the engine actually produced means the session was found, so
-        // from here on the run is passed straight through.
-        if (
-          event.type === 'delta' ||
-          event.type === 'activity' ||
-          event.type === 'blocked' ||
-          event.type === 'session'
-        ) {
-          committed = true;
-        }
+    try {
+      server = await this.serverFor(options.cwd);
+    } catch (error) {
+      yield {
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Cannot start the opencode server.',
+      };
+      yield { type: 'done', exitCode: 1 };
+      return;
+    }
 
-        if (!committed && event.type === 'log' && STALE_SESSION_PATTERN.test(event.text)) {
-          stale = true;
-          continue;
-        }
+    const call = async (path: string, body?: unknown): Promise<Response> =>
+      fetch(`${server.baseUrl}${path}`, {
+        method: body === undefined ? 'GET' : 'POST',
+        headers: {
+          authorization: server.authorization,
+          ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
 
-        // A failure caused by the missing session is not worth reporting when the
-        // retry is about to answer properly.
-        if (stale && (event.type === 'error' || event.type === 'done')) {
-          continue;
-        }
+    // Opened before anything is asked of the session, so no event can slip through
+    // between the prompt being accepted and the stream being read.
+    const streamAbort = new AbortController();
+    let stream: Response;
 
-        if (committed) {
-          yield* attempt.splice(0, attempt.length);
-          yield event;
-          continue;
-        }
+    try {
+      stream = await fetch(`${server.baseUrl}/event?directory=${encodeURIComponent(options.cwd)}`, {
+        headers: { authorization: server.authorization, accept: 'text/event-stream' },
+        signal: streamAbort.signal,
+      });
+    } catch (error) {
+      yield {
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Cannot read from the opencode server.',
+      };
+      yield { type: 'done', exitCode: 1 };
+      return;
+    }
 
-        attempt.push(event);
+    const body = stream.body;
+
+    if (!stream.ok || body === null) {
+      yield { type: 'error', message: `The opencode server refused the event stream.` };
+      yield { type: 'done', exitCode: 1 };
+      return;
+    }
+
+    try {
+      const opened = await openSession(call, text, options);
+
+      if (!opened.ok) {
+        yield { type: 'error', message: opened.message };
+        yield { type: 'done', exitCode: 1 };
+        return;
       }
 
-      if (!stale) {
-        yield* attempt;
+      const sessionId = opened.id;
+
+      // Reported before any answer, so a run cut short still leaves an id to
+      // continue from.
+      yield { type: 'session', id: sessionId };
+
+      // Aborting has to reach the engine, which is a separate process: dropping the
+      // stream alone would leave it working on an answer nobody wants.
+      const onAbort = (): void => {
+        void call(`/session/${encodeURIComponent(sessionId)}/abort`, {});
+        streamAbort.abort();
+      };
+
+      options.signal?.addEventListener('abort', onAbort, { once: true });
+
+      try {
+        yield* this.consume(body, sessionId, options, call);
+      } finally {
+        options.signal?.removeEventListener('abort', onAbort);
+      }
+    } finally {
+      streamAbort.abort();
+    }
+  }
+
+  /** Maps the server's event stream onto engine events until the turn ends. */
+  private async *consume(
+    body: ReadableStream<Uint8Array>,
+    sessionId: string,
+    options: PromptOptions,
+    call: (path: string, body?: unknown) => Promise<Response>,
+  ): AsyncGenerator<EngineEvent> {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+
+    // Text is only the assistant's. The prompt comes back as a part of its own, and
+    // emitting that would replay the user's own words as an answer.
+    const assistantMessages = new Set<string>();
+    const streamedParts = new Set<string>();
+    const emittedText = new Map<string, string>();
+    const reportedTools = new Set<string>();
+    const reportedRefusals = new Set<string>();
+
+    let buffer = '';
+
+    for (;;) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        yield { type: 'done', exitCode: 0 };
         return;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) {
+          continue;
+        }
+
+        let event: ServerEvent;
+        try {
+          event = JSON.parse(line.slice(6)) as ServerEvent;
+        } catch {
+          continue;
+        }
+
+        const properties = event.properties ?? {};
+
+        // The server can host more than one session, so anything else is not this
+        // turn's business.
+        if (typeof properties.sessionID === 'string' && properties.sessionID !== sessionId) {
+          continue;
+        }
+
+        if (event.type === 'message.updated') {
+          const info = properties.info;
+
+          if (info?.role === 'assistant' && typeof info.id === 'string') {
+            assistantMessages.add(info.id);
+          }
+          continue;
+        }
+
+        if (event.type === 'message.part.delta') {
+          if (
+            properties.field !== 'text' ||
+            typeof properties.delta !== 'string' ||
+            properties.delta === '' ||
+            typeof properties.messageID !== 'string' ||
+            !assistantMessages.has(properties.messageID)
+          ) {
+            continue;
+          }
+
+          if (typeof properties.partID === 'string') {
+            // Remembered so the finished part is not emitted again on top of the
+            // fragments it was assembled from.
+            streamedParts.add(properties.partID);
+          }
+
+          yield { type: 'delta', text: properties.delta };
+          continue;
+        }
+
+        if (event.type === 'message.part.updated') {
+          yield* mapPart(properties.part);
+          continue;
+        }
+
+        if (event.type === 'permission.asked' || event.type === 'permission.updated') {
+          const ask = readPermissionRequest(properties);
+
+          if (ask === undefined) {
+            continue;
+          }
+
+          // Refusal is the fallback for a caller that cannot answer or throws,
+          // because the alternative is running a tool call nobody agreed to.
+          let decision: EnginePermissionDecision = 'reject';
+
+          if (options.requestPermission !== undefined) {
+            try {
+              decision = await options.requestPermission(ask);
+            } catch {
+              decision = 'reject';
+            }
+          }
+
+          await call(
+            `/session/${encodeURIComponent(sessionId)}/permissions/${encodeURIComponent(ask.id)}`,
+            { response: decision },
+          );
+          continue;
+        }
+
+        if (event.type === 'session.error') {
+          const error = properties.error;
+          yield {
+            type: 'error',
+            message: typeof error === 'string' ? error : 'The engine reported an error.',
+          };
+          yield { type: 'done', exitCode: 1 };
+          return;
+        }
+
+        if (event.type === 'session.idle') {
+          yield { type: 'done', exitCode: 0 };
+          return;
+        }
       }
     }
 
-    yield* this.attempt(text, options, undefined);
-  }
+    /** One tool part, which is repeated as the call progresses. */
+    function* mapPart(part: EventPart | undefined): Generator<EngineEvent> {
+      if (part === undefined) {
+        return;
+      }
 
-  /** One engine run, with or without a session to continue. */
-  private attempt(
-    text: string,
-    options: PromptOptions,
-    resume: string | undefined,
-  ): AsyncGenerator<EngineEvent> {
-    const emitted = new Map<string, string>();
-    const reportedTools = new Set<string>();
-    // Tracked apart from reportedTools: a call is announced once but its refusal
-    // arrives later, on a repeat of the same part.
-    const reportedRefusals = new Set<string>();
-    let reportedSession = false;
+      if (part.type === 'text') {
+        const id = typeof part.id === 'string' ? part.id : '';
+        const messageId = typeof part.messageID === 'string' ? part.messageID : '';
 
-    const mapEvent = (parsed: OpenCodeLine): EngineEvent | EngineEvent[] | undefined => {
-      // The line is `tool_use` while the part inside it is `tool`. Matching the
-      // part shape alone would also catch a line type that is not a tool call.
-      if (parsed.type === 'tool_use' || parsed.type === 'tool') {
-        const part = parsed.part;
-
-        if (part === undefined || typeof part.tool !== 'string' || part.tool === '') {
-          return undefined;
-        }
-
-        // callID comes first because tool parts carry no id, and falling back to
-        // the tool name would merge two calls to the same tool into one.
-        const id =
-          typeof part.callID === 'string'
-            ? part.callID
-            : typeof part.id === 'string'
-              ? part.id
-              : part.tool;
-
-        const events: EngineEvent[] = [];
-
-        // A tool part is repeated as its call progresses, so it is reported once
-        // per call.
-        if (!reportedTools.has(id)) {
-          reportedTools.add(id);
-
-          const target = readActivityTarget(part.state?.input);
-
-          events.push({
-            type: 'activity',
-            id,
-            tool: part.tool,
-            ...(target !== undefined ? { target } : {}),
-          });
-        }
-
-        // Checked separately from the activity above, because a refusal usually
-        // arrives on a repeat of a part already reported, which the dedupe above
-        // would otherwise swallow.
-        const error = part.state?.error;
-
+        // Already delivered fragment by fragment. Only a part that never streamed
+        // is emitted from here, which is what a provider that answers in one piece
+        // produces.
         if (
-          typeof error === 'string' &&
+          id === '' ||
+          streamedParts.has(id) ||
+          !assistantMessages.has(messageId) ||
+          typeof part.text !== 'string'
+        ) {
+          return;
+        }
+
+        const previous = emittedText.get(id) ?? '';
+        emittedText.set(id, part.text);
+
+        const fragment = part.text.startsWith(previous)
+          ? part.text.slice(previous.length)
+          : part.text;
+
+        if (fragment !== '') {
+          yield { type: 'delta', text: fragment };
+        }
+        return;
+      }
+
+      if (part.type !== 'tool' || typeof part.tool !== 'string' || part.tool === '') {
+        return;
+      }
+
+      const id = typeof part.callID === 'string' ? part.callID : (part.id as string | undefined);
+
+      if (id === undefined) {
+        return;
+      }
+
+      const status = part.state?.status;
+
+      // A call is announced with no arguments and filled in a moment later, so
+      // reporting it at that first sighting would show a tool acting on nothing.
+      if (status !== 'pending' && !reportedTools.has(id)) {
+        reportedTools.add(id);
+        const target = readActivityTarget(part.state?.input);
+
+        yield {
+          type: 'activity',
+          id,
+          tool: part.tool,
+          ...(target !== undefined ? { target } : {}),
+        };
+      }
+
+      const output = part.state?.output;
+
+      if (status === 'completed' && typeof output === 'string' && output !== '') {
+        yield { type: 'activity_output', id, output };
+      }
+
+      const error = part.state?.error;
+
+      if (typeof error === 'string' && error !== '') {
+        yield { type: 'activity_output', id, output: error };
+
+        // Only when nobody could be asked. With asks on, a refusal is one the
+        // caller decided and already knows the reason for. See ADR-022.
+        if (
+          options.requestPermission === undefined &&
           PERMISSION_PATTERN.test(error) &&
           !reportedRefusals.has(id)
         ) {
           reportedRefusals.add(id);
-          events.push({ type: 'blocked', tool: part.tool, reason: shortenReason(error) });
+          yield { type: 'blocked', tool: part.tool, reason: shortenReason(error) };
         }
-
-        return events.length === 0 ? undefined : events;
       }
-
-      if (parsed.type !== 'text') {
-        return undefined;
-      }
-
-      const part = parsed.part;
-      if (part === undefined || part.type !== 'text' || typeof part.text !== 'string') {
-        return undefined;
-      }
-
-      const id = typeof part.id === 'string' ? part.id : 'default';
-      const previous = emitted.get(id) ?? '';
-      emitted.set(id, part.text);
-
-      const fragment = part.text.startsWith(previous)
-        ? part.text.slice(previous.length)
-        : part.text;
-
-      return fragment === '' ? undefined : { type: 'delta', text: fragment };
-    };
-
-    const mapLine = (line: string): EngineEvent | EngineEvent[] | undefined => {
-      if (line.trim() === '') {
-        return undefined;
-      }
-
-      let parsed: OpenCodeLine;
-      try {
-        parsed = JSON.parse(line) as OpenCodeLine;
-      } catch {
-        return undefined;
-      }
-
-      const event = mapEvent(parsed);
-
-      // Every event names its session and the id stays the same across a resume,
-      // so the first line carrying one is enough. Emitted before the line's own
-      // event, so a run cut short halfway still leaves an id to continue from.
-      if (!reportedSession && typeof parsed.sessionID === 'string' && parsed.sessionID !== '') {
-        reportedSession = true;
-        const session: EngineEvent = { type: 'session', id: parsed.sessionID };
-
-        // One line can now map to several events, so the session is prepended to
-        // whatever came back rather than assuming a single event.
-        if (event === undefined) {
-          return session;
-        }
-
-        return [session, ...(Array.isArray(event) ? event : [event])];
-      }
-
-      return event;
-    };
-
-    return streamProcess(
-      {
-        command: COMMAND,
-        args: [
-          'run',
-          '--format',
-          'json',
-          ...(options.model !== undefined ? ['--model', options.model] : []),
-          // Only a new session needs naming. A resumed one already has a title,
-          // and it is not this adapter's business to rename it.
-          ...(resume !== undefined ? ['--session', resume] : ['--title', SESSION_TITLE]),
-        ],
-        cwd: options.cwd,
-        input: text,
-        ...(options.signal !== undefined ? { signal: options.signal } : {}),
-      },
-      mapLine,
-    );
+    }
   }
+}
+
+type OpenedSession = { ok: true; id: string } | { ok: false; message: string };
+
+/**
+ * Sends the prompt, into the session being continued when there is one.
+ *
+ * A stale id is expected rather than exceptional: sessions live in opencode and
+ * can be pruned at any time, so a refused resume starts a new session instead of
+ * failing the turn. Answering without the earlier context is better than not
+ * answering.
+ */
+async function openSession(
+  call: (path: string, body?: unknown) => Promise<Response>,
+  text: string,
+  options: PromptOptions,
+): Promise<OpenedSession> {
+  const prompt = { parts: [{ type: 'text', text }], ...readModel(options.model) };
+
+  if (options.resume !== undefined) {
+    const resumed = await call(
+      `/session/${encodeURIComponent(options.resume)}/prompt_async`,
+      prompt,
+    );
+
+    if (resumed.ok) {
+      return { ok: true, id: options.resume };
+    }
+  }
+
+  const created = await call('/session', { title: SESSION_TITLE });
+
+  if (!created.ok) {
+    return { ok: false, message: 'The opencode server would not start a session.' };
+  }
+
+  const payload = (await created.json()) as { id?: unknown };
+  const id = typeof payload.id === 'string' ? payload.id : '';
+
+  if (id === '') {
+    return { ok: false, message: 'The opencode server started a session with no id.' };
+  }
+
+  const sent = await call(`/session/${encodeURIComponent(id)}/prompt_async`, prompt);
+
+  return sent.ok
+    ? { ok: true, id }
+    : { ok: false, message: 'The opencode server refused the prompt.' };
+}
+
+/** The model as opencode wants it, split from the provider/model form. */
+function readModel(model: string | undefined): {
+  model?: { providerID: string; modelID: string };
+} {
+  if (model === undefined) {
+    return {};
+  }
+
+  const separator = model.indexOf('/');
+
+  if (separator <= 0 || separator === model.length - 1) {
+    return {};
+  }
+
+  return {
+    model: { providerID: model.slice(0, separator), modelID: model.slice(separator + 1) },
+  };
 }

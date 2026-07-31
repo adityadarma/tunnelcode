@@ -129,14 +129,24 @@ export async function postJson(
   };
 }
 
+/**
+ * Header a browser proves its session with on the routes that name only a
+ * conversation. A conversation id is not a credential.
+ */
+export const SESSION_HEADER = 'x-tunnelcode-session';
+
 export async function patchJson(
   baseUrl: string,
   path: string,
   body: unknown,
+  sessionId?: string,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const response = await fetch(`${baseUrl}${path}`, {
     method: 'PATCH',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...(sessionId === undefined ? {} : { [SESSION_HEADER]: sessionId }),
+    },
     body: JSON.stringify(body),
   });
 
@@ -167,11 +177,31 @@ export async function postEmpty(
   };
 }
 
+export async function deleteJson(
+  baseUrl: string,
+  path: string,
+  sessionId?: string,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: 'DELETE',
+    ...(sessionId === undefined ? {} : { headers: { [SESSION_HEADER]: sessionId } }),
+  });
+
+  const text = await response.text();
+  return {
+    status: response.status,
+    body: text === '' ? {} : (JSON.parse(text) as Record<string, unknown>),
+  };
+}
+
 export async function getJson(
   baseUrl: string,
   path: string,
+  sessionId?: string,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
-  const response = await fetch(`${baseUrl}${path}`);
+  const response = await fetch(`${baseUrl}${path}`, {
+    ...(sessionId === undefined ? {} : { headers: { [SESSION_HEADER]: sessionId } }),
+  });
   const text = await response.text();
 
   return {

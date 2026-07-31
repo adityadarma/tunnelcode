@@ -6,11 +6,14 @@ export { isOnPath } from './which.js';
 export type {
   Engine,
   EngineActivity,
+  EngineBlocked,
   EngineDelta,
   EngineDone,
   EngineEvent,
   EngineFailure,
   EngineLog,
+  EnginePermissionDecision,
+  EnginePermissionRequest,
   EngineSession,
   PromptOptions,
 } from './types.js';

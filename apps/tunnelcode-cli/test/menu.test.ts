@@ -82,7 +82,9 @@ const EXIT = '3';
 const SERVER_URL = '1';
 const DEVICE_NAME = '2';
 const ENGINE = '3';
-const BACK = '5';
+const NEVER_ALLOW = '4';
+const GRANTS = '5';
+const BACK = '7';
 
 test('the menu offers continue, setup, and exit', async () => {
   await withTempHome(async (home) => {
@@ -227,3 +229,55 @@ test('the environment cannot point the agent at another server', async () => {
     assert.doesNotMatch(output, /attacker\.example\.com/);
   });
 });
+
+test('setup stores the ceiling on what may ever be allowed', async () => {
+  await withTempHome(async (home) => {
+    await runMenu(home, [SETUP, NEVER_ALLOW, 'Bash(rm *), WebFetch', BACK, EXIT]);
+
+    const stored = await readStoredConfig(home);
+
+    // Answered in a terminal on the machine rather than in the browser, because a
+    // paired session lives in a phone that gets lost and left unlocked.
+    // See ADR-022.
+    assert.deepEqual(stored?.['permission'], { deny: ['Bash(rm *)', 'WebFetch'] });
+  });
+});
+
+test('a ceiling can be taken back off', async () => {
+  await withTempHome(async (home) => {
+    await runMenu(home, [SETUP, NEVER_ALLOW, 'Bash', BACK, EXIT]);
+    await runMenu(home, [SETUP, NEVER_ALLOW, '-', BACK, EXIT]);
+
+    // An empty answer keeps the current value everywhere in this menu, so without
+    // an explicit clear there would be no way back to refusing nothing.
+    assert.deepEqual(stripDeny(await readStoredConfig(home)), []);
+  });
+});
+
+test('granted permissions can be listed and cleared', async () => {
+  await withTempHome(async (home) => {
+    const grants = join(home, '.config', 'tunnelcode', 'permissions.json');
+    await mkdir(join(home, '.config', 'tunnelcode'), { recursive: true });
+    await writeFile(
+      grants,
+      JSON.stringify({ grants: [{ rule: 'Bash(curl *)', grantedAt: 1 }] }),
+      'utf8',
+    );
+
+    const { output } = await runMenu(home, [SETUP, GRANTS, '2', BACK, EXIT]);
+
+    // A lasting grant with no way to see or withdraw it would be the worst part of
+    // the feature rather than the convenient one. See ADR-022.
+    assert.match(output, /Bash\(curl \*\)/);
+
+    const remaining = JSON.parse(await readFile(grants, 'utf8')) as { grants: unknown[] };
+    assert.deepEqual(remaining.grants, []);
+  });
+});
+
+function stripDeny(stored: Record<string, unknown> | undefined): unknown {
+  const permission = stored?.['permission'];
+  return typeof permission === 'object' && permission !== null
+    ? (permission as { deny?: unknown }).deny
+    : undefined;
+}

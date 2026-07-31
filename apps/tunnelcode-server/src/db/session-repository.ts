@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { Db } from './client.js';
 import { conversations, devices, sessions } from './schema.js';
 
@@ -92,7 +92,12 @@ export class SessionRepository {
       })
       .from(sessions)
       .innerJoin(devices, eq(devices.id, sessions.deviceId))
-      .where(eq(sessions.id, sessionId))
+      // A session the user ended is gone, not merely marked. Read without this,
+      // endedAt was a record of an intention that bound nothing: the same id could
+      // be attached again afterwards, and a browser holding it could still answer a
+      // permission ask on the machine. Every caller of this wants an ended session
+      // to be absent, so it is filtered here rather than at each of them.
+      .where(and(eq(sessions.id, sessionId), isNull(sessions.endedAt)))
       .limit(1)
       .all();
 

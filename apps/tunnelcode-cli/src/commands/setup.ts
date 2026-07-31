@@ -1,5 +1,11 @@
 import { hostname } from 'node:os';
-import { globalConfigPath, loadGlobalConfig, writeGlobalConfig } from '@tunnelcode/config';
+import {
+  globalConfigPath,
+  loadGlobalConfig,
+  loadGrants,
+  writeGlobalConfig,
+  writeGrants,
+} from '@tunnelcode/config';
 import type { GlobalConfig } from '@tunnelcode/config';
 import { ENGINE_NAMES } from '@tunnelcode/engine';
 import type { EngineName } from '@tunnelcode/engine';
@@ -12,7 +18,10 @@ import { cyan, dim, green } from '../style.js';
 
 const DEFAULT_ENGINE: EngineName = 'opencode';
 
-type Field = 'server' | 'device' | 'engine' | 'doctor' | 'back';
+type Field = 'server' | 'device' | 'engine' | 'ceiling' | 'grants' | 'doctor' | 'back';
+
+/** Separator for the deny list, which is read and written as one line. */
+const RULE_SEPARATOR = ',';
 
 /**
  * Configuration as the menu should offer it: what is stored, or the default that
@@ -24,6 +33,7 @@ function draftFrom(stored: GlobalConfig | undefined): GlobalConfig {
       server: { url: resolveDefaultServerUrl() },
       device: { name: hostname() },
       engine: DEFAULT_ENGINE,
+      permission: { deny: [] },
     }
   );
 }
@@ -98,6 +108,91 @@ async function editEngine(draft: GlobalConfig): Promise<void> {
 }
 
 /**
+ * Edits the limit on what this machine will ever agree to do.
+ *
+ * Answered here rather than in the browser on purpose: a paired session lives in a
+ * phone that gets lost and left unlocked, while this prompt is only reachable from
+ * a terminal on the machine itself. See ADR-022.
+ */
+async function editCeiling(draft: GlobalConfig): Promise<void> {
+  const current = draft.permission.deny.join(`${RULE_SEPARATOR} `);
+
+  writeOut('');
+  writeOut(dim('  Tool names, optionally narrowed: Bash, Bash(rm *), WebFetch'));
+  writeOut(dim('  These can never be allowed, whatever the browser answers.'));
+
+  // A dash clears the list, because an empty answer means "keep it" everywhere
+  // else in this menu and there would otherwise be no way back to none.
+  writeOut(dim('  Enter - to allow everything to be asked about.'));
+
+  const answer = await ask({
+    label: 'Never allow',
+    ...(current === '' ? {} : { current }),
+  });
+
+  if (answer === CANCELLED) {
+    return;
+  }
+
+  const deny =
+    answer.trim() === '-'
+      ? []
+      : [
+          ...new Set(
+            answer
+              .split(RULE_SEPARATOR)
+              .map((entry) => entry.trim())
+              .filter((entry) => entry !== ''),
+          ),
+        ];
+
+  await writeGlobalConfig({ ...draft, permission: { deny } });
+
+  writeOut(
+    green(
+      deny.length === 0
+        ? 'Nothing is refused outright any more.'
+        : `Never allowing ${cyan(deny.join(`${RULE_SEPARATOR} `))}`,
+    ),
+  );
+}
+
+/**
+ * Lists the rules granted from a phone, and offers to clear them.
+ *
+ * A lasting grant with no way to see or withdraw it would be the worst part of
+ * this feature rather than the convenient one. See ADR-022.
+ */
+async function manageGrants(): Promise<void> {
+  const grants = await loadGrants();
+
+  if (grants.length === 0) {
+    writeOut('');
+    writeOut(dim('  Nothing has been granted from the browser yet.'));
+    return;
+  }
+
+  writeOut('');
+  writeOut(dim('  Granted from the browser, in force until cleared:'));
+
+  for (const grant of grants) {
+    writeOut(`  ${cyan(grant.rule)}  ${dim(new Date(grant.grantedAt).toLocaleString())}`);
+  }
+
+  const choice = await select('Granted permissions', [
+    { value: 'keep', label: 'Keep them' },
+    { value: 'clear', label: 'Clear all', hint: `${String(grants.length)} rules` },
+  ] satisfies Choice<'keep' | 'clear'>[]);
+
+  if (choice === CANCELLED || choice === 'keep') {
+    return;
+  }
+
+  await writeGrants([]);
+  writeOut(green('Cleared. Every tool call will be asked about again.'));
+}
+
+/**
  * Runs the settings menu until the user goes back.
  *
  * Every field is written as soon as it is answered, so leaving the menu at any
@@ -108,10 +203,25 @@ export async function runSetupMenu(): Promise<void> {
     const stored = await loadGlobalConfig();
     const draft = draftFrom(stored);
 
+    const grants = await loadGrants();
+
     const choice = await select('Setup', [
       { value: 'server', label: 'Server URL', hint: draft.server.url },
       { value: 'device', label: 'Device name', hint: draft.device.name },
       { value: 'engine', label: 'Engine', hint: draft.engine },
+      {
+        value: 'ceiling',
+        label: 'Never allow',
+        hint:
+          draft.permission.deny.length === 0
+            ? 'nothing'
+            : draft.permission.deny.join(`${RULE_SEPARATOR} `),
+      },
+      {
+        value: 'grants',
+        label: 'Granted permissions',
+        hint: grants.length === 0 ? 'none' : `${String(grants.length)} rules`,
+      },
       { value: 'doctor', label: 'Check environment' },
       { value: 'back', label: 'Back' },
     ] satisfies Choice<Field>[]);
@@ -129,6 +239,12 @@ export async function runSetupMenu(): Promise<void> {
         break;
       case 'engine':
         await editEngine(draft);
+        break;
+      case 'ceiling':
+        await editCeiling(draft);
+        break;
+      case 'grants':
+        await manageGrants();
         break;
       case 'doctor':
         await runDoctor();

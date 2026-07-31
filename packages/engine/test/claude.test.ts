@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ClaudeEngine } from '../dist/adapters/claude.js';
-import type { EngineEvent } from '../dist/types.js';
+import type { EngineEvent, EnginePermissionRequest } from '../dist/types.js';
 import { withEmptyPath, withFakeEngine } from './helpers.ts';
 
 /**
@@ -462,5 +462,215 @@ test('a tool that merely failed is not reported as refused', async () => {
     // A command that exited nonzero is the engine's business. Reporting it as a
     // permission problem would be wrong and noisy.
     assert.deepEqual(blockedOf(events), []);
+  });
+});
+
+/**
+ * Reproduces an interactive permission ask, recorded from the real CLI running
+ * with `--permission-prompt-tool stdio`.
+ *
+ * Unlike every fake above, this one answers lines as they arrive rather than
+ * waiting for stdin to close: the whole point of the mode is that the process is
+ * still listening while it waits for a decision.
+ */
+const ASKING = `#!/usr/bin/env node
+const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+let buf = '';
+let asked = false;
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+  buf += chunk;
+  const lines = buf.split('\\n');
+  buf = lines.pop();
+  for (const line of lines) {
+    if (line.trim() === '') continue;
+    const message = JSON.parse(line);
+    if (message.type === 'user' && !asked) {
+      asked = true;
+      out({ type: 'control_request', request_id: 'req-1', request: {
+        subtype: 'can_use_tool',
+        tool_name: 'Bash',
+        display_name: 'Bash',
+        input: { command: 'curl -s https://example.com', description: 'Fetch example.com' },
+        description: 'Fetch example.com',
+        decision_reason: 'This command requires approval',
+        permission_suggestions: [{
+          type: 'addRules',
+          behavior: 'allow',
+          destination: 'localSettings',
+          rules: [{ toolName: 'Bash', ruleContent: 'curl *' }],
+        }, {
+          type: 'addRules',
+          behavior: 'deny',
+          destination: 'localSettings',
+          rules: [{ toolName: 'Bash', ruleContent: 'rm *' }],
+        }],
+      } });
+      continue;
+    }
+    if (message.type === 'control_response') {
+      const behavior = message.response && message.response.response
+        ? message.response.response.behavior
+        : 'missing';
+      out({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'behavior=' + behavior } } });
+      out({ type: 'result', subtype: 'success', is_error: false, result: 'ok', session_id: 's1' });
+      process.exit(0);
+    }
+  }
+});
+`;
+
+/** Reports its argv and the prompt it was handed, without waiting for stdin to close. */
+const ASKING_ARGS = `#!/usr/bin/env node
+const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+let buf = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+  buf += chunk;
+  const lines = buf.split('\\n');
+  buf = lines.pop();
+  for (const line of lines) {
+    if (line.trim() === '') continue;
+    const payload = JSON.stringify({ args: process.argv.slice(2), input: line });
+    out({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: payload } } });
+    out({ type: 'result', subtype: 'success', is_error: false, result: 'ok', session_id: 's1' });
+    process.exit(0);
+  }
+});
+`;
+
+test('an allowed ask lets the call through', async () => {
+  await withFakeEngine('claude', ASKING, async () => {
+    const events = await collect(
+      new ClaudeEngine().prompt('hi', {
+        cwd: process.cwd(),
+        requestPermission: async () => 'once',
+      }),
+    );
+
+    assert.equal(textOf(events), 'behavior=allow');
+    assert.deepEqual(blockedOf(events), []);
+  });
+});
+
+test('always allows on the wire, because the lasting grant is kept here', async () => {
+  await withFakeEngine('claude', ASKING, async () => {
+    const events = await collect(
+      new ClaudeEngine().prompt('hi', {
+        cwd: process.cwd(),
+        requestPermission: async () => 'always',
+      }),
+    );
+
+    // Claude Code has no grant of its own that would outlive this run, so 'always'
+    // cannot be forwarded and has to look like 'once' to the engine. See ADR-022.
+    assert.equal(textOf(events), 'behavior=allow');
+  });
+});
+
+test('a rejected ask is refused without being explained here', async () => {
+  await withFakeEngine('claude', ASKING, async () => {
+    const events = await collect(
+      new ClaudeEngine().prompt('hi', {
+        cwd: process.cwd(),
+        requestPermission: async () => 'reject',
+      }),
+    );
+
+    assert.equal(textOf(events), 'behavior=deny');
+
+    // Reporting the refusal belongs to whoever refused. Only that level knows
+    // whether the user said no, a limit on the machine did, or nobody answered, and
+    // guessing here would put a wrong reason in the transcript. See ADR-022.
+    assert.deepEqual(blockedOf(events), []);
+  });
+});
+
+test('a decision that throws refuses the call', async () => {
+  await withFakeEngine('claude', ASKING, async () => {
+    const events = await collect(
+      new ClaudeEngine().prompt('hi', {
+        cwd: process.cwd(),
+        requestPermission: async () => {
+          throw new Error('the browser went away');
+        },
+      }),
+    );
+
+    // Running a tool call nobody agreed to is the one outcome worth ruling out.
+    assert.equal(textOf(events), 'behavior=deny');
+  });
+});
+
+test('an ask carries what a person needs in order to decide', async () => {
+  await withFakeEngine('claude', ASKING, async () => {
+    const asks: EnginePermissionRequest[] = [];
+
+    await collect(
+      new ClaudeEngine().prompt('hi', {
+        cwd: process.cwd(),
+        requestPermission: async (request) => {
+          asks.push(request);
+          return 'reject';
+        },
+      }),
+    );
+
+    assert.equal(asks.length, 1);
+    const ask = asks[0];
+    assert.ok(ask !== undefined);
+    assert.equal(ask.tool, 'Bash');
+    assert.equal(ask.title, 'Bash');
+    assert.equal(ask.target, 'curl -s https://example.com');
+    assert.equal(ask.reason, 'This command requires approval');
+    assert.deepEqual(ask.details, ['Fetch example.com']);
+    // Only the allowing suggestion is offered. A suggested deny is not something
+    // a tap on "always" should install.
+    assert.deepEqual(ask.suggestions, ['Bash(curl *)']);
+  });
+});
+
+test('asks are routed to this host and the prompt becomes a streaming message', async () => {
+  await withFakeEngine('claude', ASKING_ARGS, async () => {
+    const events = await collect(
+      new ClaudeEngine().prompt('hello there', {
+        cwd: process.cwd(),
+        requestPermission: async () => 'once',
+      }),
+    );
+    const payload = JSON.parse(textOf(events)) as { args: string[]; input: string };
+
+    // Pinned deliberately. The flag is absent from `claude --help`, and without it
+    // every ask silently becomes a refusal instead. See ADR-022.
+    const at = payload.args.indexOf('--permission-prompt-tool');
+    assert.notEqual(at, -1);
+    assert.equal(payload.args[at + 1], 'stdio');
+
+    const format = payload.args.indexOf('--input-format');
+    assert.notEqual(format, -1);
+    assert.equal(payload.args[format + 1], 'stream-json');
+
+    // stdin still carries the prompt, now wrapped so the same stream can also
+    // carry answers back.
+    const message = JSON.parse(payload.input) as {
+      type: string;
+      message: { content: { text: string }[] };
+    };
+    assert.equal(message.type, 'user');
+    assert.equal(message.message.content[0]?.text, 'hello there');
+    assert.ok(!payload.args.includes('hello there'));
+  });
+});
+
+test('nothing is routed here when nobody can answer', async () => {
+  await withFakeEngine('claude', ECHO_ARGS, async () => {
+    const events = await collect(new ClaudeEngine().prompt('hi', { cwd: process.cwd() }));
+    const payload = JSON.parse(textOf(events)) as { args: string[]; input: string };
+
+    // Asking a question no one will hear would stall the turn until it timed out,
+    // so the plain path is left exactly as it was.
+    assert.ok(!payload.args.includes('--permission-prompt-tool'));
+    assert.ok(!payload.args.includes('--input-format'));
+    assert.equal(payload.input.trim(), 'hi');
   });
 });

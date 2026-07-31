@@ -802,6 +802,79 @@
   }
 }
 
+/* Permission asks.
+   Pinned above the composer rather than placed in the transcript: the agent is
+   stopped until one of these is answered, and a card that scrolls out of view is
+   one nobody answers. See ADR-022. */
+.permissions {
+  @apply flex flex-col gap-2 px-2.5 sm:px-3 md:px-4 w-full max-w-3xl mx-auto box-border min-w-0 empty:hidden;
+}
+
+.permission {
+  @apply flex flex-col gap-2 p-3 md:p-3.5 rounded-2xl bg-[var(--surface-2)] border border-[var(--accent)] shadow-md w-full min-w-0 box-border break-words [overflow-wrap:anywhere];
+}
+
+.permission-head {
+  @apply flex items-center justify-between gap-2 min-w-0;
+}
+
+.permission-title {
+  @apply m-0 text-sm md:text-base font-semibold text-[var(--text)] min-w-0;
+}
+
+.permission-tool {
+  @apply text-[var(--accent)];
+}
+
+.permission-clock {
+  @apply text-xs text-[var(--muted)] shrink-0 tabular-nums;
+}
+
+.permission-reason {
+  @apply m-0 text-xs md:text-sm;
+}
+
+.permission-target {
+  @apply m-0 text-xs md:text-sm px-2 py-1.5 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] min-w-0 break-words [overflow-wrap:anywhere];
+}
+
+.permission-details {
+  @apply m-0 pl-4 list-disc space-y-1 text-xs text-[var(--muted)] min-w-0 break-words [overflow-wrap:anywhere];
+}
+
+.permission-actions {
+  @apply flex flex-wrap gap-2 min-w-0;
+}
+
+.permission-actions button {
+  @apply px-3 py-2 rounded-lg text-xs md:text-sm font-medium cursor-pointer transition-all border disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.permission-allow {
+  @apply bg-[var(--accent)] text-white border-transparent hover:bg-[var(--accent-hover)];
+}
+
+.permission-always {
+  @apply bg-[var(--surface)] text-[var(--text)] border-[var(--border)] hover:border-[var(--accent)];
+}
+
+.permission-deny {
+  @apply bg-[var(--surface)] text-[var(--danger)] border-[var(--border)] hover:border-[var(--danger)];
+}
+
+.permission-scope,
+.permission-offline {
+  @apply m-0 text-xs;
+}
+
+.permission-expired {
+  @apply m-0 text-xs text-[var(--muted)];
+}
+
+.permission-elsewhere {
+  @apply m-0 p-3 rounded-2xl bg-[var(--surface-2)] border border-dashed border-[var(--accent)] text-xs md:text-sm text-[var(--text)] w-full min-w-0 box-border;
+}
+
 /* Composer Bar */
 .composer {
   @apply p-2.5 sm:p-3 md:p-4 border-t border-[var(--border)] bg-[var(--surface)] shrink-0 w-full max-w-full box-border pb-[max(0.6rem,env(safe-area-inset-bottom))];

@@ -11,16 +11,72 @@ interface ConversationRoutesOptions {
 }
 
 /**
+ * Header a browser proves its session with on the routes that name a conversation
+ * rather than a session.
+ *
+ * A conversation id is not a credential. Without this, knowing one was enough to
+ * read a whole transcript, which includes the output of every tool the agent ran:
+ * file contents and command results from the user's machine.
+ */
+const SESSION_HEADER = 'x-tunnelcode-session';
+
+type Authorized = { ok: true; sessionId: string } | { ok: false; status: number; error: string };
+
+/**
  * Conversation history routes.
  *
- * Every route is scoped to a session that exists, so a browser cannot read the
- * history of a session it never paired with by guessing ids.
+ * The routes that name a session take it from the path, where holding the id is
+ * the claim, exactly as the WebSocket treats it. The routes that name only a
+ * conversation take the session from a header and check the conversation belongs
+ * to it.
  */
 export function registerConversationRoutes(
   app: FastifyInstance,
   options: ConversationRoutesOptions,
 ): void {
   const { conversationRepository, sessionRepository, devices } = options;
+
+  /**
+   * Checks that the session presented in the header is entitled to a conversation.
+   *
+   * Entitlement is the workspace, not the session row. Pairing again creates a new
+   * session for the same place, and its conversations are deliberately still
+   * listed, so comparing ids alone would make history disappear after a reconnect.
+   *
+   * A conversation that exists but belongs elsewhere answers exactly like one that
+   * does not exist, so the reply never confirms that an id is real.
+   */
+  const authorize = (
+    request: { headers: Record<string, unknown> },
+    conversationId: string,
+  ): Authorized => {
+    const header = request.headers[SESSION_HEADER];
+    const sessionId = typeof header === 'string' ? header : '';
+
+    if (sessionId === '') {
+      return { ok: false, status: 400, error: 'Missing session id.' };
+    }
+
+    // Rejects an ended session, since findSessionDetail leaves those out. A
+    // retired pairing cannot be used to read anything.
+    const caller = sessionRepository.findSessionDetail(sessionId);
+
+    if (caller === undefined) {
+      return { ok: false, status: 404, error: 'Unknown session.' };
+    }
+
+    const owner = sessionRepository.findSessionForConversation(conversationId);
+
+    if (
+      owner === undefined ||
+      owner.deviceId !== caller.deviceId ||
+      owner.workspace !== caller.workspace
+    ) {
+      return { ok: false, status: 404, error: 'Unknown conversation.' };
+    }
+
+    return { ok: true, sessionId };
+  };
 
   app.get('/sessions/:sessionId/conversations', (request, reply) => {
     const params = request.params as { sessionId?: string };
@@ -115,6 +171,12 @@ export function registerConversationRoutes(
       return reply.code(400).send({ error: 'Missing conversation id.' });
     }
 
+    const allowed = authorize(request, conversationId);
+
+    if (!allowed.ok) {
+      return reply.code(allowed.status).send({ error: allowed.error });
+    }
+
     const parsed = updateConversationSchema.safeParse(request.body ?? {});
 
     if (!parsed.success) {
@@ -161,6 +223,12 @@ export function registerConversationRoutes(
       return reply.code(400).send({ error: 'Missing conversation id.' });
     }
 
+    const allowed = authorize(request, conversationId);
+
+    if (!allowed.ok) {
+      return reply.code(allowed.status).send({ error: allowed.error });
+    }
+
     if (conversationRepository.findById(conversationId) === undefined) {
       return reply.code(404).send({ error: 'Unknown conversation.' });
     }
@@ -179,6 +247,14 @@ export function registerConversationRoutes(
 
     if (conversationId === undefined || conversationId === '') {
       return reply.code(400).send({ error: 'Missing conversation id.' });
+    }
+
+    // Checked before the delete rather than after, so a conversation belonging to
+    // someone else is never destroyed on the way to being refused.
+    const allowed = authorize(request, conversationId);
+
+    if (!allowed.ok) {
+      return reply.code(allowed.status).send({ error: allowed.error });
     }
 
     const deleted = conversationRepository.delete(conversationId);

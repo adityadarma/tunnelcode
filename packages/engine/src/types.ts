@@ -75,6 +75,54 @@ export interface EngineBlocked {
   reason: string;
 }
 
+/**
+ * A tool call the engine will not run until someone allows it.
+ *
+ * Distinct from EngineBlocked, which reports a call that was already refused.
+ * This one is still waiting, and the turn does not continue until it is answered.
+ * See ADR-022.
+ */
+export interface EnginePermissionRequest {
+  /** Identifies the ask within its run, so an answer can be matched to it. */
+  id: string;
+  /** Tool as the engine named it. */
+  tool: string;
+  /** Label written for a person, rather than the raw tool name. */
+  title: string;
+  /**
+   * What the call would act on. Absent when the engine did not say, for the same
+   * reason EngineActivity leaves it out.
+   */
+  target?: string;
+  /** Why the engine is asking, when it explains itself. */
+  reason?: string;
+  /**
+   * The concrete operations this one ask covers.
+   *
+   * A list rather than a string because the engines do not agree on granularity:
+   * one asks per tool call, the other can cover several commands with a single
+   * ask. Showing only the first would hide what is being agreed to.
+   */
+  details: string[];
+  /**
+   * Rules that would allow calls like this one without asking again, worded by
+   * the engine that raised the ask.
+   *
+   * Reported rather than applied, because a lasting grant belongs to this machine
+   * and not to the engine's own configuration. See ADR-022.
+   */
+  suggestions: string[];
+}
+
+/**
+ * What to do about an ask.
+ *
+ * Named after OpenCode's vocabulary because it is the one that distinguishes all
+ * three cases; Claude has no lasting grant of its own, so 'always' is allowed on
+ * the wire and remembered here instead.
+ */
+export type EnginePermissionDecision = 'once' | 'always' | 'reject';
+
 export interface EngineDone {
   type: 'done';
   exitCode: number;
@@ -109,6 +157,14 @@ export interface PromptOptions {
    * context.
    */
   resume?: string;
+  /**
+   * Asked when the engine will not run a tool call on its own.
+   *
+   * Absent leaves the engine to decide alone, which for both supported engines
+   * means refusing, so the answer explains what it could not do. Providing this
+   * is what turns asks on. See ADR-022.
+   */
+  requestPermission?: (request: EnginePermissionRequest) => Promise<EnginePermissionDecision>;
   /** Aborts the engine process when the caller no longer needs the answer. */
   signal?: AbortSignal;
 }
@@ -132,4 +188,12 @@ export interface Engine {
   listModels(): Promise<string[]>;
   /** Sends a prompt and streams the answer. */
   prompt(text: string, options: PromptOptions): AsyncGenerator<EngineEvent>;
+  /**
+   * Releases whatever the adapter is holding open.
+   *
+   * Optional because most engines hold nothing between turns. One that runs a
+   * server of its own does, and leaving it up would keep an agent with access to
+   * the workspace alive after the session that needed it ended.
+   */
+  stop?(): void;
 }

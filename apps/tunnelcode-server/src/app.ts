@@ -9,6 +9,7 @@ import { SessionRepository } from './db/session-repository.js';
 import { DeviceService } from './services/device.js';
 import { SessionService } from './services/session.js';
 import { TurnService } from './services/turn.js';
+import { PermissionService } from './services/permission.js';
 import { CliRegistry } from './ws/registry.js';
 import { BrowserRegistry } from './ws/browser-registry.js';
 import { TurnRelay } from './ws/turn-relay.js';
@@ -62,7 +63,16 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const sessions = new SessionService();
   const turns = new TurnService();
   const browsers = new BrowserRegistry();
-  const relay = new TurnRelay({ turns, browsers, conversationRepository });
+  // Waiting asks live here rather than in SQLite: one cannot outlive the turn it
+  // belongs to, and a turn cannot outlive its CLI connection. See ADR-022.
+  const permissions = new PermissionService();
+  const relay = new TurnRelay({
+    turns,
+    browsers,
+    conversationRepository,
+    permissions,
+    registry,
+  });
   const lifecycle = createLifecycle();
 
   // Marked before anything is torn down, so socket close handlers know not to
@@ -109,6 +119,8 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     browsers,
     sessionRepository,
     conversationRepository,
+    permissions,
+    relay,
   });
   registerPairRoutes(app, { devices, sessions, registry });
   registerSessionRoutes(app, { sessionRepository, devices });

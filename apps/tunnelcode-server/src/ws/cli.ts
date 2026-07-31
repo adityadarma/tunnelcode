@@ -156,6 +156,20 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
           }
           return;
 
+        case 'turn_permission_request':
+          if (deviceId !== undefined) {
+            relay.permissionRequest(deviceId, message.turnId, {
+              permissionId: message.permissionId,
+              tool: message.tool,
+              title: message.title,
+              ...(message.target !== undefined ? { target: message.target } : {}),
+              ...(message.reason !== undefined ? { reason: message.reason } : {}),
+              details: message.details,
+              suggestions: message.suggestions,
+            });
+          }
+          return;
+
         case 'turn_session':
           if (deviceId !== undefined) {
             // The engine name is recorded with the id, because an id only means

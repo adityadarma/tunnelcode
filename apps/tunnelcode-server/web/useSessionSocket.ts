@@ -12,6 +12,17 @@ export interface SessionSocket {
    * conversation and the server reads them from it. See ADR-020.
    */
   sendPrompt: (conversationId: string, text: string) => void;
+  /**
+   * Answers a tool call the agent is waiting on.
+   *
+   * The conversation travels with it: the server refuses an answer aimed at an ask
+   * this session does not own. See ADR-022.
+   */
+  sendPermissionResponse: (
+    conversationId: string,
+    permissionId: string,
+    decision: 'once' | 'always' | 'reject',
+  ) => void;
   disconnect: () => void;
 }
 
@@ -117,6 +128,25 @@ export function useSessionSocket({ sessionId, onMessage }: UseSessionSocketOptio
     socket.send(JSON.stringify({ type: 'prompt', conversationId, text }));
   }, []);
 
+  const sendPermissionResponse = useCallback(
+    (
+      conversationId: string,
+      permissionId: string,
+      decision: 'once' | 'always' | 'reject',
+    ): void => {
+      const socket = socketRef.current;
+
+      if (socket === undefined || socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+
+      socket.send(
+        JSON.stringify({ type: 'permission_response', conversationId, permissionId, decision }),
+      );
+    },
+    [],
+  );
+
   /**
    * Ends the session on the paired machine before the browser forgets it.
    *
@@ -133,5 +163,5 @@ export function useSessionSocket({ sessionId, onMessage }: UseSessionSocketOptio
     socket.send(JSON.stringify({ type: 'disconnect' }));
   }, []);
 
-  return { online, connected, sendPrompt, disconnect };
+  return { online, connected, sendPrompt, sendPermissionResponse, disconnect };
 }

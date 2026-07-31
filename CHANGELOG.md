@@ -6,6 +6,84 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The CLI and the server image share one version and ship from a single `v*` tag.
 
+## [Unreleased]
+
+The agent now asks before it does something it will not do on its own, and the answer
+comes from the phone. Until now a tool call that needed approval was simply refused,
+because nobody could be asked: the turn carried on and the reply explained what it
+could not do. A refusal is now a question.
+
+### Added
+
+- A tool call waiting for permission appears in the browser with Allow once, Always
+  allow, and Deny. The card sits above the composer rather than in the transcript,
+  because the agent is stopped until it is answered and a card that scrolls out of
+  view is one nobody answers.
+- The card lists every operation the request covers, not just the first. One request
+  from opencode can carry several commands, and showing one of them would mean
+  agreeing to more than was on screen.
+- A request that is still waiting is shown again when a browser attaches, so a phone
+  that locked mid-turn comes back to it. A request waiting in another conversation is
+  surfaced too, since the machine answers one prompt at a time and it is what is
+  holding the session up.
+- A request nobody answers within 10 minutes is refused. The deadline comes from the
+  server, so two phones cannot disagree about how long is left, and the turn survives
+  the wait instead of being abandoned as a hung engine.
+- Setup gains **Never allow**: rules this machine will never agree to, whatever the
+  browser answers. Written as `Bash` or `Bash(rm *)`. It is a filter on what may be
+  allowed, not a sandbox; it can only recognise what its patterns describe.
+- Setup gains **Granted permissions**, which lists what was granted from a phone and
+  can clear it. Always allow is recorded for the device in `permissions.json` next to
+  the config, and it is withdrawn from the terminal rather than from the browser.
+
+### Changed
+
+- Claude Code is driven in streaming-input mode, with its permission prompts routed to
+  the CLI. Its stdin stays open for the whole turn instead of closing after the prompt,
+  which is what lets an answer travel back while the engine waits.
+- opencode is no longer run through `opencode run`. That command answers permission
+  requests itself and answers by rejecting them, which nothing around it can intercept.
+  The CLI now starts a headless opencode server and drives it as a client. The server
+  listens on localhost with a password of its own, is told to ask about every kind of
+  permission it has, and is stopped when the session that needed it ends. The
+  instruction to ask is passed to it inline, so nothing is written into the project.
+- A refused tool call now reports the reason that actually applied: denied from the
+  browser, not allowed on this machine, or nobody answered in time. All three used to
+  read as the first one.
+
+### Fixed
+
+- A grant made for one command no longer widens into a grant for the tool. A request
+  that reported nothing about what it would do was treated as covered by any rule for
+  that tool, so one tap meant for `Bash(curl *)` allowed every later Bash request that
+  named no target.
+- A grant no longer carries a second command along. `Bash(curl *)` matched
+  `curl example.com; rm -rf ~` as a single line, so the rm ran without being asked
+  about. Every command in a line must now be covered, and a line containing `$( )`,
+  backticks, or `<( )` is never covered, because there is no honest way to read what it
+  would run.
+- Never allow now looks inside a chained line as well as at it, so `Bash(rm *)` catches
+  `echo hi; rm -rf ~`. Missing it there was worse than missing it on a grant, since
+  this is the limit that is supposed to win.
+- A session ended from the browser can no longer be used. `endedAt` was written and
+  never read, so the same id could attach again afterwards and still answer a
+  permission request on the machine. It is now absent everywhere a session is looked
+  up, including over HTTP.
+- A conversation id on its own no longer opens a transcript. `GET`, `PATCH`, and
+  `DELETE` on a conversation now require the session to be presented in an
+  `x-tunnelcode-session` header, and the conversation has to belong to it. A transcript
+  carries the output of every tool the agent ran, which is file contents and command
+  results from the machine. Entitlement is the workspace rather than the session row,
+  so pairing again still reopens the same history.
+
+### Migration
+
+- No schema change and no migration to apply.
+- The config file gains an optional `permission.deny`, defaulted to empty, so a config
+  written before this release loads unchanged and refuses nothing outright.
+- `permissions.json` is created next to the config the first time something is granted.
+  An unreadable one is treated as no grants, which only means being asked again.
+
 ## [0.3.1] - 2026-07-31
 
 ### Fixed

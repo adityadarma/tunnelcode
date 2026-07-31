@@ -13,6 +13,8 @@ import { ConversationList } from '../components/ConversationList.js';
 import { DevicePanel } from '../components/DevicePanel.js';
 import { MessageList } from '../components/MessageList.js';
 import { ModelPicker } from '../components/ModelPicker.js';
+import { PermissionPrompt } from '../components/PermissionPrompt.js';
+import type { PermissionAsk, PermissionDecision } from '../components/PermissionPrompt.js';
 import { ThemeToggle } from '../components/ThemeToggle.js';
 import {
   readStoredActiveConversationId,
@@ -45,6 +47,52 @@ interface ServerEvent {
   activeTurn?: unknown;
   activityId?: unknown;
   output?: unknown;
+  turnId?: unknown;
+  permissionId?: unknown;
+  title?: unknown;
+  details?: unknown;
+  suggestions?: unknown;
+  expiresAt?: unknown;
+}
+
+/** Strings from a list that crossed the socket, ignoring anything else in it. */
+function readStrings(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+/**
+ * Reads an ask off the socket.
+ *
+ * Returns undefined unless everything needed to decide and to answer is present:
+ * a card that cannot be answered would stop the agent with no way to release it.
+ */
+function readAsk(event: ServerEvent): PermissionAsk | undefined {
+  if (
+    typeof event.conversationId !== 'string' ||
+    typeof event.turnId !== 'string' ||
+    typeof event.permissionId !== 'string' ||
+    typeof event.tool !== 'string' ||
+    typeof event.title !== 'string' ||
+    typeof event.expiresAt !== 'number'
+  ) {
+    return undefined;
+  }
+
+  return {
+    conversationId: event.conversationId,
+    turnId: event.turnId,
+    permissionId: event.permissionId,
+    tool: event.tool,
+    title: event.title,
+    ...(typeof event.target === 'string' ? { target: event.target } : {}),
+    ...(typeof event.reason === 'string' ? { reason: event.reason } : {}),
+    details: readStrings(event.details),
+    suggestions: readStrings(event.suggestions),
+    createdAt: typeof event.createdAt === 'number' ? event.createdAt : Date.now(),
+    expiresAt: event.expiresAt,
+  };
 }
 
 /** A turn still being answered, as reported when the socket attaches. */
@@ -98,6 +146,15 @@ export function ConversationPage({
    * that, and switching conversations clears it.
    */
   const [runningTurn, setRunningTurn] = useState<RunningTurn | undefined>(undefined);
+  /**
+   * Tool calls the agent is stopped on, waiting to be allowed.
+   *
+   * Held for the whole session rather than the open conversation: a device answers
+   * one prompt at a time, so an ask raised elsewhere is still what is holding this
+   * browser up, and hiding it would leave the agent stalled with nothing on screen
+   * to explain why. See ADR-022.
+   */
+  const [asks, setAsks] = useState<PermissionAsk[]>([]);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => readStoredTheme() ?? 'dark');
   const [error, setError] = useState<string | undefined>(undefined);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -140,6 +197,10 @@ export function ConversationPage({
       case 'attached': {
         const active = readActiveTurn(event.activeTurn);
         setRunningTurn(active);
+
+        // Whatever is still waiting arrives right after this, so starting empty is
+        // what stops a reconnect from leaving an answered ask on screen.
+        setAsks([]);
 
         // Deltas sent while the socket was gone are lost for good, so nothing can
         // be shown until the turn finishes and stores its message. An empty
@@ -238,12 +299,45 @@ export function ConversationPage({
         return;
       }
 
+      case 'permission_request': {
+        const ask = readAsk(event);
+
+        if (ask === undefined) {
+          return;
+        }
+
+        // Replayed on every attach, so the same ask can arrive more than once.
+        setAsks((current) =>
+          current.some(
+            (item) => item.permissionId === ask.permissionId && item.turnId === ask.turnId,
+          )
+            ? current
+            : [...current, ask],
+        );
+        return;
+      }
+
+      // Answered, refused, or nobody got to it. Either way it is no longer this
+      // browser's decision to make, including when another tab made it.
+      case 'permission_resolved':
+        setAsks((current) =>
+          current.filter(
+            (item) =>
+              item.permissionId !== String(event.permissionId) ||
+              item.turnId !== String(event.turnId),
+          ),
+        );
+        return;
+
       // Sent for every turn that ends, including one that failed, and for turns in
       // conversations this browser is not watching. Clearing here is what frees
       // the composer again.
       case 'turn_done':
         setRunningTurn(undefined);
         setStreaming(undefined);
+        // The server resolves the asks of an ending turn first, so this is only a
+        // guard against a card outliving the turn it belongs to.
+        setAsks((current) => current.filter((item) => item.turnId !== String(event.turnId)));
         return;
 
       case 'error':
@@ -317,7 +411,7 @@ export function ConversationPage({
 
     void (async () => {
       try {
-        const transcript = await readTranscript(activeId);
+        const transcript = await readTranscript(sessionId, activeId);
         setMessages(transcript.messages);
         setActivities(transcript.activities);
       } catch (cause) {
@@ -347,7 +441,7 @@ export function ConversationPage({
   const removeConversation = (id: string): void => {
     void (async () => {
       try {
-        await deleteConversation(id);
+        await deleteConversation(sessionId, id);
         setConversations((current) => {
           const updated = current.filter((item) => item.id !== id);
           if (activeIdRef.current === id) {
@@ -403,6 +497,22 @@ export function ConversationPage({
     socket.sendPrompt(activeId, text);
   };
 
+  /**
+   * Answers an ask and takes its card away immediately.
+   *
+   * Removed before the answer is even sent, because the agent acts on the first
+   * decision it receives and a second press could only ever be ignored.
+   */
+  const decidePermission = (ask: PermissionAsk, decision: PermissionDecision): void => {
+    setError(undefined);
+    setAsks((current) =>
+      current.filter(
+        (item) => item.permissionId !== ask.permissionId || item.turnId !== ask.turnId,
+      ),
+    );
+    socket.sendPermissionResponse(ask.conversationId, ask.permissionId, decision);
+  };
+
   const active = conversations.find((item) => item.id === activeId);
 
   /**
@@ -432,7 +542,7 @@ export function ConversationPage({
 
     void (async () => {
       try {
-        await updateConversationModel(activeId, newModel);
+        await updateConversationModel(sessionId, activeId, newModel);
       } catch (cause) {
         setConversations((current) =>
           current.map((item) => (item.id === activeId ? { ...item, model: previous } : item)),
@@ -454,6 +564,9 @@ export function ConversationPage({
   // conversation blocks this one too. Offering a composer whose prompt is certain
   // to be refused is what made a refresh mid-answer confusing.
   const busyElsewhere = runningTurn !== undefined && runningTurn.conversationId !== activeId;
+
+  const asksHere = asks.filter((ask) => ask.conversationId === activeId);
+  const asksElsewhere = asks.filter((ask) => ask.conversationId !== activeId);
   const sendDisabled =
     activeId === undefined || offline || streaming !== undefined || busyElsewhere;
 
@@ -461,9 +574,13 @@ export function ConversationPage({
     ? 'The device is offline.'
     : activeId === undefined
       ? 'Create a conversation to start asking.'
-      : busyElsewhere
-        ? 'The agent is answering in another conversation.'
-        : 'Waiting for the answer…';
+      : // Named before the generic wait, because this one is waiting on the user
+        // rather than on the agent, and saying otherwise would be misleading.
+        asks.length > 0
+        ? 'The agent is waiting for your approval.'
+        : busyElsewhere
+          ? 'The agent is answering in another conversation.'
+          : 'Waiting for the answer…';
 
   return (
     <div className={`layout ${menuOpen ? 'menu-open' : ''}`}>
@@ -540,6 +657,41 @@ export function ConversationPage({
           streaming={streaming}
           workspace={session?.workspace}
         />
+
+        <div className="permissions" aria-live="polite">
+          {asksHere.map((ask) => (
+            <PermissionPrompt
+              key={`${ask.turnId}:${ask.permissionId}`}
+              ask={ask}
+              // An answer has to reach the machine to mean anything, and there is
+              // nothing to reach while it is offline.
+              disabled={offline}
+              onDecide={(decision) => {
+                decidePermission(ask, decision);
+              }}
+            />
+          ))}
+
+          {/* The agent is stopped on this even though it belongs to another
+              conversation, so it cannot simply be left out of sight. */}
+          {asksElsewhere.length > 0 && (
+            <p className="permission-elsewhere">
+              The agent is waiting for approval in another conversation.{' '}
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => {
+                  const waiting = asksElsewhere[0];
+                  if (waiting !== undefined) {
+                    selectActiveId(waiting.conversationId);
+                  }
+                }}
+              >
+                Open it
+              </button>
+            </p>
+          )}
+        </div>
 
         <Composer
           disabled={sendDisabled}

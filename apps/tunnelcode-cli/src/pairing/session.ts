@@ -4,6 +4,7 @@ import { PairingClient } from './client.js';
 import { askApproval } from './approval.js';
 import { buildCliSocketUrl, buildLoginUrl, generatePairingCode } from './code.js';
 import { IdleTimer } from './idle.js';
+import { createPermissionPolicy } from './permission-policy.js';
 import { PromptRunner } from './prompt-runner.js';
 import { renderQr } from './qr.js';
 import { writeErr, writeOut } from '../output.js';
@@ -206,6 +207,10 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
       await runner.run(turnId, text, engineName, model, resume);
     },
 
+    onPermissionResponse: (turnId, permissionId, decision, expired) => {
+      runner.decide(turnId, permissionId, decision, expired);
+    },
+
     onPairRequest: async (approvalNumber) => {
       const approved = await askApproval(approvalNumber);
       writeOut(approved ? 'Approved.' : 'Rejected.');
@@ -267,6 +272,9 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
     onActivity: () => {
       idle.reset();
     },
+    // Reads this machine's ceiling and its granted rules, so an ask the machine
+    // can already answer never reaches the phone. See ADR-022.
+    policy: createPermissionPolicy(),
   });
 
   // Registered before the wait, so Ctrl+C arriving mid-wait reaches this socket.
@@ -282,6 +290,13 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
   await client.waitUntilClosed();
   state.close = undefined;
   idle.stop();
+
+  // An engine that runs a server of its own would otherwise keep it alive while
+  // the CLI sits back at the menu, with nothing watching an agent that can still
+  // reach the workspace.
+  for (const engine of engines.values()) {
+    engine.stop?.();
+  }
 
   return local.registered;
 }

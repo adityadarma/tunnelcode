@@ -10,7 +10,7 @@ import type { GlobalConfig } from './schema.js';
  * the target. A crash mid-write leaves the previous config intact instead of a
  * truncated file.
  */
-async function writeJsonFile(path: string, value: unknown): Promise<void> {
+export async function writeJsonFile(path: string, value: unknown): Promise<void> {
   const directory = dirname(path);
   const temporary = join(directory, `.${String(process.pid)}.tmp`);
   const content = `${JSON.stringify(value, null, 2)}\n`;

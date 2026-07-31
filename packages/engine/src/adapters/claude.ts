@@ -1,9 +1,35 @@
 import { isOnPath } from '../which.js';
 import { streamProcess } from '../process.js';
+import type { ProcessChannel } from '../process.js';
 import { readActivityTarget } from '../activity.js';
-import type { Engine, EngineEvent, PromptOptions } from '../types.js';
+import type {
+  Engine,
+  EngineEvent,
+  EnginePermissionDecision,
+  EnginePermissionRequest,
+  PromptOptions,
+} from '../types.js';
 
 const COMMAND = 'claude';
+
+/**
+ * Routes permission prompts to this process instead of letting Claude Code
+ * decide alone.
+ *
+ * Undocumented in `claude --help`, and load-bearing: without it a call that needs
+ * approval comes back as a failed tool result and nobody is ever asked. The
+ * adapter tests pin the flag so its removal fails loudly rather than quietly
+ * turning every ask into a refusal. See ADR-022.
+ */
+const PERMISSION_PROMPT_TOOL = 'stdio';
+
+/**
+ * Told to the engine when an ask is refused.
+ *
+ * Deliberately worded so it does not read as "needs approval": matching the
+ * auto-deny wording would make the refusal detection below report it as well.
+ */
+const REJECTED_MESSAGE = 'The user rejected this tool call.';
 
 /**
  * Aliases the --model flag accepts. Claude Code exposes no way to enumerate
@@ -38,6 +64,17 @@ interface LineMessage {
   content?: unknown;
 }
 
+/** The ask itself, carried by a control_request line. */
+interface ControlRequest {
+  subtype?: unknown;
+  tool_name?: unknown;
+  display_name?: unknown;
+  description?: unknown;
+  input?: unknown;
+  decision_reason?: unknown;
+  permission_suggestions?: unknown;
+}
+
 interface ClaudeLine {
   type?: unknown;
   subtype?: unknown;
@@ -46,6 +83,8 @@ interface ClaudeLine {
   is_error?: unknown;
   result?: unknown;
   session_id?: unknown;
+  request_id?: unknown;
+  request?: ControlRequest;
 }
 
 /**
@@ -89,6 +128,61 @@ function readResultText(content: unknown): string {
   return (content as { text?: unknown }[])
     .map((block) => (typeof block.text === 'string' ? block.text : ''))
     .join(' ');
+}
+
+/**
+ * Reads the rules Claude Code offers as a lasting grant for this call.
+ *
+ * Only the allowing ones are kept: a suggestion to deny is not something a tap on
+ * "always" should install.
+ */
+function readSuggestions(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const suggestions: string[] = [];
+
+  for (const entry of value as { behavior?: unknown; rules?: unknown }[]) {
+    if (entry.behavior !== 'allow' || !Array.isArray(entry.rules)) {
+      continue;
+    }
+
+    for (const rule of entry.rules as { toolName?: unknown; ruleContent?: unknown }[]) {
+      const tool = typeof rule.toolName === 'string' ? rule.toolName : '';
+      const content = typeof rule.ruleContent === 'string' ? rule.ruleContent : '';
+
+      if (tool === '') {
+        continue;
+      }
+
+      suggestions.push(content === '' ? tool : `${tool}(${content})`);
+    }
+  }
+
+  return suggestions;
+}
+
+/** Turns a can_use_tool control request into the shape the caller answers. */
+function readPermissionRequest(id: string, request: ControlRequest): EnginePermissionRequest {
+  const tool = typeof request.tool_name === 'string' ? request.tool_name : 'tool';
+  const title =
+    typeof request.display_name === 'string' && request.display_name !== ''
+      ? request.display_name
+      : tool;
+  const description = typeof request.description === 'string' ? request.description.trim() : '';
+  const reason = typeof request.decision_reason === 'string' ? request.decision_reason : '';
+  const target = readActivityTarget(request.input);
+
+  return {
+    id,
+    tool,
+    title,
+    ...(target !== undefined ? { target } : {}),
+    ...(reason !== '' ? { reason: shortenReason(reason) } : {}),
+    details: description === '' ? [] : [description],
+    suggestions: readSuggestions(request.permission_suggestions),
+  };
 }
 
 /**
@@ -193,6 +287,54 @@ export class ClaudeEngine implements Engine {
     // which tool that was, so the name has to be remembered from the tool_use.
     const toolNames = new Map<string, string>();
 
+    // Whether anyone is able to answer an ask. Nobody is by default, and asking a
+    // question no one will hear would only stall the turn.
+    const ask = options.requestPermission;
+    const interactive = ask !== undefined;
+
+    let channel: ProcessChannel | undefined;
+
+    /**
+     * Answers one ask, once the caller has decided.
+     *
+     * Refusal is the fallback for a caller that throws, because the alternative is
+     * running a tool call nobody agreed to.
+     */
+    const answer = async (id: string, request: ControlRequest): Promise<void> => {
+      if (ask === undefined) {
+        return;
+      }
+
+      let decision: EnginePermissionDecision;
+
+      try {
+        decision = await ask(readPermissionRequest(id, request));
+      } catch {
+        decision = 'reject';
+      }
+
+      // 'always' allows on the wire like 'once' does. Claude Code has no lasting
+      // grant of its own that would survive this run, so remembering it is the
+      // caller's job. See ADR-022.
+      const allowed = decision !== 'reject';
+
+      // A refusal is not reported from here. Only the caller knows why it refused,
+      // and "the user said no" reads as a lie when the real reason was a limit set
+      // on this machine, or nobody answering at all.
+      channel?.write(
+        JSON.stringify({
+          type: 'control_response',
+          response: {
+            subtype: 'success',
+            request_id: id,
+            response: allowed
+              ? { behavior: 'allow', updatedInput: request.input ?? {} }
+              : { behavior: 'deny', message: REJECTED_MESSAGE },
+          },
+        }),
+      );
+    };
+
     const mapLine = (line: string): EngineEvent | EngineEvent[] | undefined => {
       if (line.trim() === '') {
         return undefined;
@@ -202,6 +344,24 @@ export class ClaudeEngine implements Engine {
       try {
         parsed = JSON.parse(line) as ClaudeLine;
       } catch {
+        return undefined;
+      }
+
+      // An ask. Deciding it means waiting for a person, so the decision is
+      // reached outside this mapper and the events it produces are emitted on the
+      // channel rather than returned from here.
+      if (parsed.type === 'control_request') {
+        const request = parsed.request;
+
+        if (
+          interactive &&
+          request?.subtype === 'can_use_tool' &&
+          typeof parsed.request_id === 'string' &&
+          parsed.request_id !== ''
+        ) {
+          void answer(parsed.request_id, request);
+        }
+
         return undefined;
       }
 
@@ -235,7 +395,11 @@ export class ClaudeEngine implements Engine {
 
           // An ordinary tool failure looks the same as a refusal here, and a
           // command that exited nonzero is the engine's business, not the user's.
-          if (block.is_error === true && PERMISSION_PATTERN.test(reason)) {
+          //
+          // Only consulted when nobody can be asked. With asks on, a refusal is
+          // one this adapter already reported, and reading the wording again would
+          // report it twice.
+          if (!interactive && block.is_error === true && PERMISSION_PATTERN.test(reason)) {
             events.push({
               type: 'blocked',
               tool: toolNames.get(id) ?? 'tool',
@@ -248,6 +412,10 @@ export class ClaudeEngine implements Engine {
       }
 
       if (parsed.type === 'result') {
+        // The turn is over, so nothing more will be asked and stdin can close.
+        // Left open it would hold a process that has already answered.
+        channel?.end();
+
         if (parsed.is_error === true) {
           const message =
             typeof parsed.result === 'string' ? parsed.result : 'Engine reported an error.';
@@ -315,6 +483,17 @@ export class ClaudeEngine implements Engine {
       return { type: 'delta', text: delta.text };
     };
 
+    // With asks on, the prompt travels as a streaming JSON message so stdin can
+    // stay open for the control protocol. Plain text is kept for the case where
+    // nobody can answer, because then there is nothing to keep stdin open for.
+    const input = interactive
+      ? `${JSON.stringify({
+          type: 'user',
+          message: { role: 'user', content: [{ type: 'text', text }] },
+          parent_tool_use_id: null,
+        })}\n`
+      : text;
+
     return streamProcess(
       {
         command: COMMAND,
@@ -324,11 +503,21 @@ export class ClaudeEngine implements Engine {
           'stream-json',
           '--verbose',
           '--include-partial-messages',
+          ...(interactive
+            ? ['--input-format', 'stream-json', '--permission-prompt-tool', PERMISSION_PROMPT_TOOL]
+            : []),
           ...(options.model !== undefined ? ['--model', options.model] : []),
           ...(resume !== undefined ? ['--resume', resume] : []),
         ],
         cwd: options.cwd,
-        input: text,
+        input,
+        ...(interactive
+          ? {
+              onReady: (ready: ProcessChannel) => {
+                channel = ready;
+              },
+            }
+          : {}),
         ...(options.signal !== undefined ? { signal: options.signal } : {}),
       },
       mapLine,

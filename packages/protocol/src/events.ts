@@ -4,10 +4,48 @@ import {
   conversationIdSchema,
   deviceIdSchema,
   pairingCodeSchema,
+  permissionDecisionSchema,
+  permissionIdSchema,
+  permissionOutcomeSchema,
   requestIdSchema,
   sessionIdSchema,
   turnIdSchema,
 } from './ids.js';
+
+/**
+ * What an ask carries, wherever it travels.
+ *
+ * Shared between the CLI and the browser halves of the trip so the two cannot
+ * drift: a field the CLI reports but the browser never learns about would leave
+ * the person deciding with less than the engine offered.
+ */
+const permissionAskShape = {
+  permissionId: permissionIdSchema,
+  /** Tool as the engine named it. */
+  tool: z.string().min(1),
+  /** Label written for a person, rather than the raw tool name. */
+  title: z.string().min(1),
+  /** What the call would act on. Absent when the engine did not say. */
+  target: z.string().min(1).optional(),
+  /** Why the engine is asking, when it explains itself. */
+  reason: z.string().min(1).optional(),
+  /**
+   * The concrete operations this one ask covers.
+   *
+   * A list because the engines do not agree on granularity: one asks per tool
+   * call, the other can cover several commands at once. Showing only the first
+   * would hide part of what is being agreed to.
+   */
+  details: z.array(z.string().min(1)),
+  /**
+   * Rules that would allow calls like this one without asking again, as worded by
+   * the engine that raised the ask.
+   *
+   * Carried so a lasting grant can be recorded on the machine instead of in the
+   * engine's own configuration. See ADR-022.
+   */
+  suggestions: z.array(z.string().min(1)),
+};
 
 /**
  * Messages the CLI sends to the server.
@@ -81,6 +119,18 @@ export const cliMessageSchema = z.discriminatedUnion('type', [
     turnId: turnIdSchema,
     tool: z.string().min(1),
     reason: z.string().min(1),
+  }),
+  /**
+   * A tool call the engine will not make until someone allows it.
+   *
+   * Unlike turn_blocked this is not a verdict, it is a question: the turn stops
+   * here until an answer comes back, so the server has to reach a browser with it.
+   * See ADR-022.
+   */
+  z.object({
+    type: z.literal('turn_permission_request'),
+    turnId: turnIdSchema,
+    ...permissionAskShape,
   }),
   // The engine's own conversation id for this turn, stored so the next prompt in
   // this conversation can continue it and the agent keeps its context.
@@ -170,6 +220,27 @@ export const serverToCliMessageSchema = z.discriminatedUnion('type', [
     // conversation reported one. Absent starts the engine fresh.
     resume: z.string().min(1).optional(),
   }),
+  /**
+   * The answer to an ask, on its way back to the engine that is waiting for it.
+   *
+   * Carries the turn as well as the ask, so an id on its own cannot decide
+   * anything: the server only sends this for an ask it raised itself, and the CLI
+   * only applies it to the turn it belongs to. See ADR-022.
+   */
+  z.object({
+    type: z.literal('permission_response'),
+    turnId: turnIdSchema,
+    permissionId: permissionIdSchema,
+    decision: permissionDecisionSchema,
+    /**
+     * True when the decision is a refusal because nobody answered in time.
+     *
+     * Sent as a fact rather than folded into the decision, so the CLI can say what
+     * happened instead of reporting a timeout as something the user chose.
+     * Optional, so an older server still parses.
+     */
+    expired: z.boolean().optional(),
+  }),
 ]);
 
 /**
@@ -195,6 +266,20 @@ export const browserMessageSchema = z.discriminatedUnion('type', [
     type: z.literal('prompt'),
     conversationId: conversationIdSchema,
     text: z.string().min(1),
+  }),
+  /**
+   * What the user decided about an ask.
+   *
+   * The conversation travels with it so the server can refuse an answer aimed at
+   * an ask this session does not own. The ask id alone is never enough: an
+   * approval is the one message where a guessed id would run a tool call on a
+   * machine the sender has no claim to. See ADR-022.
+   */
+  z.object({
+    type: z.literal('permission_response'),
+    conversationId: conversationIdSchema,
+    permissionId: permissionIdSchema,
+    decision: permissionDecisionSchema,
   }),
   // The user ended the session from the browser. The agent runs on the paired
   // machine, so ending it has to reach the CLI, not just clear the browser.
@@ -277,6 +362,43 @@ export const serverToBrowserMessageSchema = z.discriminatedUnion('type', [
     turnId: turnIdSchema,
     activityId: z.string().min(1),
     output: z.string(),
+  }),
+  /**
+   * An ask waiting for an answer.
+   *
+   * Sent to every browser on the session, and also replayed on attach, because a
+   * phone that locked mid-turn is the normal case rather than the exception: the
+   * engine is holding still until this is answered.
+   */
+  z.object({
+    type: z.literal('permission_request'),
+    conversationId: conversationIdSchema,
+    turnId: turnIdSchema,
+    ...permissionAskShape,
+    createdAt: z.number(),
+    /**
+     * When the ask stops being answerable, decided by the server so every browser
+     * agrees.
+     *
+     * Sent rather than computed per tab, so two phones cannot show two different
+     * countdowns for the same ask, and a card that is already dead is not offered
+     * as though it were live.
+     */
+    expiresAt: z.number(),
+  }),
+  /**
+   * An ask that is no longer waiting, so its card can go away.
+   *
+   * Needed because two browsers can be attached at once: without it, the tab that
+   * did not answer would keep offering a decision that has already been made. It
+   * also covers the ask nobody answered, which ends as 'expired'.
+   */
+  z.object({
+    type: z.literal('permission_resolved'),
+    conversationId: conversationIdSchema,
+    turnId: turnIdSchema,
+    permissionId: permissionIdSchema,
+    outcome: permissionOutcomeSchema,
   }),
   z.object({
     type: z.literal('turn_done'),

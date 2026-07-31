@@ -336,3 +336,349 @@ test('a refused tool call is forwarded without ending the turn', async () => {
   assert.equal(done?.type === 'turn_done' ? done.text : '', 'could not do it');
   assert.equal(typesOf(sent).includes('turn_error'), false);
 });
+
+/**
+ * Asks for permission, then waits far longer than the silence timeout before
+ * saying anything else.
+ *
+ * This is the case the timeout gets wrong on its own: waiting for a person
+ * produces no engine events at all, so a phone in a pocket looks exactly like a
+ * hung engine. See ADR-022.
+ */
+class AskingEngine implements Engine {
+  readonly name = 'asking';
+  readonly command = 'asking';
+  aborted = false;
+  decision: string | undefined;
+  private readonly waitMs: number;
+
+  constructor(waitMs: number) {
+    this.waitMs = waitMs;
+  }
+
+  async isAvailable(): Promise<boolean> {
+    return true;
+  }
+
+  async listModels(): Promise<string[]> {
+    return [];
+  }
+
+  async *prompt(_text: string, options: PromptOptions): AsyncGenerator<EngineEvent> {
+    options.signal?.addEventListener('abort', () => {
+      this.aborted = true;
+    });
+
+    yield { type: 'activity', id: 'call-1', tool: 'Bash', target: 'curl example.com' };
+
+    this.decision = await options.requestPermission?.({
+      id: 'per-1',
+      tool: 'Bash',
+      title: 'Bash',
+      target: 'curl example.com',
+      reason: 'This command requires approval',
+      details: ['Fetch example.com', ''],
+      suggestions: [],
+    });
+
+    await wait(this.waitMs);
+
+    yield { type: 'delta', text: `decided ${String(this.decision)}` };
+    yield { type: 'done', exitCode: 0 };
+  }
+}
+
+test('an ask is reported with what the engine said about it', async () => {
+  const engine = new AskingEngine(0);
+  const { sent, send } = collect();
+  const runner = new PromptRunner({
+    engines: new Map<string, Engine>([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    silenceTimeoutMs: 500,
+  });
+
+  const running = runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+
+  await wait(30);
+  const request = sent.find((message) => message.type === 'turn_permission_request');
+  assert.ok(request !== undefined && request.type === 'turn_permission_request');
+  assert.equal(request.permissionId, 'per-1');
+  assert.equal(request.tool, 'Bash');
+  assert.equal(request.reason, 'This command requires approval');
+  // An empty entry would fail validation on the server and lose the whole ask,
+  // leaving the engine waiting for an answer that never comes.
+  assert.deepEqual(request.details, ['Fetch example.com']);
+
+  runner.decide('turn-1', 'per-1', 'once');
+  await running;
+
+  assert.equal(engine.decision, 'once');
+});
+
+test('waiting for a person does not count as engine silence', async () => {
+  const engine = new AskingEngine(0);
+  const { sent, send } = collect();
+  const runner = new PromptRunner({
+    engines: new Map<string, Engine>([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    silenceTimeoutMs: 60,
+  });
+
+  const running = runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+
+  // Three times the timeout with the engine saying nothing at all, because it is
+  // blocked on the answer rather than hung.
+  await wait(200);
+  assert.equal(engine.aborted, false, 'the turn survives the wait');
+
+  runner.decide('turn-1', 'per-1', 'always');
+  await running;
+
+  assert.equal(engine.decision, 'always');
+  assert.equal(typesOf(sent).includes('turn_error'), false);
+
+  const done = sent.find((message) => message.type === 'turn_done');
+  assert.equal(done?.type === 'turn_done' ? done.text : '', 'decided always');
+});
+
+test('the clock restarts once the answer arrives', async () => {
+  // Silent for longer than the timeout after the decision, which is the engine
+  // genuinely hanging rather than waiting on anybody.
+  const engine = new AskingEngine(400);
+  const { sent, send } = collect();
+  const runner = new PromptRunner({
+    engines: new Map<string, Engine>([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    silenceTimeoutMs: 60,
+  });
+
+  const running = runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+  await wait(30);
+  runner.decide('turn-1', 'per-1', 'once');
+
+  await running;
+
+  // Stopping the clock for the ask must not leave it stopped for the rest of the
+  // turn, or a hung engine after an approval would hold the device forever.
+  assert.equal(engine.aborted, true);
+  const error = sent.find((message) => message.type === 'turn_error');
+  assert.match(error?.type === 'turn_error' ? error.message : '', /stopped responding/);
+});
+
+test('an answer for another turn is ignored', async () => {
+  const engine = new AskingEngine(0);
+  const { send } = collect();
+  const runner = new PromptRunner({
+    engines: new Map<string, Engine>([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    silenceTimeoutMs: 500,
+  });
+
+  const running = runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+  await wait(30);
+
+  // Stale, from a turn that is already over. Applying it would decide the ask the
+  // current turn is waiting on.
+  runner.decide('turn-0', 'per-1', 'reject');
+  assert.equal(engine.decision, undefined);
+
+  runner.decide('turn-1', 'per-1', 'once');
+  await running;
+
+  assert.equal(engine.decision, 'once');
+});
+
+test('a turn that ends releases an unanswered ask as a refusal', async () => {
+  const engine = new AskingEngine(0);
+  const { send } = collect();
+  const runner = new PromptRunner({
+    engines: new Map<string, Engine>([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    silenceTimeoutMs: 500,
+  });
+
+  const running = runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+  await wait(30);
+  runner.decide('turn-1', 'per-1', 'once');
+  await running;
+
+  // The runner has to be usable again afterwards, with nothing left waiting from
+  // the turn before.
+  assert.equal(runner.isBusy(), false);
+
+  const second = new AskingEngine(0);
+  const later = collect();
+  const next = new PromptRunner({
+    engines: new Map<string, Engine>([[second.name, second]]),
+    cwd: process.cwd(),
+    send: later.send,
+    onActivity: () => undefined,
+    silenceTimeoutMs: 500,
+  });
+
+  const secondRun = next.run('turn-2', 'hi', second.name, undefined, undefined);
+  await wait(30);
+  next.decide('turn-2', 'per-1', 'reject');
+  await secondRun;
+
+  assert.equal(second.decision, 'reject');
+});
+
+/** A policy the test drives directly, standing in for this machine's files. */
+function policyOf(
+  settled: { decision: 'once' | 'always' | 'reject'; reason: string } | undefined,
+): {
+  policy: {
+    settle: () => Promise<{ decision: 'once' | 'always' | 'reject'; reason: string } | undefined>;
+    grant: () => Promise<string[]>;
+  };
+  granted: number[];
+} {
+  const granted: number[] = [];
+
+  return {
+    policy: {
+      settle: async () => settled,
+      grant: async () => {
+        granted.push(1);
+        return ['Bash(curl *)'];
+      },
+    },
+    granted,
+  };
+}
+
+test('a ceiling refusal never reaches the browser', async () => {
+  const engine = new AskingEngine(0);
+  const { sent, send } = collect();
+  const { policy } = policyOf({
+    decision: 'reject',
+    reason: 'Not allowed on this machine: bash(curl *).',
+  });
+
+  const runner = new PromptRunner({
+    engines: new Map<string, Engine>([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    policy,
+    silenceTimeoutMs: 500,
+  });
+
+  await runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+
+  // Asking about something this machine will never allow would offer a choice the
+  // user does not really have. See ADR-022.
+  assert.equal(typesOf(sent).includes('turn_permission_request'), false);
+  assert.equal(engine.decision, 'reject');
+
+  // The reason is the machine's, not "you denied it", which would be false.
+  const blocked = sent.find((message) => message.type === 'turn_blocked');
+  assert.match(
+    blocked?.type === 'turn_blocked' ? blocked.reason : '',
+    /Not allowed on this machine/,
+  );
+});
+
+test('a granted rule answers without asking anyone', async () => {
+  const engine = new AskingEngine(0);
+  const { sent, send } = collect();
+  const { policy } = policyOf({
+    decision: 'once',
+    reason: 'Allowed by a rule granted on this machine.',
+  });
+
+  const runner = new PromptRunner({
+    engines: new Map<string, Engine>([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    policy,
+    silenceTimeoutMs: 500,
+  });
+
+  await runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+
+  // The point of "always": the phone is not troubled again for the same thing.
+  assert.equal(typesOf(sent).includes('turn_permission_request'), false);
+  assert.equal(typesOf(sent).includes('turn_blocked'), false);
+  assert.equal(engine.decision, 'once');
+});
+
+test('always records the grant on this machine', async () => {
+  const engine = new AskingEngine(0);
+  const { send } = collect();
+  const { policy, granted } = policyOf(undefined);
+
+  const runner = new PromptRunner({
+    engines: new Map<string, Engine>([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    policy,
+    silenceTimeoutMs: 500,
+  });
+
+  const running = runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+  await wait(30);
+  runner.decide('turn-1', 'per-1', 'always');
+  await running;
+
+  // Neither engine keeps a grant that would survive this run in a way TunnelCode
+  // could rely on, so recording it here is what makes 'always' mean anything.
+  assert.equal(granted.length, 1);
+  assert.equal(engine.decision, 'always');
+});
+
+test('a refusal the user chose says so', async () => {
+  const engine = new AskingEngine(0);
+  const { sent, send } = collect();
+
+  const runner = new PromptRunner({
+    engines: new Map<string, Engine>([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    silenceTimeoutMs: 500,
+  });
+
+  const running = runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+  await wait(30);
+  runner.decide('turn-1', 'per-1', 'reject');
+  await running;
+
+  const blocked = sent.find((message) => message.type === 'turn_blocked');
+  assert.equal(blocked?.type === 'turn_blocked' ? blocked.reason : '', 'Denied from the browser.');
+});
+
+test('a refusal nobody chose is not blamed on the user', async () => {
+  const engine = new AskingEngine(0);
+  const { sent, send } = collect();
+
+  const runner = new PromptRunner({
+    engines: new Map<string, Engine>([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    silenceTimeoutMs: 500,
+  });
+
+  const running = runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+  await wait(30);
+  // What the server sends when the deadline passed with the phone in a pocket.
+  runner.decide('turn-1', 'per-1', 'reject', true);
+  await running;
+
+  const blocked = sent.find((message) => message.type === 'turn_blocked');
+  assert.match(blocked?.type === 'turn_blocked' ? blocked.reason : '', /Nobody answered in time/);
+});

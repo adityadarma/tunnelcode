@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test, vi, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { ConversationPage } from './ConversationPage.js';
 
 /**
@@ -278,6 +279,167 @@ describe('ConversationPage turn state', () => {
 
     await waitFor(() => {
       expect(screen.getByLabelText('Message')).toHaveProperty('disabled', false);
+    });
+  });
+});
+
+describe('ConversationPage permission asks', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    stubFetch();
+    vi.stubGlobal('WebSocket', FakeSocket);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    FakeSocket.latest = undefined;
+  });
+
+  const askFrame = {
+    type: 'permission_request',
+    conversationId: 'conversation-1',
+    turnId: 'turn-1',
+    permissionId: 'per-1',
+    tool: 'Bash',
+    title: 'Bash',
+    target: 'curl -s https://example.com',
+    reason: 'This command requires approval',
+    details: ['Fetch example.com'],
+    suggestions: ['Bash(curl *)'],
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 600_000,
+  };
+
+  const attach = (): void => {
+    FakeSocket.latest?.deliver({
+      type: 'attached',
+      sessionId: 'session-1',
+      online: true,
+      activeTurn: { conversationId: 'conversation-1', turnId: 'turn-1' },
+    });
+  };
+
+  function framesOfType(type: string): Record<string, unknown>[] {
+    return (FakeSocket.latest?.sent ?? [])
+      .map((raw) => JSON.parse(raw) as Record<string, unknown>)
+      .filter((frame) => frame['type'] === type);
+  }
+
+  test('an ask is put in front of the user', async () => {
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    await loadPage();
+
+    attach();
+    FakeSocket.latest?.deliver(askFrame);
+
+    await screen.findByRole('button', { name: 'Allow once' });
+    expect(screen.getByText('This command requires approval')).toBeTruthy();
+
+    // The composer says what is actually being waited on, which is the user rather
+    // than the agent.
+    expect(screen.getByLabelText('Message').getAttribute('placeholder')).toBe(
+      'The agent is waiting for your approval.',
+    );
+  });
+
+  test('answering sends the decision and takes the card away', async () => {
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    await loadPage();
+
+    attach();
+    FakeSocket.latest?.deliver(askFrame);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Always allow' }));
+
+    const answers = framesOfType('permission_response');
+    expect(answers).toHaveLength(1);
+    expect(answers[0]).toMatchObject({
+      conversationId: 'conversation-1',
+      permissionId: 'per-1',
+      decision: 'always',
+    });
+
+    // Removed before the answer even lands, because the agent acts on the first
+    // decision and a second press could only be ignored.
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Always allow' })).toBeNull();
+    });
+  });
+
+  test('an ask answered somewhere else stops being offered here', async () => {
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    await loadPage();
+
+    attach();
+    FakeSocket.latest?.deliver(askFrame);
+    await screen.findByRole('button', { name: 'Allow once' });
+
+    // What the other tab answering looks like from here. Two browsers can be
+    // attached to one session. See ADR-022.
+    FakeSocket.latest?.deliver({
+      type: 'permission_resolved',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      permissionId: 'per-1',
+      outcome: 'once',
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
+    });
+  });
+
+  test('the same ask replayed twice is shown once', async () => {
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    await loadPage();
+
+    attach();
+    FakeSocket.latest?.deliver(askFrame);
+    FakeSocket.latest?.deliver(askFrame);
+
+    await screen.findByRole('button', { name: 'Allow once' });
+
+    // Every attach replays what is waiting, so the same ask can arrive again after
+    // a reconnect.
+    expect(screen.getAllByRole('button', { name: 'Allow once' })).toHaveLength(1);
+  });
+
+  test('an ask belonging to another conversation is still surfaced', async () => {
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    await loadPage();
+
+    attach();
+    FakeSocket.latest?.deliver({
+      ...askFrame,
+      conversationId: 'conversation-2',
+      turnId: 'turn-2',
+    });
+
+    // A device answers one prompt at a time, so this is what is holding the whole
+    // session up. Hiding it would leave the agent stalled with nothing on screen
+    // to explain why.
+    await screen.findByText(/waiting for approval in another conversation/);
+    expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
+  });
+
+  test('a turn that ends clears its ask', async () => {
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    await loadPage();
+
+    attach();
+    FakeSocket.latest?.deliver(askFrame);
+    await screen.findByRole('button', { name: 'Allow once' });
+
+    FakeSocket.latest?.deliver({
+      type: 'turn_done',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    });
+
+    // Nothing is waiting for it any more, so a card offering to allow it would be
+    // a button that does nothing.
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
     });
   });
 });

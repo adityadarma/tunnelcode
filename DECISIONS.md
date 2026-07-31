@@ -550,3 +550,184 @@ Reason
 Tailwind CSS v4 provides a fast, zero-config build via `@tailwindcss/vite` and a unified utility system with CSS variable integration for themes (`--bg`, `--surface`, `--accent`).
 
 Moving the model selector inside the prompt input box (composer toolbar) keeps controls co-located with text entry, improving usability on small mobile portrait screens and desktop views without extra header clutter.
+
+---
+
+# ADR-022
+
+## Interactive Permission
+
+Amends ADR-017.
+
+Decision
+
+A tool call the engine will not run on its own is asked to the browser, and the
+answer returns to the turn that asked.
+
+An ask carries the tool, what it acts on, and a title written for a person. The
+browser never reads the engine's raw payload to describe it.
+
+There are three answers: once, always, reject.
+
+Always is scoped to the device. TunnelCode records it on the machine that raised
+the ask and answers matching asks itself, without sending them to the browser.
+
+A granted rule is stored as machine state, not in the settings file and not in the
+server database.
+
+Setup lists the granted rules and can clear them. The browser cannot.
+
+A pending ask is stored. A browser that reconnects sees the ask that is still
+waiting.
+
+A pending ask is not engine silence. The turn's silence timeout stops while a
+person is being asked.
+
+A person has 10 minutes to answer. An ask that is never answered is rejected. A
+session that ends while an ask is waiting rejects it.
+
+A rejected call is recorded as a blocked activity, the same as a refusal the
+engine decided by itself.
+
+Setup names a ceiling. The browser may reject anything, and may allow only what
+the ceiling already permits. An ask above the ceiling is never sent to the
+browser and is rejected where it is raised.
+
+An answer names the ask by an id scoped to its turn, and is accepted only from a
+browser attached to the session that owns that turn.
+
+How an engine raises an ask is the adapter's business, not the protocol's. Both
+arrive as the same protocol event.
+
+Claude is asked over its control protocol. The prompt is sent as a streaming JSON
+message, stdin stays open for the turn, and asks arrive as a `can_use_tool`
+control request answered with a control response.
+
+OpenCode is driven through a headless server this CLI runs. The adapter creates
+the session and sends the prompt over HTTP, reads asks from the server's event
+stream, and answers them on the permission endpoint. `opencode run` is not used
+for a conversation that can ask.
+
+That server listens on localhost with a password this CLI generates, and it is
+told to ask about every kind of permission it has. The instruction is passed to it
+inline rather than written to a file, and it is stopped when the session that
+needed it ends.
+
+An engine that will not raise asks is not asked to. Claude needs its permission
+prompts routed to this host explicitly, and OpenCode needs its permission
+configuration set to ask. Neither is the default.
+
+Reason
+
+Static permission alone forces a choice between two bad settings. Configured
+tight, the agent stops at the first useful edit and the turn is spent explaining
+what it could not do. Configured loose, a phone left on a table can be used to
+run anything on the machine. Neither is what the user wants, because the answer
+depends on the call, and only a person can supply it.
+
+The ask is answered where the user is. The agent runs on the paired machine, so
+asking in the terminal would put the decision on a device the user is not near,
+which is the situation this project exists to remove.
+
+Three answers rather than two, because always is what keeps the feature usable. A
+long task touches the same kind of file many times, and being asked each time
+would make the phone the slowest part of the work. It maps cleanly onto both
+engines, which is why this vocabulary and not a pair of booleans.
+
+Always is per device, because the thing being granted is what this machine may do,
+and that does not change when the user starts a new conversation about the same
+work. Scoped to a conversation it would have to be re-granted constantly, and a
+permission the user is asked for again and again is a permission that gets tapped
+without being read.
+
+The grant is deliberately wider than the tap that creates it, so two things bound
+it. The ceiling still applies, so always can never reach past what Setup allows,
+and every granted rule is listable and clearable. A permanent grant with no way to
+see or withdraw it would be the worst part of this feature rather than the
+convenient one.
+
+Withdrawing happens at the machine only, even though granting happens from a
+phone. The asymmetry is deliberate: a grant is lasting state belonging to one
+computer, and the same terminal that sets the ceiling is where that state is
+managed. It does leave one gap, where a grant made from a phone can only be
+withdrawn by reaching the machine, and that is accepted rather than overlooked. The
+alternative was a second way to change what a machine will do from the surface
+that is easiest to reach, which is what the ceiling exists to avoid.
+
+Always is recorded here rather than left to the engine. The two engines disagree
+about what it means: one keeps it for the life of an engine session, so it would be
+forgotten by the next prompt, and the other writes it into its own configuration,
+where it would reach work TunnelCode knows nothing about. Recording it here is the
+only way the same tap means the same thing on both, and the only way clearing it
+actually clears it.
+
+The machine stores its own grants because the machine is what they are about. On
+the server they would be state about one computer kept on another, they would be
+lost or wrong after a restore, and the CLI would need a round trip before it could
+answer an ask it already knows the answer to. Keeping them local also means a
+granted rule works before any browser has attached. They are kept out of the
+settings file because they are accumulated state, not a setting the user typed, and
+mixing the two would make the file something a user cannot reason about.
+
+Silence has to stop counting while a person is being asked, or the feature
+destroys the turn it is trying to help. ADR-017 abandons a turn after five
+minutes without an engine event, and an engine waiting for permission produces no
+events at all. A phone in a pocket would look exactly like a hung engine.
+
+The person still gets a deadline, because the device answers one prompt at a time
+and an ask nobody will ever see would hold the device until the CLI is restarted.
+Ten minutes is long enough to notice a notification and pick up the phone, and
+short enough to stay well inside the hour of inactivity that ends the session, so
+an unanswered ask resolves while the session is still there to resolve it into.
+
+Unanswered means rejected, never allowed. A timeout is the case where nobody saw
+the ask, and granting a file write or a shell command because a screen stayed dark
+is the one outcome no user would choose. The turn continues after a rejection, so
+the cost of being wrong here is an answer that explains what it could not do,
+which is recoverable. The cost of the other default is not.
+
+A rejection reuses the blocked activity because it is the same fact from the
+user's side: the call did not happen, and the answer has a visible cause. A second
+representation would only split the same history across two shapes.
+
+The ceiling stays in Setup because the browser is the easier surface to reach. A
+paired session lives in a phone, and a phone is lost, borrowed, and left unlocked.
+Setup is answered in a terminal on the machine itself, which is the only place a
+limit on what that machine will ever do can be set honestly. Asks above the
+ceiling are dropped before they are sent, so the browser is never shown a choice
+it does not really have.
+
+Answers are bound to a turn and checked against the session, because an approval
+is the most dangerous message in the protocol. Without the check, a guessed id
+would let anyone approve a tool call on someone else's machine, which is worse
+than having no permission prompt at all.
+
+The transport is left to the adapter because the engines do not agree on one, and
+inventing a shared one would mean driving both through their loosest mode and
+rebuilding the prompt above it. Claude already asks over stdin, so its stdin stays
+open for the turn instead of closing after the prompt. OpenCode has no such
+channel and only surfaces asks on a server, so a server is run for it. Normalizing
+at the event, not the transport, keeps that difference inside one file per engine.
+
+OpenCode stops going through `opencode run` because that command answers asks
+itself, and it answers by rejecting them. Nothing this CLI does around it can
+intercept that, so a conversation that can ask has to be driven as a client of the
+server rather than as a subprocess that happens to talk to one. This is the largest
+piece of work the feature carries, and it is the reason the two engines are done in
+sequence rather than together.
+
+Running a server turns an engine into something anything on the machine could talk
+to, which is why it gets a password. Unsecured, it would be a way to make an agent
+read and write the workspace without going near the pairing this project is built
+on. The instruction to ask is passed inline because the file it would otherwise be
+written to is the user's own project config, where it would change how their editor
+and their terminal behave and outlive the session that wanted it. Every kind is
+named individually because opencode offers no catch-all, and a kind left unnamed
+keeps a default that may well be to allow.
+
+Neither engine asks unless it is told to. Left alone, both quietly refuse instead:
+the refusal arrives as a failed tool result, which is exactly the behaviour visible
+today. That makes turning asks on the first thing an adapter has to get right, and
+it makes both switches load-bearing rather than cosmetic. One of them is not a
+documented flag, so it is pinned by a test that fails loudly if it stops working
+rather than degrading into silent refusals nobody notices.

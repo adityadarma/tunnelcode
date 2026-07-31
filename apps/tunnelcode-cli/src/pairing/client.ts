@@ -1,6 +1,6 @@
 import WebSocket from 'ws';
 import { serverToCliMessageSchema } from '@tunnelcode/protocol';
-import type { CliMessage, ServerToCliMessage } from '@tunnelcode/protocol';
+import type { CliMessage, PermissionDecision, ServerToCliMessage } from '@tunnelcode/protocol';
 
 /** How often the CLI pings, to notice a dead connection. */
 const PING_INTERVAL_MS = 30 * 1000;
@@ -30,6 +30,18 @@ export interface PairingClientOptions {
     model: string | undefined,
     resume: string | undefined,
   ) => Promise<void>;
+  /**
+   * Called with what the user decided about a tool call this machine asked about.
+   *
+   * Not awaited: the engine is what waits, and this only hands the decision over.
+   */
+  onPermissionResponse: (
+    turnId: string,
+    permissionId: string,
+    decision: PermissionDecision,
+    /** True when the refusal is a deadline passing rather than a choice. */
+    expired: boolean,
+  ) => void;
 }
 
 /**
@@ -155,6 +167,15 @@ export class PairingClient {
           message.engine,
           message.model,
           message.resume,
+        );
+        return;
+
+      case 'permission_response':
+        this.options.onPermissionResponse(
+          message.turnId,
+          message.permissionId,
+          message.decision,
+          message.expired ?? false,
         );
         return;
 

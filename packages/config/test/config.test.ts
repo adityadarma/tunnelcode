@@ -12,6 +12,9 @@ const validConfig = {
   server: { url: 'https://rc.example.com' },
   device: { name: 'Test Mac' },
   engine: 'opencode',
+  // The ceiling has a default, so a loaded config always carries one even when the
+  // file on disk says nothing about it. See ADR-022.
+  permission: { deny: [] },
 };
 
 /** Writes a config file directly, bypassing validation. */
@@ -110,5 +113,31 @@ test('a config naming the engine anything but engine is rejected', async () => {
 
     // `engine` is the only name. Setup rewrites the file.
     await assert.rejects(() => loadGlobalConfig(), ConfigError);
+  });
+});
+
+test('a config written before the ceiling existed still loads', async () => {
+  await withTempHome(async () => {
+    await writeRaw(
+      JSON.stringify({
+        server: validConfig.server,
+        device: validConfig.device,
+        engine: 'opencode',
+      }),
+    );
+
+    // Refusing to start over a missing field would lock every existing user out of
+    // their own machine after an update.
+    assert.deepEqual(await loadGlobalConfig(), validConfig);
+  });
+});
+
+test('a ceiling is read back as written', async () => {
+  await withTempHome(async () => {
+    const deny = ['Bash(rm *)', 'WebFetch'];
+    await writeGlobalConfig({ ...validConfig, permission: { deny } });
+
+    const loaded = await loadGlobalConfig();
+    assert.deepEqual(loaded?.permission.deny, deny);
   });
 });

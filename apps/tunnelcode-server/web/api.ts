@@ -103,6 +103,14 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Header the session travels in on requests that name only a conversation.
+ *
+ * A conversation id is not a credential: the server checks that the session
+ * sending this is entitled to the conversation before answering.
+ */
+const SESSION_HEADER = 'x-tunnelcode-session';
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
 
@@ -186,11 +194,13 @@ export async function createConversation(
  * still understands the engine session, so the context survives.
  */
 export async function updateConversationModel(
+  sessionId: string,
   conversationId: string,
   model: string | undefined,
 ): Promise<Conversation> {
   return request<Conversation>(`/conversations/${encodeURIComponent(conversationId)}`, {
     method: 'PATCH',
+    headers: { [SESSION_HEADER]: sessionId },
     body: JSON.stringify({ model: model ?? null }),
   });
 }
@@ -201,16 +211,21 @@ export async function updateConversationModel(
  * Activities may be absent when talking to a server that predates them, so the
  * list falls back to empty rather than leaving it undefined.
  */
-export async function readTranscript(conversationId: string): Promise<Transcript> {
+export async function readTranscript(
+  sessionId: string,
+  conversationId: string,
+): Promise<Transcript> {
   const body = await request<{ messages: Message[]; activities?: Activity[] }>(
     `/conversations/${encodeURIComponent(conversationId)}/messages`,
+    { headers: { [SESSION_HEADER]: sessionId } },
   );
 
   return { messages: body.messages, activities: body.activities ?? [] };
 }
 
-export async function deleteConversation(conversationId: string): Promise<void> {
+export async function deleteConversation(sessionId: string, conversationId: string): Promise<void> {
   await request<{ success: boolean }>(`/conversations/${encodeURIComponent(conversationId)}`, {
     method: 'DELETE',
+    headers: { [SESSION_HEADER]: sessionId },
   });
 }

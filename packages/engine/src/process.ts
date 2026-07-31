@@ -3,15 +3,41 @@ import { createInterface } from 'node:readline';
 import type { EngineEvent } from './types.js';
 import { resolveCommand } from './which.js';
 
+/**
+ * Handle on a running engine process, for an adapter that has to keep talking to
+ * it after the prompt was sent.
+ *
+ * An engine that asks for permission mid-turn cannot be driven by writing once
+ * and reading the rest: the answer has to travel back while the process is still
+ * waiting for it. See ADR-022.
+ */
+export interface ProcessChannel {
+  /** Writes one line to the child's stdin. */
+  write(line: string): void;
+  /** Closes the child's stdin. */
+  end(): void;
+}
+
 export interface SpawnOptions {
   command: string;
   args: readonly string[];
   cwd: string;
   /**
-   * Written to the child's stdin and then closed. Prompts travel this way so no
-   * shell quoting or command line length limit can corrupt them.
+   * Written to the child's stdin. Prompts travel this way so no shell quoting or
+   * command line length limit can corrupt them.
+   *
+   * stdin is closed afterwards unless onReady is given, in which case the adapter
+   * owns when it closes.
    */
   input?: string;
+  /**
+   * Called once the process is running, for an adapter that needs to write to it
+   * during the run rather than only before it.
+   *
+   * Its presence is what keeps stdin open, so an adapter that takes this handle
+   * must close it, or the engine waits for input that never comes.
+   */
+  onReady?: (channel: ProcessChannel) => void;
   signal?: AbortSignal;
 }
 
@@ -51,27 +77,45 @@ export async function* streamProcess(
     ? ['/d', '/s', '/c', resolved.path, ...options.args]
     : [...options.args];
 
+  const wantsStdin = options.input !== undefined || options.onReady !== undefined;
+
   const child = spawn(command, args, {
     cwd: options.cwd,
-    stdio: [options.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+    stdio: [wantsStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     windowsHide: true,
     ...(options.signal !== undefined ? { signal: options.signal } : {}),
   });
 
-  if (options.input !== undefined && child.stdin !== null) {
+  if (wantsStdin && child.stdin !== null) {
     child.stdin.on('error', () => {
       // The engine may exit before reading stdin. Losing that write is not a
       // failure on its own, the exit code already reports what happened.
     });
-    child.stdin.end(options.input);
+
+    if (options.input !== undefined) {
+      // Closing here would end a turn the adapter still has to answer questions
+      // in, so an adapter that took the channel decides when stdin closes.
+      if (options.onReady === undefined) {
+        child.stdin.end(options.input);
+      } else {
+        child.stdin.write(options.input);
+      }
+    }
   }
 
   // null marks the end of the stream. A sentinel avoids a separate "finished"
   // flag, which the compiler cannot narrow correctly when callbacks set it.
   const queue: (EngineEvent | null)[] = [];
   let notify: (() => void) | undefined;
+  let ended = false;
 
   const push = (event: EngineEvent | null): void => {
+    if (ended) {
+      return;
+    }
+    if (event === null) {
+      ended = true;
+    }
     queue.push(event);
     const resume = notify;
     notify = undefined;
@@ -86,6 +130,15 @@ export async function* streamProcess(
 
   const stdout = createInterface({ input: child.stdout });
   const stderr = createInterface({ input: child.stderr });
+
+  options.onReady?.({
+    write: (line) => {
+      child.stdin?.write(line.endsWith('\n') ? line : `${line}\n`);
+    },
+    end: () => {
+      child.stdin?.end();
+    },
+  });
 
   stdout.on('line', (line) => {
     const mapped = mapStdout(line);

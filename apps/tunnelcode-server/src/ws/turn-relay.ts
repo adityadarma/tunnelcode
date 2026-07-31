@@ -1,13 +1,29 @@
 import { randomUUID } from 'node:crypto';
-import type { ServerToCliMessage } from '@tunnelcode/protocol';
+import type { PermissionDecision, ServerToCliMessage } from '@tunnelcode/protocol';
 import type { ConversationRepository } from '../db/conversation-repository.js';
+import type { PendingPermission, PermissionService } from '../services/permission.js';
 import type { TurnService } from '../services/turn.js';
 import type { BrowserRegistry } from './browser-registry.js';
+import type { CliRegistry } from './registry.js';
+
+/** What the CLI reported about a tool call it is waiting to be allowed to make. */
+export interface PermissionAsk {
+  permissionId: string;
+  tool: string;
+  title: string;
+  target?: string;
+  reason?: string;
+  details: string[];
+  suggestions: string[];
+}
 
 export interface TurnRelayOptions {
   turns: TurnService;
   browsers: BrowserRegistry;
   conversationRepository: ConversationRepository;
+  permissions: PermissionService;
+  /** Needed because an answer has to travel back to the waiting engine. */
+  registry: CliRegistry;
 }
 
 /**
@@ -139,6 +155,142 @@ export class TurnRelay {
   }
 
   /**
+   * Records a tool call the engine is waiting to be allowed to make, and puts it
+   * in front of every browser on the session.
+   *
+   * Nothing is written to the database: an ask cannot outlive the in-memory turn
+   * it belongs to, so a stored row could never be read back usefully. What does
+   * get stored is the outcome, and only when the call is refused, which the CLI
+   * reports as a blocked activity of its own. See ADR-022.
+   */
+  permissionRequest(deviceId: string, turnId: string, ask: PermissionAsk): void {
+    const turn = this.options.turns.findForDevice(turnId, deviceId);
+
+    if (turn === undefined) {
+      return;
+    }
+
+    const pending = this.options.permissions.add(
+      {
+        id: ask.permissionId,
+        turnId,
+        sessionId: turn.sessionId,
+        deviceId,
+        conversationId: turn.conversationId,
+        tool: ask.tool,
+        title: ask.title,
+        ...(ask.target !== undefined ? { target: ask.target } : {}),
+        ...(ask.reason !== undefined ? { reason: ask.reason } : {}),
+        details: ask.details,
+        suggestions: ask.suggestions,
+      },
+      (expired) => {
+        // Nobody saw it. Refusing is the only safe reading of a dark screen, and
+        // the turn carries on with an answer that explains what it could not do.
+        this.answerEngine(expired, 'reject', true);
+        this.announceResolved(expired, 'expired');
+      },
+    );
+
+    this.options.browsers.broadcast(turn.sessionId, this.askMessage(pending));
+  }
+
+  /**
+   * Applies a decision a browser made.
+   *
+   * Returns false when the session has no such ask waiting, which is what an
+   * answer aimed at another session's ask looks like from here.
+   */
+  decidePermission(
+    sessionId: string,
+    conversationId: string,
+    permissionId: string,
+    decision: PermissionDecision,
+  ): boolean {
+    const pending = this.options.permissions.find(sessionId, conversationId, permissionId);
+
+    if (pending === undefined) {
+      return false;
+    }
+
+    // Taken out of the waiting set first, so two phones answering at once cannot
+    // both reach the engine.
+    if (this.options.permissions.resolve(pending.turnId, pending.id) === undefined) {
+      return false;
+    }
+
+    this.answerEngine(pending, decision);
+    this.announceResolved(pending, decision);
+
+    return true;
+  }
+
+  /** The ask as a browser receives it, used for both broadcast and replay. */
+  askMessage(
+    pending: PendingPermission,
+  ): Extract<Parameters<BrowserRegistry['broadcast']>[1], { type: 'permission_request' }> {
+    return {
+      type: 'permission_request',
+      conversationId: pending.conversationId,
+      turnId: pending.turnId,
+      permissionId: pending.id,
+      tool: pending.tool,
+      title: pending.title,
+      ...(pending.target !== undefined ? { target: pending.target } : {}),
+      ...(pending.reason !== undefined ? { reason: pending.reason } : {}),
+      details: pending.details,
+      suggestions: pending.suggestions,
+      createdAt: pending.createdAt,
+      expiresAt: pending.expiresAt,
+    };
+  }
+
+  private answerEngine(
+    pending: PendingPermission,
+    decision: PermissionDecision,
+    expired = false,
+  ): void {
+    this.options.registry.send(pending.deviceId, {
+      type: 'permission_response',
+      turnId: pending.turnId,
+      permissionId: pending.id,
+      decision,
+      // Said only when true, so a refusal the user chose is never dressed up as a
+      // timeout on the machine that reports it.
+      ...(expired ? { expired: true } : {}),
+    });
+  }
+
+  /**
+   * Tells every browser the ask is no longer waiting.
+   *
+   * Two tabs can be attached to one session, so the one that did not answer would
+   * otherwise keep offering a decision that has already been made.
+   */
+  private announceResolved(
+    pending: PendingPermission,
+    outcome: PermissionDecision | 'expired',
+  ): void {
+    this.options.browsers.broadcast(pending.sessionId, {
+      type: 'permission_resolved',
+      conversationId: pending.conversationId,
+      turnId: pending.turnId,
+      permissionId: pending.id,
+      outcome,
+    });
+  }
+
+  /**
+   * Clears asks that can no longer be answered, because the turn waiting on them
+   * is over.
+   */
+  private dropPermissions(pending: readonly PendingPermission[]): void {
+    for (const ask of pending) {
+      this.announceResolved(ask, 'expired');
+    }
+  }
+
+  /**
    * Stores tool output when it arrives.
    */
   activityOutput(deviceId: string, turnId: string, activityId: string, output: string): void {
@@ -198,6 +350,9 @@ export class TurnRelay {
     }
 
     this.options.turns.finish(turnId);
+    // An ask the engine no longer waits on cannot be answered, so its card has to
+    // stop offering a decision that would go nowhere.
+    this.dropPermissions(this.options.permissions.removeByTurn(turnId));
 
     if (text !== '') {
       const stored = this.options.conversationRepository.appendMessage(
@@ -239,6 +394,7 @@ export class TurnRelay {
     }
 
     this.options.turns.finish(turnId);
+    this.dropPermissions(this.options.permissions.removeByTurn(turnId));
 
     if (text !== undefined && text !== '') {
       const stored = this.options.conversationRepository.appendMessage(
@@ -269,6 +425,11 @@ export class TurnRelay {
 
   /** Ends every turn owned by a device that disconnected. */
   abandonDevice(deviceId: string): void {
+    // The engine that raised these is gone, so nothing is left to answer. Told to
+    // the browsers first, because the turn_done that follows would otherwise leave
+    // an approval card behind with no turn to belong to.
+    this.dropPermissions(this.options.permissions.removeByDevice(deviceId));
+
     for (const turn of this.options.turns.removeByDevice(deviceId)) {
       this.options.browsers.broadcast(turn.sessionId, {
         type: 'error',

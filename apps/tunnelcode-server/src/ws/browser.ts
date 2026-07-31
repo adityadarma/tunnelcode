@@ -5,9 +5,11 @@ import type { BrowserMessage, ServerToBrowserMessage } from '@tunnelcode/protoco
 import type { ConversationRepository } from '../db/conversation-repository.js';
 import type { SessionRepository } from '../db/session-repository.js';
 import type { DeviceService } from '../services/device.js';
+import type { PermissionService } from '../services/permission.js';
 import type { TurnService } from '../services/turn.js';
 import type { BrowserRegistry } from './browser-registry.js';
 import type { CliRegistry } from './registry.js';
+import type { TurnRelay } from './turn-relay.js';
 
 interface BrowserSocketOptions {
   devices: DeviceService;
@@ -16,6 +18,8 @@ interface BrowserSocketOptions {
   browsers: BrowserRegistry;
   sessionRepository: SessionRepository;
   conversationRepository: ConversationRepository;
+  permissions: PermissionService;
+  relay: TurnRelay;
 }
 
 /**
@@ -27,7 +31,16 @@ interface BrowserSocketOptions {
  * reaching a device. See ADR-014.
  */
 export function registerBrowserSocket(app: FastifyInstance, options: BrowserSocketOptions): void {
-  const { devices, turns, registry, browsers, sessionRepository, conversationRepository } = options;
+  const {
+    devices,
+    turns,
+    registry,
+    browsers,
+    sessionRepository,
+    conversationRepository,
+    permissions,
+    relay,
+  } = options;
 
   app.get('/ws/browser', { websocket: true }, (socket: WebSocket) => {
     let sessionId: string | undefined;
@@ -62,6 +75,42 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
           ? { activeTurn: { conversationId: active.conversationId, turnId: active.id } }
           : {}),
       });
+
+      // An ask that is still waiting is replayed to the browser that just
+      // arrived. A phone that locked mid-turn is the ordinary case, and the engine
+      // is holding still until one of these is answered. See ADR-022.
+      for (const pending of permissions.listBySession(detail.id)) {
+        reply(relay.askMessage(pending));
+      }
+    };
+
+    /**
+     * Applies what the user decided about an ask.
+     *
+     * The session doing the answering has to own the ask. Without that check a
+     * guessed id would run a tool call on a machine the sender has no claim to,
+     * which is worse than having no approval prompt at all. See ADR-022.
+     */
+    const decidePermission = (
+      message: Extract<BrowserMessage, { type: 'permission_response' }>,
+    ): void => {
+      if (sessionId === undefined) {
+        reply({ type: 'error', message: 'Not attached to a session.' });
+        return;
+      }
+
+      const applied = relay.decidePermission(
+        sessionId,
+        message.conversationId,
+        message.permissionId,
+        message.decision,
+      );
+
+      // Also what a second tab sees when it answers a moment too late, so the
+      // wording avoids blaming the user for a race they could not see.
+      if (!applied) {
+        reply({ type: 'error', message: 'That request is no longer waiting for an answer.' });
+      }
     };
 
     /**
@@ -199,6 +248,9 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
           return;
         case 'prompt':
           sendPrompt(message);
+          return;
+        case 'permission_response':
+          decidePermission(message);
           return;
         case 'disconnect':
           endSession();

@@ -1,5 +1,6 @@
-import type { Engine } from '@tunnelcode/engine';
+import type { Engine, EnginePermissionDecision, EnginePermissionRequest } from '@tunnelcode/engine';
 import type { CliMessage } from '@tunnelcode/protocol';
+import type { PermissionPolicy } from './permission-policy.js';
 
 /**
  * How long the engine may produce nothing at all before the turn is abandoned.
@@ -23,8 +24,26 @@ export interface PromptRunnerOptions {
   send: (message: CliMessage) => void;
   /** Called on conversation activity, which is what resets the idle timeout. */
   onActivity: () => void;
+  /**
+   * What this machine already knows about a tool call, consulted before anyone is
+   * asked. Absent asks about everything, which is what tests want.
+   */
+  policy?: PermissionPolicy;
   /** Overridden in tests, which cannot wait minutes for a real timeout. */
   silenceTimeoutMs?: number;
+}
+
+/** Told to the user when they refused an ask themselves. */
+const DENIED_REASON = 'Denied from the browser.';
+
+/** Told to the user when the ask sat unanswered until its deadline passed. */
+const EXPIRED_REASON = 'Nobody answered in time, so it was refused.';
+
+/** What came back about an ask, which is more than just the decision. */
+interface PermissionAnswer {
+  decision: EnginePermissionDecision;
+  /** True when the refusal is a deadline passing rather than a choice. */
+  expired: boolean;
 }
 
 /**
@@ -38,6 +57,15 @@ export class PromptRunner {
   private readonly options: PromptRunnerOptions;
   private running = false;
 
+  /**
+   * Asks this turn is waiting on, by the id the engine gave them.
+   *
+   * More than one at a time is possible, because an engine can put up several
+   * tool calls in the same step.
+   */
+  private readonly waiting = new Map<string, (answer: PermissionAnswer) => void>();
+  private turnId: string | undefined;
+
   constructor(options: PromptRunnerOptions) {
     this.options = options;
   }
@@ -45,6 +73,32 @@ export class PromptRunner {
   /** True while an answer is still streaming. */
   isBusy(): boolean {
     return this.running;
+  }
+
+  /**
+   * Applies a decision the server relayed back.
+   *
+   * An answer naming a different turn is dropped: the only turn that can be
+   * waiting is the one running now, so anything else is stale. See ADR-022.
+   */
+  decide(
+    turnId: string,
+    permissionId: string,
+    decision: EnginePermissionDecision,
+    expired = false,
+  ): void {
+    if (turnId !== this.turnId) {
+      return;
+    }
+
+    const resolve = this.waiting.get(permissionId);
+
+    if (resolve === undefined) {
+      return;
+    }
+
+    this.waiting.delete(permissionId);
+    resolve({ decision, expired });
   }
 
   async run(
@@ -79,6 +133,7 @@ export class PromptRunner {
     }
 
     this.running = true;
+    this.turnId = turnId;
     onActivity();
 
     let answer = '';
@@ -128,10 +183,111 @@ export class PromptRunner {
       }, timeoutMs);
     };
 
+    /**
+     * Puts a tool call in front of the user and waits for the answer.
+     *
+     * The silence timeout stops for the duration. Waiting for a person produces no
+     * engine events at all, so left running it would read a phone in a pocket as a
+     * hung engine and abandon a turn that is working exactly as intended. The
+     * person has a deadline of their own, enforced by the server. See ADR-022.
+     */
+    /**
+     * Reports a refused tool call, naming the reason this machine actually had.
+     *
+     * Sent from here rather than from the adapter, because only this level knows
+     * whether the user said no, a limit on this machine did, or nobody answered.
+     */
+    const reportRefusal = (tool: string, reason: string): void => {
+      if (answer !== '') {
+        send({ type: 'turn_message', turnId, text: answer });
+        answer = '';
+      }
+      send({ type: 'turn_blocked', turnId, tool, reason });
+    };
+
+    const requestPermission = async (
+      request: EnginePermissionRequest,
+    ): Promise<EnginePermissionDecision> => {
+      // What this machine already knows, before anyone is troubled. A ceiling
+      // refusal never reaches the browser, and a granted rule never asks again.
+      // See ADR-022.
+      const settled = await this.options.policy?.settle(request);
+
+      if (settled !== undefined) {
+        if (settled.decision === 'reject') {
+          reportRefusal(request.tool, settled.reason);
+        }
+        return settled.decision;
+      }
+
+      // Empty entries would fail validation on the server and lose the ask
+      // entirely, leaving the engine waiting for an answer that never comes.
+      const details = request.details.filter((detail) => detail !== '');
+      const suggestions = request.suggestions.filter((suggestion) => suggestion !== '');
+
+      const decided = new Promise<PermissionAnswer>((resolve) => {
+        this.waiting.set(request.id, resolve);
+      });
+
+      stopWaiting();
+      onActivity();
+
+      send({
+        type: 'turn_permission_request',
+        turnId,
+        permissionId: request.id,
+        tool: request.tool,
+        title: request.title,
+        ...(request.target !== undefined ? { target: request.target } : {}),
+        ...(request.reason !== undefined ? { reason: request.reason } : {}),
+        details,
+        suggestions,
+      });
+
+      const { decision, expired } = await decided;
+      onActivity();
+
+      // The turn is already over, which is the only way this resolves without
+      // anyone deciding. Reporting now would put a refusal after the turn was
+      // reported finished, so the engine is answered and nothing else is said.
+      if (this.turnId !== turnId) {
+        return decision;
+      }
+
+      // Another ask may still be waiting, and restarting the clock while the turn
+      // is still blocked on a person would defeat the point of stopping it.
+      if (this.waiting.size === 0) {
+        waitForActivity();
+      }
+
+      if (decision === 'reject') {
+        reportRefusal(request.tool, expired ? EXPIRED_REASON : DENIED_REASON);
+        return decision;
+      }
+
+      if (decision === 'always') {
+        // Recorded here rather than left to the engine: the two engines disagree
+        // about what a lasting grant means, and one of them would forget it by the
+        // next prompt. See ADR-022.
+        const granted = (await this.options.policy?.grant(request)) ?? [];
+
+        if (granted.length > 0) {
+          send({
+            type: 'turn_log',
+            turnId,
+            text: `Granted on this machine: ${granted.join(', ')}`,
+          });
+        }
+      }
+
+      return decision;
+    };
+
     try {
       const events = engine.prompt(text, {
         cwd,
         signal: controller.signal,
+        requestPermission,
         ...(model !== undefined ? { model } : {}),
         ...(resume !== undefined ? { resume } : {}),
       });
@@ -231,6 +387,16 @@ export class PromptRunner {
       });
     } finally {
       stopWaiting();
+
+      // Nothing will answer these now. Released as refusals rather than left
+      // hanging, so an engine still reading its stdin is told where it stands
+      // instead of waiting on a turn that is already over.
+      for (const resolve of this.waiting.values()) {
+        resolve({ decision: 'reject', expired: false });
+      }
+      this.waiting.clear();
+
+      this.turnId = undefined;
       this.running = false;
       onActivity();
     }
