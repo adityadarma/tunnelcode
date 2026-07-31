@@ -37,8 +37,6 @@ export interface ActivityOutput {
   output: string;
 }
 
-
-
 export interface Conversation {
   id: string;
   title: string | null;

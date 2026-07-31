@@ -8,16 +8,45 @@ The CLI and the server image share one version and ship from a single `v*` tag.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-31
+
+An answer is now shown as it is built rather than as one block at the end: text and
+tool activity interleave in the order they happened, and the output of a tool is
+readable in the browser.
+
 ### Added
 
-- Added support for displaying tool execution outputs (e.g., bash output, read files) directly within the web chat interface.
+- Tool execution output (bash output, file reads) is shown inline in the chat, so the
+  result of an action is readable without leaving the browser.
 
 ### Changed
 
-- Refactored message streaming architecture to natively support true chronological interleaving of text and tool activities. The CLI now emits `turn_message` events precisely before executing tool calls, and the frontend sorts all events chronologically.
-- Shortened absolute workspace paths in tool activity indicators to relative paths (`./`) for cleaner UI presentation.
-- Made tool activity targets horizontally scrollable to prevent long commands (e.g., chained bash commands) from breaking the layout.
-- Improved overall mobile responsiveness, ensuring the composer and layout containers resize correctly when virtual keyboards appear on mobile devices.
+- Message streaming interleaves text and tool activity chronologically. The CLI emits
+  `turn_message` right before it runs a tool, flushing the text buffered so far, and
+  the browser orders every event by time.
+- Tool activity targets are shown relative to the workspace (`./`) instead of as
+  absolute paths.
+- Tool activity targets scroll horizontally, so a long chained command no longer
+  stretches the layout.
+- The composer and layout containers resize correctly when a mobile virtual keyboard
+  opens.
+- The typing indicator shows three animated dots. They were already in the markup but
+  had no styling, so only the `typing…` label was visible.
+
+### Fixed
+
+- The typing indicator no longer disappears while the agent runs a tool. It was
+  cleared by every stored assistant message, and since a turn now stores its text
+  each time it pauses to call a tool, the indicator went down for the whole length of
+  that call: the longer the wait, the longer there was no sign of work. Only
+  `turn_done` ends it now. A message arriving with no turn running still raises
+  nothing, so the composer cannot be left blocked by a late frame.
+
+### Migration
+
+- `activities` gains a nullable `output` column, applied automatically at startup. No
+  table is rebuilt and no row is rewritten. An activity recorded before this release
+  has no output and renders as it did before.
 
 ## [0.2.1] - 2026-07-30
 
@@ -227,6 +256,8 @@ between the browser, a server, and a local agent.
   visible prompt rather than something the surrounding shell or a cloned repository
   can decide.
 
+[0.3.0]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.0
+[0.2.1]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.2.1
 [0.2.0]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.2.0
 [0.1.1]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.1.1
 [0.1.0]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.1.0

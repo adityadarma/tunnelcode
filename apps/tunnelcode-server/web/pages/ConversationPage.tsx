@@ -229,7 +229,6 @@ export function ConversationPage({
         return;
       }
 
-
       case 'delta': {
         if (event.conversationId !== activeIdRef.current) {
           return;

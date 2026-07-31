@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { ServerToCliMessage } from '@tunnelcode/protocol';
 import type { ConversationRepository } from '../db/conversation-repository.js';
 import type { TurnService } from '../services/turn.js';
@@ -103,18 +104,23 @@ export class TurnRelay {
    * refusal is part of what the turn attempted. Nothing else reports it, so
    * without this the answer that follows has no visible cause.
    */
-  blocked(deviceId: string, turnId: string, id: string, tool: string, reason: string): void {
+  blocked(deviceId: string, turnId: string, tool: string, reason: string): void {
     const turn = this.options.turns.findForDevice(turnId, deviceId);
 
     if (turn === undefined) {
       return;
     }
 
+    // The id is minted here rather than taken from the engine: a refusal is
+    // reported without one, because no tool call was ever made to identify. It
+    // still needs an id of its own so the activity has a stable key, and so a
+    // second refusal of the same tool is not mistaken for the first.
+    //
     // The refused call carries no target: what matters is which tool was stopped
     // and why, and the reason already names what it tried to touch.
     const stored = this.options.conversationRepository.appendActivity(
       turn.conversationId,
-      id,
+      randomUUID(),
       tool,
       undefined,
       { reason },

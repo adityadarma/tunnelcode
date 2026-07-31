@@ -152,18 +152,7 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
 
         case 'turn_blocked':
           if (deviceId !== undefined) {
-            // Note: blocked events from Claude adapter might not have an id in our current events.ts?
-            // Ah, wait, events.ts turn_blocked schema doesn't have id yet. Let me check events.ts first.
-            // Oh, I didn't add id to turn_blocked in events.ts! Let me add it.
-            // For now I'll just use a random id if it's not present, wait no. I must update events.ts.
-            // Let's assume I'll update events.ts next.
-            relay.blocked(
-              deviceId,
-              message.turnId,
-              (message as any).id ?? 'unknown',
-              message.tool,
-              message.reason,
-            );
+            relay.blocked(deviceId, message.turnId, message.tool, message.reason);
           }
           return;
 

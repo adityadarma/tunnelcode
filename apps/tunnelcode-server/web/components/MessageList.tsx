@@ -323,45 +323,6 @@ function renderFormattedContent(content: string): React.JSX.Element {
   );
 }
 
-function AssistantMessage({
-  turn,
-  workspace,
-}: {
-  turn: AssistantTurn;
-  workspace: string | undefined;
-}): React.JSX.Element {
-  return (
-    <article className="message message-assistant">
-      <header>
-        <span className="role">Assistant</span>
-        <time dateTime={new Date(turn.createdAt).toISOString()}>{formatTime(turn.createdAt)}</time>
-      </header>
-      <div className="assistant-content">
-        {turn.items.map((item) =>
-          item.kind === 'text' ? (
-            <div key={item.id} className="message-text-block">
-              {renderFormattedContent(item.content)}
-              {item.partial === true && (
-                <p className="partial-notice muted">Answer stopped before it finished.</p>
-              )}
-            </div>
-          ) : (
-            <ActivityItem key={item.id} activity={item.activity} workspace={workspace} />
-          ),
-        )}
-        {turn.isStreaming && (
-          <div className="typing-indicator-row">
-            <span className="typing-dot" />
-            <span className="typing-dot" />
-            <span className="typing-dot" />
-            <span className="muted">typing…</span>
-          </div>
-        )}
-      </div>
-    </article>
-  );
-}
-
 function ActivityItem({
   activity,
   workspace,
@@ -386,7 +347,13 @@ function ActivityItem({
       <div className={`activity-container ${activity.blocked ? 'activity-blocked' : ''}`}>
         <p
           className="activity"
-          onClick={hasOutput ? () => setExpanded(!expanded) : undefined}
+          onClick={
+            hasOutput
+              ? () => {
+                  setExpanded(!expanded);
+                }
+              : undefined
+          }
           style={{ cursor: hasOutput ? 'pointer' : 'default' }}
         >
           <span className="activity-tool">
