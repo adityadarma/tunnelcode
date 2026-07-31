@@ -167,6 +167,33 @@ describe('MessageList', () => {
     expect(screen.queryByText('blocked')).toBeNull();
   });
 
+  test('a stored activity with null columns still renders', () => {
+    // The shape the transcript endpoint returns: the stored row, whose empty
+    // columns are null rather than absent. A null target reached .split() and
+    // threw during render, which blanked the whole page since nothing catches it.
+    const stored = [
+      { id: 'a1', tool: 'TodoWrite', target: null, reason: null, output: null, createdAt: 1 },
+    ] as unknown as Activity[];
+
+    render(
+      <MessageList messages={[]} activities={stored} streaming={undefined} workspace="/work" />,
+    );
+
+    expect(screen.getByText('TodoWrite')).toBeDefined();
+  });
+
+  test('a workspace path in a target is shortened', () => {
+    const activities: Activity[] = [
+      { id: 'a1', tool: 'Read', target: '/work/src/a.ts', createdAt: 1 },
+    ];
+
+    render(
+      <MessageList messages={[]} activities={activities} streaming={undefined} workspace="/work" />,
+    );
+
+    expect(screen.getByText('./src/a.ts')).toBeDefined();
+  });
+
   test('activities alone are enough to show a transcript', () => {
     const activities: Activity[] = [{ id: 'a1', tool: 'Read', target: 'a.ts', createdAt: 1 }];
 

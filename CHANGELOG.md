@@ -6,7 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The CLI and the server image share one version and ship from a single `v*` tag.
 
-## [Unreleased]
+## [0.3.1] - 2026-07-31
+
+### Fixed
+
+- Opening a conversation whose transcript contains a tool activity with no target no
+  longer blanks the page. The two ways an activity reaches the browser disagree on
+  shape: a live frame omits what it does not have, while the transcript endpoint
+  returns the stored row, whose empty columns are explicitly `null`. The path
+  shortening tested only for `undefined`, so a `null` target reached `.split()` and
+  threw during render, and with no error boundary the whole app unmounted. `target`,
+  `reason`, and `output` are now typed and checked as nullable.
+
+  The crash needed a reload or a conversation switch to appear, because a live
+  activity arrives in the shape that works. An activity with no target, such as
+  `TodoWrite`, is the common trigger.
 
 ## [0.3.0] - 2026-07-31
 

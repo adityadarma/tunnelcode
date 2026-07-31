@@ -63,19 +63,28 @@ export interface Message {
   createdAt: number;
 }
 
-/** Something the engine did during a turn, shown alongside the messages. */
+/**
+ * Something the engine did during a turn, shown alongside the messages.
+ *
+ * The optional fields are `null` as well as absent, because the two ways an
+ * activity reaches the browser disagree: a live `activity` frame omits what it
+ * does not have, while the transcript endpoint returns the stored row, which
+ * carries an explicit `null` for every empty column. Declaring only `string`
+ * here is what let a `null` target reach `.split()` and blank the page.
+ */
 export interface Activity {
   id: string;
   tool: string;
-  target?: string;
+  target?: string | null;
   /**
    * True when the engine was refused permission, so the call never happened.
    * Absent on a server that predates the flag, which is read as having run.
    */
   blocked?: boolean;
   /** Why the call was refused, present only on a blocked one. */
-  reason?: string;
-  output?: string;
+  reason?: string | null;
+  /** Raw output of the tool, when the engine reported any. */
+  output?: string | null;
   createdAt: number;
 }
 

@@ -331,7 +331,11 @@ function ActivityItem({
   workspace: string | undefined;
 }): React.JSX.Element {
   const [expanded, setExpanded] = useState(false);
-  let displayTarget = activity.target;
+
+  // Checked by type rather than against undefined: the transcript endpoint returns
+  // the stored row, whose empty columns are null, and a null here reached .split()
+  // and took the whole page down with it.
+  let displayTarget = typeof activity.target === 'string' ? activity.target : undefined;
 
   if (displayTarget !== undefined && workspace !== undefined) {
     // Replace all occurrences of the workspace path with a dot (.)
@@ -341,6 +345,7 @@ function ActivityItem({
   }
 
   const hasOutput = typeof activity.output === 'string' && activity.output.length > 0;
+  const reason = typeof activity.reason === 'string' ? activity.reason : undefined;
 
   return (
     <div className="activity-pill-wrapper">
@@ -377,9 +382,7 @@ function ActivityItem({
               {displayTarget}
             </span>
           )}
-          {activity.reason !== undefined && (
-            <span className="activity-target">{activity.reason}</span>
-          )}
+          {reason !== undefined && <span className="activity-target">{reason}</span>}
           {hasOutput && (
             <span className="activity-toggle-icon">
               {expanded ? (
