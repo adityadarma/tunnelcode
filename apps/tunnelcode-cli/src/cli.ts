@@ -28,7 +28,7 @@ function menu(): Promise<Action | typeof CANCELLED> {
 export async function run(): Promise<number> {
   const cwd = process.cwd();
 
-  for (; ;) {
+  for (;;) {
     const action = await menu();
 
     if (action === CANCELLED || action === 'exit') {
