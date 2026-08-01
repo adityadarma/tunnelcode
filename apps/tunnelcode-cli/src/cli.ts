@@ -4,8 +4,6 @@ import { runStart } from './commands/start.js';
 import { CANCELLED, select } from './prompt.js';
 import type { Choice } from './prompt.js';
 import { writeErr, writeOut } from './output.js';
-import { readVersion } from './version.js';
-import { cyanBold, dim } from './style.js';
 
 type Action = 'continue' | 'setup' | 'exit';
 
@@ -17,7 +15,7 @@ type Action = 'continue' | 'setup' | 'exit';
  */
 function menu(): Promise<Action | typeof CANCELLED> {
   return select('Main Menu', [
-    { value: 'continue', label: 'Continue', hint: 'scan QR to pair' },
+    { value: 'continue', label: 'Scan QR' },
     { value: 'setup', label: 'Setup' },
     { value: 'exit', label: 'Exit' },
   ] satisfies Choice<Action>[]);
@@ -28,11 +26,9 @@ function menu(): Promise<Action | typeof CANCELLED> {
  * entrypoint stays the only place that touches process state.
  */
 export async function run(): Promise<number> {
-  writeOut(`${cyanBold('tunnelcode')} ${dim(`v${readVersion()}`)}`);
-
   const cwd = process.cwd();
 
-  for (;;) {
+  for (; ;) {
     const action = await menu();
 
     if (action === CANCELLED || action === 'exit') {
