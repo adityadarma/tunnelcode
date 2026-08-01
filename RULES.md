@@ -16,6 +16,7 @@
 - Never edit a migration that has already shipped. Add a new one instead.
 - A new column is either nullable or has a default, so existing rows stay valid.
 - An engine's own shape stays in its adapter: permission transport, nested sessions, and output format are normalized there, one file per engine. The protocol stays flat.
+- Never pass an engine flag that approves tool calls on the agent's behalf. An engine that cannot be asked must be left to refuse, so a limit set on this machine is never bypassed by a flag.
 - Never shorten a value the machine also decides with. Permission targets, commands, and paths are recorded whole; shortening is the surface's job and belongs in CSS, not in an event.
 - A path shown to the user is relative to the workspace, with no prefix marker in front of it.
 - An adapter is pinned by tests built from output shapes recorded from the real engine, never from what its documentation implies.

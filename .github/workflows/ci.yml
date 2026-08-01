@@ -6,6 +6,10 @@ on:
   pull_request:
 
 jobs:
+  # Linux only. The server ships as a Docker image and never runs on Windows, and
+  # the CLI is not claimed to work there: the tests are written to be portable, but
+  # nothing verifies that, and a runner would say more about the fake engines than
+  # about Windows. See the platform note in README.md.
   check:
     runs-on: ubuntu-latest
 
@@ -34,6 +38,61 @@ jobs:
       - run: pnpm format:check
 
       - run: pnpm test
+
+  # Proves the artifact that gets published actually works. Release only builds
+  # and publishes, so this is the last place a broken bundle can be caught, and an
+  # npm version cannot be republished once it is out.
+  bundle:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.13.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The workspace packages resolve to their dist, and the bundle inlines them,
+      # so they have to be built before esbuild can follow the imports.
+      - run: pnpm build
+
+      # Bundled without the published default server URL, which is the one thing
+      # release passes that this does not. It only changes a baked-in string, not
+      # whether the artifact runs.
+      - run: pnpm --filter tunnelcode bundle
+
+      # Installing the tarball outside the workspace is the only way to catch a
+      # manifest that cannot actually be installed.
+      - name: Verify the tarball installs and runs
+        working-directory: apps/tunnelcode-cli/bundle
+        run: |
+          expected=$(node -p "require('./package.json').version")
+          npm pack --pack-destination /tmp
+          mkdir -p /tmp/verify && cd /tmp/verify
+          npm init -y > /dev/null
+          npm i /tmp/tunnelcode-*.tgz
+
+          # Asserted on behaviour rather than on any text in the menu. The version
+          # flag proves the bundle runs, exits 0, and reports the version baked in
+          # at bundle time, which is the part a published artifact gets wrong.
+          installed=$(./node_modules/.bin/tunnelcode --version)
+          if [ "$installed" != "$expected" ]; then
+            echo "the bundle reports $installed but the manifest says $expected"
+            exit 1
+          fi
+
+          # The menu still has to open and leave cleanly. Output goes to a file
+          # rather than into grep: grep -q exits on its first match and closes the
+          # pipe, which the CLI then reports as EPIPE.
+          printf '3\n' | ./node_modules/.bin/tunnelcode > /tmp/menu.txt
+          grep -q 'Main Menu' /tmp/menu.txt
 
   docker:
     runs-on: ubuntu-latest

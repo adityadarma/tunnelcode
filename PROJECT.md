@@ -406,6 +406,8 @@ Custom Engine
 
 Without changing business logic.
 
+Implemented so far: OpenCode, Claude Code, Antigravity CLI.
+
 Engine Selection
 
 The CLI offers the engines that are both supported here and installed on the
@@ -432,6 +434,14 @@ How an engine raises an ask is the adapter's business. Claude Code is driven in
 streaming-input mode with its asks routed over stdin. opencode is driven as a client
 of a headless server started for the workspace, because `opencode run` answers asks
 itself and answers by refusing them.
+
+Not every engine can be asked. Antigravity CLI runs headless and has no prompt of its
+own, so there is nothing to carry a question out and an answer back: a call it will not
+make alone is refused rather than asked about, and the browser shows it as blocked. What
+it may do is decided before the turn starts, in Antigravity's own settings, and Setup is
+where writing to the workspace is granted or withdrawn. Running commands is left
+refused, because an engine that cannot be asked should not also be able to run
+anything. See ADR-031.
 
 Always allow is recorded for the machine, not for the server or the settings file.
 Setup lists what was granted and can clear it, and names a ceiling the browser cannot

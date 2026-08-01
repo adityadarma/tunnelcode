@@ -3,6 +3,10 @@ name: Release
 # One tag releases both apps, because the CLI and the server speak the same
 # protocol and a version mismatch between them is the failure worth avoiding.
 #   v0.2.0 -> pushes the server image to ghcr, then publishes the CLI to npm
+#
+# Nothing is checked here beyond the tag itself: the tests, the lint, and the
+# tarball smoke test all live in CI, and this workflow refuses to ship a commit
+# that has no passing CI run. Release builds and publishes, nothing else.
 on:
   push:
     tags: ['v*']
@@ -14,10 +18,77 @@ on:
         default: true
 
 jobs:
+  # Both publishing jobs wait on this, so a tag that should not ship stops before
+  # anything leaves the runner.
+  verify:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      actions: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # A tag that disagrees with a manifest would publish a version nobody asked
+      # for, and npm would reject a version that was already published. Both apps
+      # are checked because one tag now ships both.
+      - name: Verify the tag matches both manifest versions
+        if: github.event_name == 'push'
+        run: |
+          tagged="${GITHUB_REF_NAME#v}"
+          for app in tunnelcode-cli tunnelcode-server; do
+            manifest=$(node -p "require('./apps/$app/package.json').version")
+            if [ "$tagged" != "$manifest" ]; then
+              echo "tag is $tagged but apps/$app/package.json is $manifest"
+              exit 1
+            fi
+          done
+
+      # This workflow runs no tests, so the only thing standing between a tag and
+      # npm is CI having passed for the very commit being tagged. Checked rather
+      # than assumed: a tag can point at any commit, including one that never ran.
+      #
+      # A tag pushed straight after a commit is the normal case, so a CI run that
+      # is still going is waited for rather than treated as a failure.
+      - name: Require CI to have passed for this commit
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          deadline=$((SECONDS + 1800))
+
+          while :; do
+            runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&per_page=100")
+            passed=$(echo "$runs" | jq '[.workflow_runs[] | select(.conclusion == "success")] | length')
+            running=$(echo "$runs" | jq '[.workflow_runs[] | select(.status != "completed")] | length')
+            total=$(echo "$runs" | jq '.workflow_runs | length')
+
+            if [ "$passed" -gt 0 ]; then
+              echo "CI passed for $GITHUB_SHA"
+              exit 0
+            fi
+
+            # No run yet, or one still going. Either way there is nothing to
+            # conclude from, so wait for it.
+            if [ "$total" -eq 0 ] || [ "$running" -gt 0 ]; then
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                echo "timed out waiting for CI to finish for $GITHUB_SHA"
+                exit 1
+              fi
+              sleep 15
+              continue
+            fi
+
+            echo "CI ran for $GITHUB_SHA and did not pass, so nothing is published."
+            echo "Fix the commit, tag again, and let CI go green first."
+            exit 1
+          done
+
   cli:
     # Runs after the image, because an npm version cannot be republished while a
     # GHCR tag can be overwritten. The reversible artifact ships first.
-    needs: image
+    needs: [verify, image]
     runs-on: ubuntu-latest
 
     permissions:
@@ -37,26 +108,11 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: pnpm
 
-      # A tag that disagrees with a manifest would publish a version nobody asked
-      # for, and npm would reject a version that was already published. Both apps
-      # are checked because one tag now ships both.
-      - name: Verify the tag matches both manifest versions
-        if: github.event_name == 'push'
-        run: |
-          tagged="${GITHUB_REF_NAME#v}"
-          for app in tunnelcode-cli tunnelcode-server; do
-            manifest=$(node -p "require('./apps/$app/package.json').version")
-            if [ "$tagged" != "$manifest" ]; then
-              echo "tag is $tagged but apps/$app/package.json is $manifest"
-              exit 1
-            fi
-          done
-
       - run: pnpm install --frozen-lockfile
 
+      # The workspace packages resolve to their dist, and the bundle inlines them,
+      # so they have to be built before esbuild can follow the imports.
       - run: pnpm build
-
-      - run: pnpm test
 
       # The published CLI has no repository to read, so the deployment it talks to
       # by default is decided here. A user's config and environment still win.
@@ -64,24 +120,6 @@ jobs:
         env:
           TUNNELCODE_DEFAULT_SERVER_URL: ${{ vars.TUNNELCODE_DEFAULT_SERVER_URL }}
         run: pnpm --filter tunnelcode bundle
-
-      # Installing the tarball outside the workspace is the only way to catch a
-      # manifest that cannot actually be installed.
-      #
-      # The CLI takes no options, so it is smoke-tested by opening the menu and
-      # answering Exit. Stdin is a pipe here, which is the path the prompts take
-      # when they cannot read keypresses.
-      - name: Verify the tarball installs and runs
-        working-directory: apps/tunnelcode-cli/bundle
-        run: |
-          npm pack --pack-destination /tmp
-          mkdir -p /tmp/verify && cd /tmp/verify
-          npm init -y > /dev/null
-          npm i /tmp/tunnelcode-*.tgz
-          # Output goes to a file rather than into grep: grep -q exits on its
-          # first match and closes the pipe, which the CLI then reports as EPIPE.
-          printf '3\n' | ./node_modules/.bin/tunnelcode > /tmp/menu.txt
-          grep -q Continue /tmp/menu.txt
 
       - name: Publish to npm
         if: github.event_name == 'push'
@@ -91,6 +129,7 @@ jobs:
         run: npm publish --access public --provenance
 
   image:
+    needs: verify
     runs-on: ubuntu-latest
 
     permissions:

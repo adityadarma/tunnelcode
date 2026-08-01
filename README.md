@@ -8,9 +8,23 @@ not an IDE and not an AI provider. See `PROJECT.md` for the full specification a
 
 ## Requirements
 
-- Node.js 22 or newer
+- Node.js 24 or newer
 - pnpm 11
-- An engine on PATH: [OpenCode](https://opencode.ai) or Claude Code
+- An engine on PATH: [OpenCode](https://opencode.ai), Claude Code, or
+  [Antigravity CLI](https://antigravity.google/product/antigravity-cli)
+
+## Platforms
+
+The CLI is developed and tested on macOS and Linux.
+
+**Windows is untested.** The code is written for it — paths resolve from the home
+directory the way Windows reports it, the config goes under `%APPDATA%`, a batch shim
+is launched through `cmd.exe`, and file modes are skipped where the platform has none
+— but none of that is verified by CI or by hand, so treat it as unsupported until
+someone runs it. Reports are welcome.
+
+The server does not need Windows. It ships only as a Docker image and runs on Linux,
+so the browser is the only part of it you touch from any other platform.
 
 ## Install
 
@@ -48,8 +62,8 @@ cd /path/to/your/project
 pnpm exec tunnelcode
 ```
 
-That opens a menu. Choose Setup on the first run to set the server URL, then
-Continue to print a QR code and an 8 letter pairing code.
+That opens a menu. Choose Setup on the first run to set the server URL, then Scan QR
+to print a QR code and an 8 letter pairing code.
 
 ## Pairing
 
@@ -68,18 +82,20 @@ not.
 
 ## CLI
 
-`tunnelcode` takes no arguments and no options. Everything is chosen in the app.
-See ADR-018 for why.
+`tunnelcode` takes no options that decide anything. Everything is chosen in the app,
+so the server it answers to cannot be changed by a flag. See ADR-018 for why.
+`-v`/`--version` and `-h`/`--help` only report and exit.
 
 ```
 tunnelcode
-  Continue   scan QR to pair
+  Scan QR    scan QR to pair
   Setup
   Exit
 ```
 
-Setup holds Server URL, Device name, Engine, Never allow, Granted permissions, and
-Check environment. The last two are explained under Permissions.
+Setup holds Server URL, Device name, Engine, Never allow, Granted permissions,
+Antigravity write access, and Check environment. The permission entries are explained
+under Permissions.
 
 Each field is written as soon as it is answered, so leaving the menu never
 discards a change. Arrow keys and Enter move through the lists, Escape goes back.
@@ -135,12 +151,35 @@ such as Claude Code with a read-only shell command, never asks and so never reac
 it. Judge a grant by what it would allow next time, not only by the call in front of
 you.
 
+### Antigravity is different
+
+Antigravity never shows a card. Its headless mode has no prompt of its own, so there
+is no channel to carry a question out and an answer back, and a call it will not make
+alone is refused rather than asked about. A conversation on it shows blocked calls
+where the other two would have asked.
+
+What it may do is therefore decided before the turn starts:
+
+- Reading the workspace works with no setup.
+- Writing needs **Setup → Antigravity write access**, which adds one
+  `write_file(<workspace>)` rule to Antigravity's own settings for the workspace you
+  are in. The same entry withdraws it. Without it the engine can study a project but
+  never change it.
+- Running commands stays refused. There is no entry for it here on purpose: an engine
+  that cannot be asked should not also be able to run anything.
+
+That rule lives in `~/.gemini/antigravity-cli/settings.json`, which belongs to `agy`
+and is read every time it runs, so granting it affects your own terminal sessions too.
+That is why it is a menu item you choose rather than something done for you. Nothing
+else in that file is touched, and settings that cannot be parsed are refused rather
+than overwritten. See ADR-031.
+
 ## Configuration
 
 Configuration is per user. There is one file:
 
 - macOS and Linux: `~/.config/tunnelcode/tunnelcode.json`
-- Windows: `%APPDATA%/TunnelCode/tunnelcode.json`
+- Windows: `%APPDATA%/TunnelCode/tunnelcode.json` (untested, see Platforms)
 
 ```json
 {
@@ -339,6 +378,15 @@ TUNNELCODE_DEFAULT_SERVER_URL=https://rc.example.com pnpm --filter tunnelcode bu
 
 The server is released as a Docker image to GHCR. It is never published to npm.
 
-Before publishing, the workflow installs the tarball outside the workspace and
-runs the installed binary, which is the only way to catch a manifest that cannot
-actually be installed.
+The release workflow runs no checks of its own. It verifies the tag, builds, bundles,
+and publishes. Everything that can say no lives in CI, and the release refuses to
+publish a commit with no passing CI run for that exact commit. A tag can point at
+anything, including a commit nothing ever tested, and an npm version cannot be
+republished once it is out. A CI run still in progress is waited for rather than
+treated as a failure, since tagging straight after a commit is the normal case.
+
+CI is what installs the tarball outside the workspace and runs the installed binary,
+which is the only way to catch a manifest that cannot actually be installed. It
+asserts on behaviour rather than on anything printed: the binary has to report the
+version baked into it at bundle time and the menu has to open and exit cleanly.
+Asserting on a menu label is what broke a release once, when the label was renamed.

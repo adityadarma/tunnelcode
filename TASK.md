@@ -90,6 +90,7 @@ Run OpenCode through an adapter.
 - [x] Engine interface
 - [x] OpenCode adapter
 - [x] Claude Code adapter
+- [x] Antigravity CLI adapter
 - [x] Engine registry
 - [x] Spawn process
 - [x] Stream stdout
@@ -100,6 +101,10 @@ Acceptance
 OpenCode can be started from the CLI.
 
 Claude Code can be started from the CLI.
+
+Antigravity CLI can be started from the CLI. It answers, reports its tool calls, and
+continues an earlier conversation. It raises no permission ask, and a call its policy
+refuses is reported as blocked rather than run. See ADR-031.
 
 ---
 

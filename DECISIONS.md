@@ -1082,3 +1082,104 @@ can double a string and a legal message must never be dropped by the transport.
 Said in the composer because the server cannot explain itself. A rejected frame is
 answered with "invalid message", which names nothing the user could act on, and the
 send button that stops working is the part they would notice first.
+
+---
+
+# ADR-031
+
+## Antigravity Answers Without Being Asked
+
+Amends ADR-022.
+
+Decision
+
+Antigravity CLI is driven headlessly: `agy -p <prompt> --output-format stream-json`,
+with `--model` for the model and `--conversation` to continue an earlier one.
+
+`--dangerously-skip-permissions` is never passed.
+
+Antigravity raises no permission ask. A tool call its own policy will not approve is
+soft-denied by the engine: the run carries on, exits 0, and states the refusal in a
+notice. The adapter reports that as a blocked call, which is the same shape the other
+two engines produce when nobody can be asked.
+
+A refusal is read from the tool step, which is the only place it is tied to the call
+it refused. The notice on stderr is passed through as a log and never read as a
+refusal of its own.
+
+A refusal is reported in this project's words, not the engine's. Antigravity words it
+as the user denying permission, and no user was asked.
+
+Writing files is granted from Setup, per workspace, and never automatically. The grant
+is a single `write_file(<workspace>)` rule in Antigravity's own settings, added only
+when the user chooses it and withdrawn from the same place. Symlinks in the workspace
+path are resolved, because that is the path Antigravity judges the rule against.
+
+Nothing else in that file is touched. Unknown fields are preserved, `deny` and `ask`
+are left alone, the existing file mode is kept, and a file that cannot be parsed is
+refused rather than replaced.
+
+An Antigravity conversation therefore never shows an Allow or Deny card. What it may
+do is decided before the turn starts, in `permissions.allow` in Antigravity's own
+settings, and not from a phone.
+
+The prompt travels as a command line argument rather than on stdin, which is the only
+form headless mode accepts.
+
+The workspace is named with `--add-dir`, not merely entered. Running the process in a
+directory does not make it the workspace.
+
+Reason
+
+Headless mode has no interactive prompt at all. There is no control channel to carry
+a question out and an answer back, the way Claude Code's stdio protocol and
+OpenCode's server both do, so there is nothing for `requestPermission` to attach to.
+Asking anyway would mean showing a card that could not change what the engine does.
+
+Skipping permissions is the one way to make Antigravity run everything it wants, and
+that is the reason not to do it. It approves every tool call, file writes and shell
+commands included, which would put an engine chosen in a browser outside the ceiling
+this machine sets for the other two. Never allow could not filter what it never sees.
+Soft-denial is the safe direction to fail in: the turn still answers and says what it
+could not do.
+
+This is a real difference between the engines rather than a gap to close later. It is
+stated here so a conversation that shows no permission card is read as this decision
+and not as a broken adapter.
+
+The prompt as an argument carries none of the usual risk. The process is spawned
+directly with no shell, so nothing is word-split or expanded on the way, and a prompt
+is already capped well below the argument length limit. Antigravity ships a native
+executable on all three platforms, so nothing re-parses the argument list on the way
+in, the way a Windows batch shim would.
+
+The settings path is the same `~/.gemini/antigravity-cli` on every platform, which is
+where Antigravity keeps it: the home directory is read from HOME on Linux and macOS and
+from USERPROFILE on Windows, and both the engine and this project resolve it the same
+way. The file mode is only meaningful on POSIX, so on Windows keeping it is a no-op
+rather than a different decision.
+
+Writing is a grant rather than a default because there is no way to ask for it per
+call. Antigravity refuses a write it cannot get approval for, and `--add-dir` only
+buys reading, so without a rule the engine can study a project but never change it,
+which is not what an agent is for. The mechanisms that sound like they would help do
+not: `--mode accept-edits` and `--new-project` leave the mode at `request-review`,
+trusting the workspace is not enough, and there is no environment variable to pass
+permissions inline the way OpenCode's server takes its config. A rule in that file is
+the only thing that changes the outcome.
+
+It is offered in Setup rather than written when a session starts because the file is
+`agy`'s and is read every time `agy` runs, so the grant reaches the user's own terminal
+sessions as well. That is theirs to decide, and a menu item is where a decision that
+outlives this process belongs. It is also why the grant names one workspace instead of
+`write_file(*)`, and why running commands is deliberately left refused: an engine that
+cannot be asked should not also be able to run anything.
+
+The workspace has to be named because Antigravity keeps its own idea of one and does
+not take it from the working directory. With nothing added it falls back to a scratch
+directory under `~/.gemini`, and a prompt about the project is answered by saying no
+project is open, while the process is sitting in it. The other two engines read the
+working directory and need nothing said, which is exactly why this is easy to miss:
+the engine looks installed, answers questions, and only fails on the one thing it is
+for. Naming the workspace also settles permissions, since reads and writes inside it
+are allowed without asking, and asking is not something headless mode can do.

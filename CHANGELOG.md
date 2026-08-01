@@ -6,6 +6,101 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The CLI and the server image share one version and ship from a single `v*` tag.
 
+## [0.3.5] - 2026-08-02
+
+A third engine. Antigravity CLI can now answer a conversation, alongside OpenCode and
+Claude Code. It is offered in Setup and in the browser exactly like the other two,
+and only when `agy` is installed.
+
+### Added
+
+- Antigravity CLI adapter, driven headlessly as
+  `agy -p <prompt> --output-format stream-json --add-dir <workspace>`. Text, tool
+  calls with their output, and the conversation id are read from the NDJSON event
+  stream, so a reply streams as it is written and a later prompt continues the same
+  conversation through `--conversation`.
+- Setup gains **Antigravity write access**, which lets Antigravity change files in the
+  current workspace. Headless mode cannot ask about a write, so without this the engine
+  can read a project but never edit it. Granting adds a single
+  `write_file(<workspace>)` rule to Antigravity's own settings, and the same menu
+  withdraws it.
+
+  Offered rather than done automatically, because that file belongs to `agy` and is read
+  every time `agy` runs, so the grant applies to your own terminal sessions too. It
+  names one workspace rather than every path, and running commands stays refused, so an
+  engine that cannot be asked still cannot run anything. Nothing else in the file is
+  touched: unknown fields are kept, `deny` and `ask` are left alone, the file mode is
+  preserved, and settings that cannot be parsed are refused rather than overwritten.
+  See ADR-031.
+- The workspace is named with `--add-dir` rather than only entered. Antigravity keeps
+  its own idea of a workspace and falls back to a scratch directory under `~/.gemini`
+  when nothing is added, so without it the agent answers that no project is open while
+  the process is sitting in one. See ADR-031.
+- Models come from `agy models` and are offered by slug. Headless mode refuses an
+  unknown `--model` instead of falling back, so the display name would fail the run.
+- A conversation whose id Antigravity no longer knows is answered without the earlier
+  context rather than failing, which is how the other two adapters already behave.
+
+### Security
+
+- A conversation id alone no longer lets a session prompt into it. `prompt` on the
+  browser socket now checks that the conversation belongs to the caller, the same way
+  the HTTP routes already did. Without it a session could send work to a conversation
+  on another machine, which means running an agent against a workspace it was never
+  paired with. A refusal reads as "unknown conversation" either way, so the reply says
+  nothing about whether it exists elsewhere.
+- A socket that never identifies itself is closed after 15 seconds. Until a CLI
+  registers or a browser attaches, a connection has proved nothing, and nothing ended
+  those: an unauthenticated socket could hold a slot and a heartbeat until the server
+  restarted, so opening many of them spent the server's resources without completing a
+  single pairing. The timer is unreferenced, so a socket that connects during a drain
+  cannot delay shutdown.
+
+- `--dangerously-skip-permissions` is never passed to `agy`. It approves every tool
+  call, file writes and shell commands included, which would put an engine chosen in a
+  browser outside the ceiling this machine sets for the other two: Never allow cannot
+  filter what it never sees. Left off, Antigravity applies its own policy and
+  soft-denies what it cannot approve, and the adapter reports that as a blocked call.
+  Pinned by a test, so removing the omission fails loudly. See ADR-031.
+- A refused call is reported once, and in this project's words. Antigravity words the
+  refusal as the user denying permission, for a call no user was ever shown: nothing
+  was asked, because headless mode has no prompt. Its own wording is still kept as the
+  output of the call, so nothing it said is hidden.
+
+### Changed
+
+- The README now states which platforms this is actually tested on: macOS and Linux.
+  Windows is written for but unverified, and is documented as unsupported until someone
+  runs it rather than left to be assumed. The server never needed Windows, since it
+  ships only as a Docker image.
+- Test helpers no longer assume POSIX. The home directory is isolated through
+  `USERPROFILE` as well as `HOME`, a stored config is looked for where the platform
+  actually puts it, `PATH` is joined with the platform separator, and a fake engine is
+  installed as a `.cmd` shim where a shebang means nothing. None of this is verified by
+  CI, but a test that would have written into a real home directory is a bug whether or
+  not it is ever run there.
+- The release workflow runs no checks. Tests and the tarball verification moved to CI,
+  so a tag builds, bundles and publishes and nothing else. In exchange it refuses to
+  publish a commit that has no passing CI run of its own, because a tag can point at a
+  commit nothing ever tested and an npm version cannot be republished. A run still in
+  progress is waited for, since tagging right after a commit is the normal case.
+- The tarball smoke test asserts on behaviour rather than on menu text: the installed
+  binary has to report the version baked in at bundle time, and the menu has to open and
+  exit cleanly. The previous check asserted a menu label, which failed the 0.3.4 release
+  when that label was renamed rather than catching anything real.
+
+### Migration
+
+Nothing to do. Antigravity is only offered where `agy` is installed, and an engine
+that is absent is not shown, so an existing machine behaves exactly as it did.
+
+- An Antigravity conversation shows no Allow or Deny card, because headless mode has
+  no interactive prompt to carry the question. What it may do is granted ahead of time
+  in `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`, not from a
+  phone. The other two engines are unchanged. See ADR-031.
+- `agy` has to be authenticated once interactively before a headless run works. An
+  unauthenticated one exits with an authentication error rather than hanging.
+
 ## [0.3.4] - 2026-08-01
 
 ### Changed
@@ -460,6 +555,7 @@ between the browser, a server, and a local agent.
   visible prompt rather than something the surrounding shell or a cloned repository
   can decide.
 
+[0.3.5]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.5
 [0.3.4]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.4
 [0.3.2]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.2
 [0.3.1]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.1
