@@ -6,6 +6,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The CLI and the server image share one version and ship from a single `v*` tag.
 
+## [0.3.3] - 2026-08-01
+
+### Changed
+
+- The main menu item "Continue" is renamed to "Scan QR" for clarity.
+- Running `tunnelcode` no longer prints the name and version header before the menu.
+  The menu appears immediately.
+- The typing indicator now reads "thinking…" instead of "typing…".
+- The model picker is now searchable: type to filter models when the dropdown is open.
+- The sidebar gains a toggle button to collapse and expand it.
+- The model picker disabled state is visually distinct from the enabled state.
+- Node.js upgraded from 22 to 24 in the Docker image and CI workflows.
+
+### Added
+
+- `-v` / `--version` flag prints the version number and exits.
+- `-h` / `--help` flag prints usage information and exits.
+- The app version is displayed in the web UI.
+
 ## [0.3.2] - 2026-07-31
 
 The agent now asks before it does something it will not do on its own, and the answer
@@ -441,6 +460,7 @@ between the browser, a server, and a local agent.
   visible prompt rather than something the surrounding shell or a cloned repository
   can decide.
 
+[0.3.3]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.3
 [0.3.2]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.2
 [0.3.1]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.1
 [0.3.0]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.0
