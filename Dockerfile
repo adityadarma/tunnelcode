@@ -1,7 +1,7 @@
 # Alpine uses musl, so the glibc prebuilds of better-sqlite3 are never used and
 # the native binding is compiled against the runtime libc instead. That avoids
 # the glibc version mismatch a slim Debian image runs into.
-FROM node:22-alpine AS build
+FROM node:24-alpine AS build
 
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
@@ -34,7 +34,7 @@ RUN pnpm build
 # binding of better-sqlite3 intact.
 RUN pnpm --filter tunnelcode-server --prod deploy --legacy /deploy
 
-FROM node:22-alpine AS runtime
+FROM node:24-alpine AS runtime
 
 # Links the image to the repository, which is what makes GITHUB_TOKEN allowed to
 # push it and lets the package inherit the repository's public visibility.
