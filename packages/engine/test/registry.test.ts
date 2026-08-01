@@ -17,6 +17,15 @@ const CLAUDE = `#!/usr/bin/env node
 process.exit(0);
 `;
 
+/** Fake agy. `agy models` reports a slug followed by its display name. */
+const ANTIGRAVITY = `#!/usr/bin/env node
+if (process.argv[2] === 'models') {
+  process.stdout.write('gemini-3.1-pro-high Gemini 3.1 Pro (High)\\n');
+  process.exit(0);
+}
+process.exit(0);
+`;
+
 test('an engine that is not installed is never offered', async () => {
   await withEmptyPath(async () => {
     // Supported but absent is the same as unusable: a browser offered it would
@@ -54,6 +63,23 @@ test('several installed engines are all reported', async () => {
         const claude = found.find((engine) => engine.name === 'claude');
         assert.deepEqual(claude?.models, ['opus', 'sonnet', 'haiku']);
       });
+    });
+  });
+});
+
+test('antigravity is discovered under the name its binary does not share', async () => {
+  await withEmptyPath(async () => {
+    await withFakeEngine('agy', ANTIGRAVITY, async () => {
+      const found = await discoverEngines();
+
+      // The engine is configured as 'antigravity' but spawned as 'agy', so the two
+      // are reported separately: a lookup on the name alone would never find it.
+      assert.deepEqual(
+        found.map((engine) => engine.name),
+        ['antigravity'],
+      );
+      assert.equal(found[0]?.command, 'agy');
+      assert.deepEqual(found[0]?.models, ['gemini-3.1-pro-high']);
     });
   });
 });

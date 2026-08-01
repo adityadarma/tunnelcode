@@ -1,11 +1,15 @@
+import { AntigravityEngine } from './adapters/antigravity.js';
 import { ClaudeEngine } from './adapters/claude.js';
 import { OpenCodeEngine } from './adapters/opencode.js';
 import type { Engine } from './types.js';
 
 /**
  * Engine names that can appear in configuration.
+ *
+ * The order is the order Setup offers them in, so a name is appended rather than
+ * inserted: the menu is answered by position when stdin is not a terminal.
  */
-export const ENGINE_NAMES = ['opencode', 'claude'] as const;
+export const ENGINE_NAMES = ['opencode', 'claude', 'antigravity'] as const;
 
 export type EngineName = (typeof ENGINE_NAMES)[number];
 
@@ -27,6 +31,8 @@ export function createEngine(name: string): Engine | undefined {
       return new OpenCodeEngine();
     case 'claude':
       return new ClaudeEngine();
+    case 'antigravity':
+      return new AntigravityEngine();
   }
 }
 

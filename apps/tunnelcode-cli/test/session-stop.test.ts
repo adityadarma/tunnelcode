@@ -4,9 +4,10 @@ import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { chmod, mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
+import { homeEnv } from './helpers.ts';
 
 /**
  * Ctrl+C has to end the process, not just mark it as stopping.
@@ -42,11 +43,22 @@ async function withFixture<T>(
   const home = await mkdtemp(join(tmpdir(), 'tunnelcode-stop-home-'));
   const binDir = await mkdtemp(join(tmpdir(), 'tunnelcode-stop-bin-'));
 
-  const enginePath = join(binDir, 'opencode');
-  await writeFile(enginePath, FAKE_ENGINE, 'utf8');
-  await chmod(enginePath, 0o755);
+  // On Windows a shebang means nothing and Node will not run a script by name, so
+  // the fake is a .cmd shim handing it to node, which is how npm installs a CLI
+  // there and the path the lookup already knows how to launch.
+  if (process.platform === 'win32') {
+    await writeFile(join(binDir, 'opencode.js'), FAKE_ENGINE, 'utf8');
+    await writeFile(join(binDir, 'opencode.cmd'), '@node "%~dp0opencode.js" %*\r\n', 'utf8');
+  } else {
+    const enginePath = join(binDir, 'opencode');
+    await writeFile(enginePath, FAKE_ENGINE, 'utf8');
+    await chmod(enginePath, 0o755);
+  }
 
-  const configDir = join(home, '.config', 'tunnelcode');
+  const configDir =
+    process.platform === 'win32'
+      ? join(home, 'AppData', 'Roaming', 'TunnelCode')
+      : join(home, '.config', 'tunnelcode');
   await mkdir(configDir, { recursive: true });
   await writeFile(
     join(configDir, 'tunnelcode.json'),
@@ -78,8 +90,8 @@ function startCli(fixture: Fixture): ChildProcess {
     cwd: process.cwd(),
     env: {
       ...process.env,
-      HOME: fixture.home,
-      PATH: `${fixture.binDir}:${process.env['PATH'] ?? ''}`,
+      ...homeEnv(fixture.home),
+      PATH: `${fixture.binDir}${delimiter}${process.env['PATH'] ?? ''}`,
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });

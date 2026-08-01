@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { withTempHome } from './helpers.ts';
+import { dirname, join } from 'node:path';
+import { homeEnv, withTempHome } from './helpers.ts';
 
 /**
  * The menu is the only way to configure the CLI, so these drive the real process
@@ -35,8 +35,7 @@ async function runMenuIn(cwd: string, home: string, answers: readonly string[]):
     cwd,
     env: {
       ...process.env,
-      HOME: home,
-      APPDATA: join(home, 'AppData', 'Roaming'),
+      ...homeEnv(home),
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -66,10 +65,22 @@ async function runMenuIn(cwd: string, home: string, answers: readonly string[]):
   return { code, output };
 }
 
+/**
+ * Where the stored config lands under an isolated home.
+ *
+ * Windows keeps it under APPDATA rather than in a dotted directory, so a single
+ * hardcoded path would look for a file the CLI never wrote. See ADR-011.
+ */
+function storedConfigPath(home: string): string {
+  return process.platform === 'win32'
+    ? join(home, 'AppData', 'Roaming', 'TunnelCode', 'tunnelcode.json')
+    : join(home, '.config', 'tunnelcode', 'tunnelcode.json');
+}
+
 /** Reads the stored global config, or undefined when nothing was written. */
 async function readStoredConfig(home: string): Promise<Record<string, unknown> | undefined> {
   try {
-    const raw = await readFile(join(home, '.config', 'tunnelcode', 'tunnelcode.json'), 'utf8');
+    const raw = await readFile(storedConfigPath(home), 'utf8');
     return JSON.parse(raw) as Record<string, unknown>;
   } catch {
     return undefined;
@@ -84,7 +95,8 @@ const DEVICE_NAME = '2';
 const ENGINE = '3';
 const NEVER_ALLOW = '4';
 const GRANTS = '5';
-const BACK = '7';
+const ANTIGRAVITY_ACCESS = '6';
+const BACK = '8';
 
 test('the menu offers continue, setup, and exit', async () => {
   await withTempHome(async (home) => {
@@ -202,7 +214,7 @@ test('the environment cannot point the agent at another server', async () => {
       cwd: process.cwd(),
       env: {
         ...process.env,
-        HOME: home,
+        ...homeEnv(home),
         TUNNELCODE_SERVER_URL: 'https://attacker.example.com',
         HOST: 'attacker.example.com',
         PORT: '9999',
@@ -254,10 +266,50 @@ test('a ceiling can be taken back off', async () => {
   });
 });
 
+test('antigravity write access is granted from setup and withdrawn from the same place', async () => {
+  await withTempHome(async (home) => {
+    const settings = join(home, '.gemini', 'antigravity-cli', 'settings.json');
+    const allowList = async (): Promise<string[]> => {
+      const parsed = JSON.parse(await readFile(settings, 'utf8')) as {
+        permissions?: { allow?: string[] };
+      };
+      return parsed.permissions?.allow ?? [];
+    };
+
+    // Antigravity cannot be asked about a write, so this rule is the only thing that
+    // lets it change anything. It is granted here rather than when a session starts,
+    // because the file belongs to agy and outlives this process. See ADR-031.
+    await runMenu(home, [SETUP, ANTIGRAVITY_ACCESS, '1', BACK, EXIT]);
+
+    const granted = await allowList();
+    assert.equal(granted.length, 1);
+    assert.match(granted[0] ?? '', /^write_file\(.+\)$/);
+
+    // The first choice becomes the opposite one once it is granted, so the same
+    // answer takes it back.
+    await runMenu(home, [SETUP, ANTIGRAVITY_ACCESS, '1', BACK, EXIT]);
+
+    assert.deepEqual(await allowList(), []);
+  });
+});
+
+test('setup never writes antigravity settings unless asked', async () => {
+  await withTempHome(async (home) => {
+    await runMenu(home, [SETUP, ANTIGRAVITY_ACCESS, '2', BACK, EXIT]);
+
+    // Opening the item and leaving is not a decision, and the file is another
+    // tool's, so nothing should have been created.
+    await assert.rejects(() =>
+      readFile(join(home, '.gemini', 'antigravity-cli', 'settings.json'), 'utf8'),
+    );
+  });
+});
+
 test('granted permissions can be listed and cleared', async () => {
   await withTempHome(async (home) => {
-    const grants = join(home, '.config', 'tunnelcode', 'permissions.json');
-    await mkdir(join(home, '.config', 'tunnelcode'), { recursive: true });
+    const configDir = dirname(storedConfigPath(home));
+    const grants = join(configDir, 'permissions.json');
+    await mkdir(configDir, { recursive: true });
     await writeFile(
       grants,
       JSON.stringify({ grants: [{ rule: 'Bash(curl *)', grantedAt: 1 }] }),
