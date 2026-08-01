@@ -30,7 +30,7 @@ export function ModelPicker({
       <label htmlFor="model" className="visually-hidden">
         Model
       </label>
-      <div className="model-picker-pill">
+      <div className={`model-picker-pill ${disabled ? 'disabled' : ''}`}>
         <svg
           className="model-picker-icon"
           width="13"

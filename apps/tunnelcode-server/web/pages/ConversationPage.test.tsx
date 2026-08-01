@@ -202,7 +202,7 @@ describe('ConversationPage turn state', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('typing…')).toBeDefined();
+      expect(screen.getByText('thinking…')).toBeDefined();
     });
 
     // The engine flushes its buffered text as a stored message every time it
@@ -220,7 +220,7 @@ describe('ConversationPage turn state', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Let me look at that file.')).toBeDefined();
-      expect(screen.getByText('typing…')).toBeDefined();
+      expect(screen.getByText('thinking…')).toBeDefined();
       expect(screen.getByLabelText('Message')).toHaveProperty('disabled', true);
     });
 
@@ -232,7 +232,7 @@ describe('ConversationPage turn state', () => {
 
     // Only the end of the turn takes it down.
     await waitFor(() => {
-      expect(screen.queryByText('typing…')).toBeNull();
+      expect(screen.queryByText('thinking…')).toBeNull();
       expect(screen.getByLabelText('Message')).toHaveProperty('disabled', false);
     });
   });
@@ -259,7 +259,7 @@ describe('ConversationPage turn state', () => {
       expect(screen.getByText('late arrival')).toBeDefined();
     });
 
-    expect(screen.queryByText('typing…')).toBeNull();
+    expect(screen.queryByText('thinking…')).toBeNull();
     expect(screen.getByLabelText('Message')).toHaveProperty('disabled', false);
   });
 

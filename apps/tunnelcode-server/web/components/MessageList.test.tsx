@@ -42,14 +42,14 @@ describe('MessageList', () => {
     render(<MessageList messages={messages} activities={[]} streaming="partial ans" />);
 
     expect(screen.getByText('partial ans')).toBeDefined();
-    expect(screen.getByText('typing…')).toBeDefined();
+    expect(screen.getByText('thinking…')).toBeDefined();
   });
 
   test('an empty streaming string still shows the typing state', () => {
     render(<MessageList messages={messages} activities={[]} streaming="" />);
 
     // The prompt was sent, so the user needs feedback before the first delta.
-    expect(screen.getByText('typing…')).toBeDefined();
+    expect(screen.getByText('thinking…')).toBeDefined();
   });
 
   test('content is rendered as text, not markup', () => {

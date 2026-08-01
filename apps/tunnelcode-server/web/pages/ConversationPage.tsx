@@ -701,7 +701,7 @@ export function ConversationPage({
             <ModelPicker
               models={activeModels}
               selected={active?.model ?? undefined}
-              disabled={offline || activeId === undefined}
+              disabled={sendDisabled}
               onChange={changeModel}
             />
           }

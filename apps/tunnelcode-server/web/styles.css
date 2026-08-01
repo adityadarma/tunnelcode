@@ -918,6 +918,11 @@
   @apply relative inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] transition-all hover:bg-[var(--surface-hover)] hover:border-[var(--accent)] focus-within:border-[var(--accent)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)] shrink min-w-0 max-w-[9rem] xs:max-w-[14rem] sm:max-w-[20rem] md:max-w-[26rem];
 }
 
+.model-picker-pill.disabled,
+.model-picker-pill:has(select:disabled) {
+  @apply opacity-60 pointer-events-none cursor-not-allowed bg-transparent border-[var(--border)] shadow-none hover:bg-transparent hover:border-[var(--border)];
+}
+
 .model-picker-icon {
   @apply text-[var(--accent)] shrink-0 pointer-events-none;
 }
@@ -931,7 +936,7 @@
 }
 
 .model-picker select:disabled {
-  @apply opacity-60 cursor-not-allowed;
+  @apply cursor-not-allowed opacity-80;
 }
 
 .model-picker select option {

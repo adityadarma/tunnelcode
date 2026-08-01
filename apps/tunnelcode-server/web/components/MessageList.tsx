@@ -530,7 +530,7 @@ export function MessageList({
                   <span className="typing-dot" />
                   <span className="typing-dot" />
                   <span className="typing-dot" />
-                  <span className="muted">typing…</span>
+                  <span className="muted">thinking…</span>
                 </div>
               )}
             </div>
