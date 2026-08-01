@@ -49,6 +49,13 @@ export interface AppOptions {
    * the proxy addresses to trust. See ADR-027.
    */
   trustProxy?: boolean | string;
+  /**
+   * How long a socket may stay open without identifying itself.
+   *
+   * Only set by tests, which cannot wait out the real one. The default lives with
+   * the timeout itself.
+   */
+  authTimeoutMs?: number;
 }
 
 /**
@@ -168,7 +175,18 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     }
   });
 
-  registerCliSocket(app, { devices, sessions, registry, sessionRepository, relay, lifecycle });
+  const authTimeout =
+    options.authTimeoutMs === undefined ? {} : { authTimeoutMs: options.authTimeoutMs };
+
+  registerCliSocket(app, {
+    devices,
+    sessions,
+    registry,
+    sessionRepository,
+    relay,
+    lifecycle,
+    ...authTimeout,
+  });
   registerBrowserSocket(app, {
     devices,
     turns,
@@ -178,6 +196,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     conversationRepository,
     permissions,
     relay,
+    ...authTimeout,
   });
   registerPairRoutes(app, { devices, sessions, registry });
   registerSessionRoutes(app, { sessionRepository, devices });

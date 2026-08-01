@@ -10,6 +10,7 @@ import type { TurnService } from '../services/turn.js';
 import type { BrowserRegistry } from './browser-registry.js';
 import type { CliRegistry } from './registry.js';
 import type { TurnRelay } from './turn-relay.js';
+import { startAuthTimeout } from './auth-timeout.js';
 
 interface BrowserSocketOptions {
   devices: DeviceService;
@@ -20,6 +21,8 @@ interface BrowserSocketOptions {
   conversationRepository: ConversationRepository;
   permissions: PermissionService;
   relay: TurnRelay;
+  /** Shortened by tests, which cannot wait out the real one. */
+  authTimeoutMs?: number;
 }
 
 /**
@@ -50,6 +53,14 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
       socket.send(JSON.stringify(message));
     };
 
+    const stopAuthTimeout = startAuthTimeout(
+      socket,
+      () => {
+        reply({ type: 'error', message: 'Did not attach in time.' });
+      },
+      options.authTimeoutMs,
+    );
+
     const attach = (id: string): void => {
       const detail = sessionRepository.findSessionDetail(id);
 
@@ -57,6 +68,8 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
         reply({ type: 'error', message: 'Unknown session.' });
         return;
       }
+
+      stopAuthTimeout();
 
       sessionId = detail.id;
       deviceId = detail.deviceId;
@@ -133,6 +146,34 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
     const sendPrompt = (message: Extract<BrowserMessage, { type: 'prompt' }>): void => {
       if (sessionId === undefined || deviceId === undefined) {
         reply({ type: 'error', message: 'Not attached to a session.' });
+        return;
+      }
+
+      // A conversation id alone is not permission to prompt into it. Without this a
+      // session could send work to another machine's conversation, which means
+      // running an agent against a workspace it was never paired with.
+      //
+      // Judged exactly as the HTTP routes judge it: an ended session is absent from
+      // findSessionDetail, and entitlement is the workspace rather than the session
+      // row, so pairing again still reaches the same history. Two paths that disagree
+      // here would leave one of them either a hole or a false refusal.
+      const caller = sessionRepository.findSessionDetail(sessionId);
+
+      if (caller === undefined) {
+        reply({ type: 'error', message: 'Unknown session.' });
+        return;
+      }
+
+      const owner = sessionRepository.findSessionForConversation(message.conversationId);
+
+      if (
+        owner === undefined ||
+        owner.deviceId !== caller.deviceId ||
+        owner.workspace !== caller.workspace
+      ) {
+        // Reported as unknown rather than forbidden, so the reply says nothing about
+        // whether the conversation exists on some other device.
+        reply({ type: 'error', message: 'Unknown conversation.' });
         return;
       }
 
@@ -267,6 +308,8 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
     });
 
     socket.on('close', () => {
+      stopAuthTimeout();
+
       if (sessionId !== undefined) {
         browsers.remove(sessionId, socket);
       }

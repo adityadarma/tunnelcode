@@ -7,6 +7,7 @@ import type { SessionService } from '../services/session.js';
 import type { SessionRepository } from '../db/session-repository.js';
 import type { CliRegistry } from './registry.js';
 import type { TurnRelay } from './turn-relay.js';
+import { startAuthTimeout } from './auth-timeout.js';
 import { startHeartbeat } from './heartbeat.js';
 import type { Lifecycle } from '../lifecycle.js';
 
@@ -17,6 +18,8 @@ interface CliSocketOptions {
   sessionRepository: SessionRepository;
   relay: TurnRelay;
   lifecycle: Lifecycle;
+  /** Shortened by tests, which cannot wait out the real one. */
+  authTimeoutMs?: number;
 }
 
 /**
@@ -39,6 +42,16 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
     const reply = (message: ServerToCliMessage): void => {
       socket.send(JSON.stringify(message));
     };
+
+    // Marked fatal because reconnecting changes nothing: a CLI that did not register
+    // in time has nothing to retry, it has to register.
+    const stopAuthTimeout = startAuthTimeout(
+      socket,
+      () => {
+        reply({ type: 'error', message: 'Did not register in time.', fatal: true });
+      },
+      options.authTimeoutMs,
+    );
 
     const handle = (message: CliMessage): void => {
       switch (message.type) {
@@ -68,6 +81,8 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
             });
             return;
           }
+
+          stopAuthTimeout();
 
           const device = result.device;
 
@@ -221,6 +236,7 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
     // frees the code and discards anything pending for it.
     socket.on('close', () => {
       stopHeartbeat();
+      stopAuthTimeout();
 
       if (deviceId === undefined) {
         return;

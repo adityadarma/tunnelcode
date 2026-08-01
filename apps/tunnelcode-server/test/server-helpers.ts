@@ -15,6 +15,8 @@ export interface TestServer {
 /** Options a test needs to build a server that is not the default one. */
 export interface ServerOptions {
   trustProxy?: boolean | string;
+  /** Shortened so a test can watch an unauthenticated socket be dropped. */
+  authTimeoutMs?: number;
 }
 
 /**
@@ -33,6 +35,7 @@ export async function withServer<T>(
     logger: false,
     databaseFile,
     ...(options.trustProxy === undefined ? {} : { trustProxy: options.trustProxy }),
+    ...(options.authTimeoutMs === undefined ? {} : { authTimeoutMs: options.authTimeoutMs }),
   });
 
   await app.listen({ host: '127.0.0.1', port: 0 });
