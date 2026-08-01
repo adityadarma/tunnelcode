@@ -7,3 +7,7 @@ apps/tunnelcode-server/migrations/
 
 # Spec documents are maintained by hand (PROJECT.md is under architecture freeze).
 *.md
+
+# Editor state, no longer tracked. Listed so a file the editor writes back in its own
+# style cannot fail a local format check.
+.vscode/

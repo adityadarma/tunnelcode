@@ -7,6 +7,7 @@ bundle/
 .DS_Store
 
 .claude/
+.vscode/
 data/
 *.sqlite
 *.sqlite-journal
