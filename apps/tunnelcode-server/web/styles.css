@@ -457,7 +457,11 @@
 
 /* Base Layout Classes */
 .layout {
-  @apply grid grid-cols-1 md:grid-cols-[17rem_1fr] h-full w-full max-w-full overflow-hidden relative bg-[var(--bg)];
+  @apply grid grid-cols-1 md:grid-cols-[18rem_1fr] lg:grid-cols-[19rem_1fr] h-full w-full max-w-full overflow-hidden relative bg-[var(--bg)] transition-[grid-template-columns] duration-300;
+}
+
+.layout.sidebar-closed {
+  @apply md:grid-cols-[0rem_1fr] lg:grid-cols-[0rem_1fr];
 }
 
 .layout-overlay {
@@ -469,7 +473,11 @@
 }
 
 .sidebar {
-  @apply fixed inset-y-0 left-0 z-40 w-[min(18rem,85vw)] md:w-full md:static flex flex-col bg-[var(--surface)] border-r border-[var(--border)] transition-transform duration-300 ease-in-out -translate-x-full md:translate-x-0 h-full overflow-hidden;
+  @apply fixed inset-y-0 left-0 z-40 w-[min(18rem,85vw)] md:w-full md:static flex flex-col bg-[var(--surface)] border-r border-[var(--border)] transition-[transform,opacity] duration-300 ease-in-out -translate-x-full md:translate-x-0 h-full overflow-hidden;
+}
+
+.layout.sidebar-closed .sidebar {
+  @apply md:-translate-x-full md:opacity-0 md:pointer-events-none;
 }
 
 .layout.menu-open .sidebar {
@@ -482,7 +490,15 @@
 }
 
 .sidebar-head {
-  @apply flex items-center justify-between gap-2 h-13 md:h-14 px-3.5 border-b border-[var(--border)] shrink-0 box-border;
+  @apply flex items-center justify-between gap-2 h-14 px-4 border-b border-[var(--border)] shrink-0 box-border;
+}
+
+.sidebar-head-actions {
+  @apply flex items-center gap-1.5 shrink-0;
+}
+
+.btn-toggle-sidebar {
+  @apply p-1.5 rounded-lg text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer inline-flex items-center justify-center border-0 bg-transparent shrink-0;
 }
 
 .sidebar-title {
@@ -502,11 +518,11 @@
 }
 
 .btn-new {
-  @apply bg-[var(--accent)] text-white font-medium text-xs px-2.5 py-1.5 rounded-lg shadow-sm hover:bg-[var(--accent-hover)] transition-all inline-flex items-center gap-1 cursor-pointer border-0;
+  @apply bg-[var(--accent)] text-white font-medium text-xs px-3 py-1.5 rounded-lg shadow-xs hover:bg-[var(--accent-hover)] transition-all inline-flex items-center gap-1.5 cursor-pointer border-0;
 }
 
 .engine-menu {
-  @apply absolute right-0 top-[calc(100%+0.35rem)] z-50 min-w-[9rem] m-0 p-1 list-none bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-xl space-y-0.5;
+  @apply absolute right-0 top-[calc(100%+0.35rem)] z-50 min-w-[9.5rem] m-0 p-1 list-none bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-xl space-y-0.5;
 }
 
 .engine-menu-item {
@@ -526,7 +542,7 @@
 }
 
 .conversation-item.active {
-  @apply bg-[var(--surface-2)] text-[var(--text)] border-[var(--border)] font-medium shadow-xs;
+  @apply bg-[var(--surface-2)] text-[var(--text)] border-[var(--border)] font-semibold shadow-xs;
 }
 
 .conversation-item .item-icon {
@@ -564,11 +580,11 @@
 
 /* Device Panel */
 .device-wrapper {
-  @apply p-3 border-t border-[var(--border)] shrink-0 bg-[var(--surface)];
+  @apply p-3 shrink-0 bg-[var(--surface)];
 }
 
 .device-panel {
-  @apply bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-3 flex flex-col gap-2 text-xs;
+  @apply bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-3 flex flex-col gap-2 text-xs shadow-xs;
 }
 
 .device-card-head {
@@ -620,7 +636,12 @@
 }
 
 .device-panel dd {
-  @apply m-0 text-xs text-[var(--text)] truncate min-w-0;
+  @apply m-0 text-xs text-[var(--text)] overflow-x-auto whitespace-nowrap min-w-0;
+  scrollbar-width: none;
+}
+
+.device-panel dd::-webkit-scrollbar {
+  display: none;
 }
 
 .btn-disconnect {
@@ -633,7 +654,7 @@
 }
 
 .main-head {
-  @apply flex items-center justify-between gap-2 h-13 md:h-14 px-3 md:px-5 border-b border-[var(--border)] bg-[var(--surface)] shrink-0 min-w-0 w-full;
+  @apply flex items-center justify-between gap-2 h-14 px-4 md:px-6 border-b border-[var(--border)] bg-[var(--surface)] shrink-0 min-w-0 w-full box-border;
 }
 
 .main-head-title {
@@ -652,13 +673,17 @@
   @apply flex items-center gap-2 shrink-0;
 }
 
+.app-version-badge {
+  @apply px-2.5 py-1 rounded-lg text-xs font-mono text-[var(--muted)] bg-[var(--surface-2)] border border-[var(--border)] font-medium select-none inline-flex items-center justify-center shrink-0 tracking-tight;
+}
+
 .theme-toggle {
   @apply p-2 rounded-lg bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors cursor-pointer inline-flex items-center justify-center;
 }
 
 /* Messages Area */
 .messages {
-  @apply flex-1 overflow-y-auto overflow-x-hidden p-3 md:p-5 space-y-3.5 md:space-y-4 min-w-0 w-full max-w-full box-border;
+  @apply flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 md:p-6 space-y-4 md:space-y-5 min-w-0 w-full max-w-full box-border;
 }
 
 .messages.empty {
@@ -666,7 +691,7 @@
 }
 
 .message {
-  @apply p-3 md:p-4 rounded-2xl border border-[var(--border)] shadow-sm max-w-full sm:max-w-[85%] md:max-w-[48rem] w-full min-w-0 box-border break-words [overflow-wrap:anywhere];
+  @apply p-3.5 md:p-4.5 rounded-2xl border border-[var(--border)] shadow-xs max-w-full sm:max-w-[85%] md:max-w-[50rem] lg:max-w-[56rem] w-full min-w-0 box-border break-words [overflow-wrap:anywhere];
 }
 
 .message-user {
@@ -802,16 +827,13 @@
   }
 }
 
-/* Permission asks.
-   Pinned above the composer rather than placed in the transcript: the agent is
-   stopped until one of these is answered, and a card that scrolls out of view is
-   one nobody answers. See ADR-022. */
+/* Permission asks */
 .permissions {
-  @apply flex flex-col gap-2 px-2.5 sm:px-3 md:px-4 w-full max-w-3xl mx-auto box-border min-w-0 empty:hidden;
+  @apply flex flex-col gap-2 px-3 sm:px-4 md:px-6 w-full max-w-3xl md:max-w-4xl mx-auto box-border min-w-0 empty:hidden;
 }
 
 .permission {
-  @apply flex flex-col gap-2 p-3 md:p-3.5 rounded-2xl bg-[var(--surface-2)] border border-[var(--accent)] shadow-md w-full min-w-0 box-border break-words [overflow-wrap:anywhere];
+  @apply flex flex-col gap-2 p-3 md:p-4 rounded-2xl bg-[var(--surface-2)] border border-[var(--accent)] shadow-md w-full min-w-0 box-border break-words [overflow-wrap:anywhere];
 }
 
 .permission-head {
@@ -877,27 +899,27 @@
 
 /* Composer Bar */
 .composer {
-  @apply p-2.5 sm:p-3 md:p-4 border-t border-[var(--border)] bg-[var(--surface)] shrink-0 w-full max-w-full box-border pb-[max(0.6rem,env(safe-area-inset-bottom))];
+  @apply p-3 sm:p-4 md:px-6 md:py-4 border-t border-[var(--border)] bg-[var(--bg)] shrink-0 w-full max-w-full box-border pb-[max(0.75rem,env(safe-area-inset-bottom))] relative z-20;
 }
 
 .composer-box {
-  @apply bg-[var(--surface-2)] border border-[var(--border)] rounded-2xl p-2.5 md:p-3 flex flex-col gap-1.5 shadow-md focus-within:border-[var(--accent)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)] transition-all w-full max-w-3xl mx-auto box-border;
+  @apply bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 md:p-3.5 flex flex-col gap-2 shadow-md hover:border-[var(--border-focus)] focus-within:border-[var(--accent)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)] focus-within:shadow-xl transition-[border-color,box-shadow] duration-200 w-full max-w-3xl md:max-w-4xl mx-auto box-border;
 }
 
 .composer-box.disabled {
-  @apply opacity-75 bg-[rgba(26,30,42,0.5)];
+  @apply opacity-65 bg-[var(--surface-2)] border-[var(--border)] shadow-none pointer-events-none;
 }
 
 .composer-box textarea {
-  @apply bg-transparent border-0 p-0 m-0 resize-y min-h-[2.4rem] max-h-48 text-sm md:text-base text-[var(--text)] shadow-none outline-none focus:outline-none focus:ring-0 leading-relaxed placeholder:text-[var(--muted)];
+  @apply bg-transparent border-0 p-0 m-0 resize-y min-h-[2.6rem] max-h-48 text-sm md:text-base text-[var(--text)] shadow-none outline-none focus:outline-none focus:ring-0 leading-relaxed placeholder:text-[var(--muted)];
 }
 
 .composer-toolbar {
-  @apply flex items-center justify-between gap-2 pt-2 border-t border-white/5 w-full min-w-0 flex-nowrap;
+  @apply flex items-center justify-between gap-2 pt-2.5 -mx-3 -mb-3 md:-mx-3.5 md:-mb-3.5 px-3 md:px-3.5 pb-2.5 border-t border-[var(--border)]/60 w-[calc(100%+1.5rem)] md:w-[calc(100%+1.75rem)] min-w-0 flex-nowrap;
 }
 
 .composer-toolbar-left {
-  @apply flex items-center gap-2 flex-1 min-w-0 flex-nowrap overflow-hidden;
+  @apply flex items-center gap-2 flex-1 min-w-0 flex-nowrap overflow-visible;
 }
 
 .composer-hint {
@@ -911,15 +933,14 @@
 }
 
 .model-picker {
-  @apply flex items-center shrink min-w-0;
+  @apply relative flex items-center shrink min-w-0;
 }
 
 .model-picker-pill {
-  @apply relative inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] transition-all hover:bg-[var(--surface-hover)] hover:border-[var(--accent)] focus-within:border-[var(--accent)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)] shrink min-w-0 max-w-[9rem] xs:max-w-[14rem] sm:max-w-[20rem] md:max-w-[26rem];
+  @apply relative inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)] hover:border-[var(--accent)] focus:outline-none focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-glow)] shrink min-w-0 max-w-[9rem] xs:max-w-[14rem] sm:max-w-[20rem] md:max-w-[26rem] cursor-pointer text-xs font-medium;
 }
 
-.model-picker-pill.disabled,
-.model-picker-pill:has(select:disabled) {
+.model-picker-pill.disabled {
   @apply opacity-60 pointer-events-none cursor-not-allowed bg-transparent border-[var(--border)] shadow-none hover:bg-transparent hover:border-[var(--border)];
 }
 
@@ -927,20 +948,52 @@
   @apply text-[var(--accent)] shrink-0 pointer-events-none;
 }
 
+.model-picker-label {
+  @apply truncate whitespace-nowrap overflow-hidden leading-tight flex-1 text-left;
+}
+
 .model-picker-chevron {
-  @apply text-[var(--muted)] shrink-0 pointer-events-none ml-auto;
+  @apply text-[var(--muted)] shrink-0 pointer-events-none ml-auto transition-transform duration-200;
 }
 
-.model-picker select {
-  @apply appearance-none bg-transparent border-0 outline-none text-xs font-medium text-[var(--text)] cursor-pointer p-0 pr-1 m-0 w-full truncate whitespace-nowrap overflow-hidden leading-tight;
+.model-picker-dropdown {
+  @apply absolute bottom-full left-0 mb-2 w-72 max-w-[90vw] bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-xl z-50 flex flex-col overflow-hidden box-border;
 }
 
-.model-picker select:disabled {
-  @apply cursor-not-allowed opacity-80;
+.model-picker-search-wrapper {
+  @apply flex items-center gap-2 px-3 py-2 border-b border-[var(--border)] bg-[var(--surface-2)] shrink-0;
 }
 
-.model-picker select option {
-  @apply bg-[var(--surface-2)] text-[var(--text)];
+.model-picker-search-icon {
+  @apply text-[var(--muted)] shrink-0;
+}
+
+.model-picker-search-input {
+  @apply flex-1 bg-transparent border-0 outline-none text-xs text-[var(--text)] placeholder:text-[var(--muted)] p-0 m-0 w-full;
+}
+
+.model-picker-search-clear {
+  @apply bg-transparent border-0 text-[var(--muted)] hover:text-[var(--text)] text-xs cursor-pointer p-0.5 rounded shrink-0;
+}
+
+.model-picker-options {
+  @apply max-h-60 overflow-y-auto p-1.5 flex flex-col gap-0.5 box-border;
+}
+
+.model-picker-option {
+  @apply flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-xs text-[var(--text)] hover:bg-[var(--surface-hover)] cursor-pointer transition-colors select-none min-w-0;
+}
+
+.model-picker-option.selected {
+  @apply font-semibold text-[var(--accent)] bg-[var(--accent-glow)];
+}
+
+.model-picker-check {
+  @apply text-[var(--accent)] shrink-0;
+}
+
+.model-picker-no-results {
+  @apply px-3 py-4 text-center text-xs text-[var(--muted)];
 }
 
 .btn-send {

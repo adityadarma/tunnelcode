@@ -16,6 +16,7 @@ import { ModelPicker } from '../components/ModelPicker.js';
 import { PermissionPrompt } from '../components/PermissionPrompt.js';
 import type { PermissionAsk, PermissionDecision } from '../components/PermissionPrompt.js';
 import { ThemeToggle } from '../components/ThemeToggle.js';
+import { APP_VERSION } from '../version.js';
 import {
   readStoredActiveConversationId,
   readStoredTheme,
@@ -158,6 +159,12 @@ export function ConversationPage({
   const [theme, setTheme] = useState<'light' | 'dark'>(() => readStoredTheme() ?? 'dark');
   const [error, setError] = useState<string | undefined>(undefined);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  const toggleSidebar = (): void => {
+    setSidebarOpen((prev) => !prev);
+    setMenuOpen((prev) => !prev);
+  };
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -583,7 +590,7 @@ export function ConversationPage({
           : 'Waiting for the answer…';
 
   return (
-    <div className={`layout ${menuOpen ? 'menu-open' : ''}`}>
+    <div className={`layout ${sidebarOpen ? '' : 'sidebar-closed'} ${menuOpen ? 'menu-open' : ''}`}>
       <div
         className="layout-overlay"
         onClick={() => {
@@ -613,6 +620,7 @@ export function ConversationPage({
           onDelete={(id) => {
             removeConversation(id);
           }}
+          onToggleSidebar={toggleSidebar}
         />
 
         {session !== undefined && (
@@ -628,6 +636,29 @@ export function ConversationPage({
       <main className="main">
         <header className="main-head">
           <div className="main-head-title">
+            {!sidebarOpen && (
+              <button
+                type="button"
+                className="btn-toggle-sidebar"
+                onClick={toggleSidebar}
+                title="Show sidebar"
+                aria-label="Show sidebar"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect width="18" height="18" x="3" y="3" rx="2" />
+                  <path d="M9 3v18" />
+                </svg>
+              </button>
+            )}
             <button
               type="button"
               className="menu-button ghost"
@@ -641,6 +672,9 @@ export function ConversationPage({
             <h1>{active?.title ?? 'TunnelCode'}</h1>
           </div>
           <div className="main-head-controls">
+            <span className="app-version-badge" title="Server Version">
+              {APP_VERSION}
+            </span>
             <ThemeToggle theme={theme} onToggle={toggleTheme} />
           </div>
         </header>
