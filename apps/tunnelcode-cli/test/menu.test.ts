@@ -91,7 +91,7 @@ test('the menu offers continue, setup, and exit', async () => {
     const { code, output } = await runMenu(home, [EXIT]);
 
     assert.equal(code, 0);
-    assert.match(output, /Continue/);
+    assert.match(output, /Scan QR/);
     assert.match(output, /Setup/);
     assert.match(output, /Exit/);
   });

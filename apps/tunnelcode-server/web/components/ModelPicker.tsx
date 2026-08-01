@@ -143,13 +143,13 @@ export function ModelPicker({
               className="model-picker-search-input"
               placeholder="Search model..."
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => { setSearch(e.target.value); }}
             />
             {search && (
               <button
                 type="button"
                 className="model-picker-search-clear"
-                onClick={() => setSearch('')}
+                onClick={() => { setSearch(''); }}
                 aria-label="Clear search"
               >
                 ✕
@@ -163,7 +163,7 @@ export function ModelPicker({
                 role="option"
                 aria-selected={selected === undefined}
                 className="model-picker-option selected"
-                onClick={() => handleSelect(DEFAULT_VALUE)}
+                onClick={() => { handleSelect(DEFAULT_VALUE); }}
               >
                 <span>Engine default</span>
                 <svg
@@ -189,7 +189,7 @@ export function ModelPicker({
                     role="option"
                     aria-selected={isSelected}
                     className={`model-picker-option ${isSelected ? 'selected' : ''}`}
-                    onClick={() => handleSelect(model)}
+                    onClick={() => { handleSelect(model); }}
                   >
                     <span className="truncate">{model}</span>
                     {isSelected && (

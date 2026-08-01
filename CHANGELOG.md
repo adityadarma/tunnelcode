@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The CLI and the server image share one version and ship from a single `v*` tag.
 
-## [0.3.3] - 2026-08-01
+## [0.3.4] - 2026-08-01
 
 ### Changed
 
@@ -460,7 +460,7 @@ between the browser, a server, and a local agent.
   visible prompt rather than something the surrounding shell or a cloned repository
   can decide.
 
-[0.3.3]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.3
+[0.3.4]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.4
 [0.3.2]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.2
 [0.3.1]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.1
 [0.3.0]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.0
