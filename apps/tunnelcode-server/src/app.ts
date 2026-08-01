@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 import websocket from '@fastify/websocket';
+import { ENGINE_TEXT_MAX_LENGTH } from '@tunnelcode/protocol';
 import { openDb } from './db/client.js';
 import { runMigrations } from './db/migrate.js';
 import { ConversationRepository } from './db/conversation-repository.js';
@@ -15,6 +16,7 @@ import { BrowserRegistry } from './ws/browser-registry.js';
 import { TurnRelay } from './ws/turn-relay.js';
 import { registerCliSocket } from './ws/cli.js';
 import { registerBrowserSocket } from './ws/browser.js';
+import { isAllowedOrigin } from './ws/origin.js';
 import { registerPairRoutes } from './routes/pair.js';
 import { registerConversationRoutes } from './routes/conversations.js';
 import { registerSessionRoutes } from './routes/sessions.js';
@@ -27,10 +29,26 @@ import { createLifecycle } from './lifecycle.js';
 const GLOBAL_MAX_REQUESTS = 100;
 const GLOBAL_WINDOW = '1 minute';
 
+/**
+ * Largest WebSocket frame the server will read.
+ *
+ * Twice the longest text the protocol accepts, because JSON escaping can double a
+ * string in the worst case and a legal message must never be dropped by the
+ * transport. `ws` defaults to 100 MiB, which is an invitation nobody needs.
+ */
+const MAX_FRAME_BYTES = 2 * ENGINE_TEXT_MAX_LENGTH + 64 * 1024;
+
 export interface AppOptions {
   /** False in tests, where log output would only add noise. */
   logger: boolean;
   databaseFile: string;
+  /**
+   * Whose forwarded headers to believe about the client address.
+   *
+   * Absent means nobody's. Fastify's own syntax otherwise: true for every hop, or
+   * the proxy addresses to trust. See ADR-027.
+   */
+  trustProxy?: boolean | string;
 }
 
 /**
@@ -42,9 +60,12 @@ export interface AppOptions {
 export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const app = Fastify({
     logger: options.logger ? buildLoggerOptions() : false,
-    // Behind a proxy the client address comes from forwarded headers, which the
-    // rate limit needs to tell clients apart.
-    trustProxy: true,
+    // Off unless a deployment says otherwise. Behind a proxy the client address
+    // has to come from a forwarded header for the rate limit to tell clients
+    // apart, but the server can also be reached directly, and then that header is
+    // just something the client writes: a new value per request is a new identity,
+    // and the pairing limit stops counting. See ADR-027.
+    ...(options.trustProxy === undefined ? {} : { trustProxy: options.trustProxy }),
   });
 
   registerErrorHandler(app);
@@ -70,6 +91,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     turns,
     browsers,
     conversationRepository,
+    sessionRepository,
     permissions,
     registry,
   });
@@ -89,7 +111,42 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     max: GLOBAL_MAX_REQUESTS,
     timeWindow: GLOBAL_WINDOW,
   });
-  await app.register(websocket);
+  await app.register(websocket, {
+    options: {
+      /**
+       * Ceiling on a single frame, comfortably above the largest message the
+       * protocol accepts and far below what `ws` allows by default.
+       *
+       * The schema is what decides whether a message is reasonable, but it only
+       * gets to decide after the frame has been read and parsed. This is the limit
+       * that applies before that, so a frame nobody would send never becomes a
+       * string to hold in memory. See ADR-030.
+       */
+      maxPayload: MAX_FRAME_BYTES,
+      /**
+       * Refuses a handshake from a page that is not this server's own.
+       *
+       * Checked here rather than in a route handler because it has to be decided
+       * before the upgrade: a socket that is already open has already bypassed
+       * every HTTP-level protection, including the rate limit. See ADR-028.
+       */
+      verifyClient: ({ origin, req }, done) => {
+        // The forwarded name is only worth reading when a proxy is trusted at all;
+        // otherwise it is another header the client writes.
+        const forwarded =
+          options.trustProxy === undefined ? undefined : req.headers['x-forwarded-host'];
+
+        done(
+          isAllowedOrigin(origin, [
+            req.headers.host,
+            typeof forwarded === 'string' ? forwarded : undefined,
+          ]),
+          403,
+          'Origin not allowed.',
+        );
+      },
+    },
+  });
 
   /**
    * Readiness probe. The database is actually queried rather than assumed

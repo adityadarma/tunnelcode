@@ -32,6 +32,18 @@ export const sessions = sqliteTable('sessions', {
    */
   engine: text('engine').notNull(),
   createdAt: integer('created_at').notNull(),
+  /**
+   * When the conversation last moved: a prompt sent, or an answer stored.
+   *
+   * Persisted rather than kept in memory because this is what bounds how long a
+   * session id is worth anything, and a server restart must not hand a stale id
+   * another lifetime. Deliberately not touched by heartbeats or by a browser
+   * attaching, or the timeout could never be reached. See ADR-026.
+   *
+   * Nullable, because a row written before this existed has no honest value to
+   * put here; readers fall back to createdAt.
+   */
+  lastActivityAt: integer('last_activity_at'),
   endedAt: integer('ended_at'),
 });
 

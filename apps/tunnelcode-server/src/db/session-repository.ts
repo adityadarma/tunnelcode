@@ -1,6 +1,15 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { Db } from './client.js';
 import { conversations, devices, sessions } from './schema.js';
+
+/**
+ * How long a session survives without conversation activity.
+ *
+ * The same hour PROJECT.md names, enforced here as well as in the CLI: the CLI
+ * timer only ends the process, and a session id outlives the process it was
+ * created in. See ADR-026.
+ */
+const SESSION_IDLE_MS = 60 * 60 * 1000;
 
 export interface PersistSessionInput {
   sessionId: string;
@@ -26,7 +35,18 @@ export interface SessionDetail {
  * paired, so history survives a restart. See ADR-006.
  */
 export class SessionRepository {
-  constructor(private readonly db: Db) {}
+  private readonly idleMs: number;
+
+  /**
+   * The idle window is injectable so it can be tested without waiting an hour.
+   * Nothing in the app passes it.
+   */
+  constructor(
+    private readonly db: Db,
+    options: { idleMs?: number } = {},
+  ) {
+    this.idleMs = options.idleMs ?? SESSION_IDLE_MS;
+  }
 
   /**
    * Records an approved pairing. Uses upsert on the device so a machine that
@@ -66,6 +86,22 @@ export class SessionRepository {
     this.db.update(sessions).set({ endedAt: Date.now() }).where(eq(sessions.id, sessionId)).run();
   }
 
+  /**
+   * Records conversation activity, which is what keeps a session alive.
+   *
+   * Called for a prompt and for an answer, never for a heartbeat or for a browser
+   * attaching: those happen while nobody is using the agent, and counting them
+   * would mean the timeout is never reached. See PROJECT.md (Pairing Code
+   * Lifetime).
+   */
+  touch(sessionId: string): void {
+    this.db
+      .update(sessions)
+      .set({ lastActivityAt: Date.now() })
+      .where(eq(sessions.id, sessionId))
+      .run();
+  }
+
   findSession(sessionId: string): { id: string; deviceId: string } | undefined {
     const rows = this.db
       .select({ id: sessions.id, deviceId: sessions.deviceId })
@@ -97,7 +133,23 @@ export class SessionRepository {
       // be attached again afterwards, and a browser holding it could still answer a
       // permission ask on the machine. Every caller of this wants an ended session
       // to be absent, so it is filtered here rather than at each of them.
-      .where(and(eq(sessions.id, sessionId), isNull(sessions.endedAt)))
+      //
+      // An idle session is gone for the same reason and in the same place. A
+      // session id is what lets a browser drive an agent on someone's machine, and
+      // one that nothing has used for an hour has no business still doing that: the
+      // device id is derived from the machine and the workspace, so a leaked id
+      // would keep matching every time the CLI is started there again.
+      //
+      // The fallback to createdAt covers a row written before this column existed,
+      // which would otherwise read as idle since 1970 and lock the user out of
+      // their own history.
+      .where(
+        and(
+          eq(sessions.id, sessionId),
+          isNull(sessions.endedAt),
+          sql`coalesce(${sessions.lastActivityAt}, ${sessions.createdAt}) > ${Date.now() - this.idleMs}`,
+        ),
+      )
       .limit(1)
       .all();
 

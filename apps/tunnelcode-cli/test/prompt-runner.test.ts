@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PromptRunner } from '../dist/pairing/prompt-runner.js';
 import type { Engine, EngineEvent, PromptOptions } from '@tunnelcode/engine';
+import { ENGINE_TEXT_MAX_LENGTH, parseCliMessage } from '@tunnelcode/protocol';
 import type { CliMessage } from '@tunnelcode/protocol';
 
 const wait = async (ms: number): Promise<void> => {
@@ -681,4 +682,90 @@ test('a refusal nobody chose is not blamed on the user', async () => {
 
   const blocked = sent.find((message) => message.type === 'turn_blocked');
   assert.match(blocked?.type === 'turn_blocked' ? blocked.reason : '', /Nobody answered in time/);
+});
+
+test('output too long to send is shortened rather than dropped', async () => {
+  const huge = 'x'.repeat(ENGINE_TEXT_MAX_LENGTH + 5000);
+  const engine = new ScriptedEngine(
+    [
+      { type: 'activity', id: 'call-1', tool: 'bash' },
+      { type: 'activity_output', id: 'call-1', output: huge },
+      { type: 'done', exitCode: 0 },
+    ],
+    false,
+  );
+  const { sent, send } = collect();
+  const runner = new PromptRunner({
+    engines: new Map([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+  });
+
+  await runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+
+  const output = sent.find((message) => message.type === 'turn_activity_output');
+  const text = output?.type === 'turn_activity_output' ? output.output : '';
+
+  // The protocol refuses a field this long, and a refused frame is a turn the
+  // browser never sees finish. Shortened here so the turn still completes.
+  assert.ok(text.length <= ENGINE_TEXT_MAX_LENGTH);
+  assert.match(text, /5000 more characters were not sent/);
+  // Every frame still parses, which is the point of doing this in the CLI.
+  assert.ok(sent.every((message) => parseCliMessage(JSON.stringify(message)) !== undefined));
+});
+
+test('an answer too long to send is shortened and the turn still finishes', async () => {
+  const engine = new ScriptedEngine(
+    [
+      { type: 'delta', text: 'y'.repeat(ENGINE_TEXT_MAX_LENGTH) },
+      { type: 'delta', text: 'y'.repeat(1000) },
+      { type: 'done', exitCode: 0 },
+    ],
+    false,
+  );
+  const { sent, send } = collect();
+  const runner = new PromptRunner({
+    engines: new Map([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+  });
+
+  await runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+
+  const done = sent.find((message) => message.type === 'turn_done');
+  assert.notEqual(done, undefined);
+
+  const text = done?.type === 'turn_done' ? done.text : '';
+  assert.ok(text.length <= ENGINE_TEXT_MAX_LENGTH);
+  assert.match(text, /1000 more characters were not sent/);
+  assert.ok(sent.every((message) => parseCliMessage(JSON.stringify(message)) !== undefined));
+});
+
+test('output that fits is left exactly as it was', async () => {
+  const exact = 'z'.repeat(ENGINE_TEXT_MAX_LENGTH);
+  const engine = new ScriptedEngine(
+    [
+      { type: 'activity', id: 'call-1', tool: 'bash' },
+      { type: 'activity_output', id: 'call-1', output: exact },
+      { type: 'done', exitCode: 0 },
+    ],
+    false,
+  );
+  const { sent, send } = collect();
+  const runner = new PromptRunner({
+    engines: new Map([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+  });
+
+  await runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+
+  const output = sent.find((message) => message.type === 'turn_activity_output');
+
+  // Nothing is added to output that was already acceptable, so the limit never
+  // shows up in ordinary work.
+  assert.equal(output?.type === 'turn_activity_output' ? output.output : '', exact);
 });

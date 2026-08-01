@@ -338,9 +338,13 @@ function ActivityItem({
   let displayTarget = typeof activity.target === 'string' ? activity.target : undefined;
 
   if (displayTarget !== undefined && workspace !== undefined) {
-    // Replace all occurrences of the workspace path with a dot (.)
-    // This handles both absolute paths and absolute paths within a command string
-    displayTarget = displayTarget.split(workspace + '/').join('./');
+    // The workspace is where every path in a transcript starts, so naming it says
+    // nothing: what is left is already relative to it. Dropped rather than replaced
+    // with a prefix, because the leading marker was as much to read as the folder
+    // name it stood in front of. Done everywhere in the string, since a shell
+    // command carries paths inside it rather than as the whole of it.
+    displayTarget = displayTarget.split(`${workspace}/`).join('');
+    // The workspace on its own has no name left to show, so it stays a dot.
     displayTarget = displayTarget.split(workspace).join('.');
   }
 

@@ -412,3 +412,138 @@ Integrate Tailwind CSS v4 and refine the web app frontend so it looks modern, fe
 Acceptance
 
 The web UI is styled with Tailwind CSS v4 and maintains 100% responsiveness without horizontal overflow across mobile portrait and landscape viewports.
+
+---
+
+# Milestone 16 — Interactive Permission
+
+## Goal
+
+Turn a refusal into a question. A tool call the engine will not run on its own is
+asked to the browser, and the answer returns to the turn that asked. See ADR-022.
+
+### Tasks
+
+- [x] Permission request and decision events in the protocol
+- [x] Claude Code driven in streaming-input mode, with its asks routed to the CLI
+- [x] opencode driven as a client of a headless server, since `opencode run` refuses on
+      its own
+- [x] The opencode server gets a password of its own and is told to ask about every
+      permission kind it has
+- [x] The instruction to ask is passed inline, so nothing is written into the project
+- [x] The browser shows Allow once, Always allow, and Deny above the composer
+- [x] The card lists every operation one request covers, not just the first
+- [x] A request still waiting is shown again when a browser attaches, including one
+      waiting in another conversation
+- [x] A request nobody answers within 10 minutes is refused, on a deadline the server
+      owns
+- [x] The silence timeout stops while a person is being asked
+- [x] Always allow is recorded for the device in `permissions.json`, next to the config
+- [x] Setup lists granted rules and can clear them; the browser cannot
+- [x] Setup names a Never allow ceiling, filtering asks before they are sent
+- [x] A grant covers every command in a chained line, and never covers a line carrying
+      `$( )`, backticks, or `<( )`
+- [x] A refused call is stored as a blocked activity, naming the reason that applied
+- [x] An answer is bound to its turn and accepted only from the session that owns it
+- [x] Unit: rule parsing, matching, the ceiling, and what a grant records
+- [x] Unit: an ask nobody can answer, or a caller that throws, is refused
+- [x] Integration: expiry, relay, and replay on attach
+- [x] UI: the permission card and its three answers
+
+Acceptance
+
+A tool call needing approval reaches the phone instead of failing silently.
+
+Nothing is allowed by a deadline passing.
+
+A rule the ceiling forbids is never offered as a choice.
+
+---
+
+# Milestone 17 — Subagent Work
+
+## Goal
+
+Make a turn that fans out into subagents report what it is doing, and stop it being
+abandoned as a hung engine while the work is happening. See ADR-023.
+
+### Tasks
+
+- [x] Adopt the sessions opencode starts under a session the turn already owns
+- [x] Report a subagent's tool calls as activities of the turn that started it
+- [x] Answer a subagent's permission ask on the session that raised it
+- [x] Keep a subagent's narration out of the answer
+- [x] Only the prompted session ends the turn, or fails it
+- [x] A session parented outside the turn stays foreign
+- [x] Show a description as the target when nothing else in the call is readable
+- [x] Stop cutting a target to 120 characters with an ellipsis
+- [x] Drop the workspace prefix from a target instead of writing `./`
+- [x] Unit: nested activity, nested asks, nested idle, and a foreign session
+- [x] UI: a workspace path inside a command, the workspace on its own, and a long
+      target kept whole
+
+Acceptance
+
+A turn spawning several subagents keeps reporting activity, and is not cancelled
+while its subagents are working.
+
+A subagent's shell command reaches the phone as an ask, like any other.
+
+A path in a transcript reads as it does in an editor, and a command is never cut.
+
+---
+
+# Milestone 18 — Hardening
+
+## Goal
+
+Close the gaps an audit of the released server found: a session that never expired,
+a rate limit anyone could reset, a socket that accepted any page, and files readable
+by every account on the machine. See ADR-026 through ADR-029.
+
+### Tasks
+
+- [x] Store the last conversation activity on the session row
+- [x] Refuse a session after an hour without activity, in the one place every caller
+      reads it through
+- [x] Count a prompt, an answer, engine work, and a decided ask as activity
+- [x] Do not count heartbeats, browser attaches, or individual deltas
+- [x] Remove the in-memory activity timestamp nothing ever read
+- [x] Trust forwarded client addresses only when `TRUST_PROXY` says so
+- [x] Refuse a WebSocket handshake whose Origin is not a host the request was
+      addressed to, before the upgrade, on both sockets
+- [x] Accept a handshake with no Origin, which is what the CLI sends
+- [x] Write the config, the grants, and the machine id as 0600 in a 0700 directory
+- [x] Correct the mode on every write, not only on creation
+- [x] Unit: idle expiry, activity refreshing it, the fallback for rows written before
+      the column, and an ended session staying ended
+- [x] Unit: origin matching, including `null`, a malformed value, and a forwarded host
+- [x] Integration: a prompt records activity and attaching does not
+- [x] Integration: a forwarded address cannot reset the pairing limit, and a trusted
+      proxy still can tell its clients apart
+- [x] Integration: both sockets refuse a foreign origin and accept their own page
+- [x] Unit: every file this machine writes is owner-only, including one left loose by
+      an earlier install
+- [x] Give a prompt a maximum length and refuse anything longer
+- [x] Give engine output a larger maximum, and shorten it in the CLI so a turn is
+      never lost to a refused frame
+- [x] Refuse a WebSocket frame larger than the longest legal message, before parsing
+- [x] Say in the composer that a prompt is too long, rather than leaving the server to
+      answer "invalid message"
+- [x] Unit: both limits at the boundary and one past it, and that a shortened message
+      still parses
+- [x] Integration: an oversized frame closes the socket with 1009
+
+Acceptance
+
+A leaked session id stops working an hour after the conversation went quiet, and a
+server restart does not give it another hour.
+
+Guessing pairing codes cannot be made free by writing a header.
+
+A page the user merely visited cannot open a socket to the agent.
+
+Nothing this machine writes is readable by another account on it.
+
+No message can write an unbounded amount into the database, and no legitimate turn is
+lost to the limit that stops it.

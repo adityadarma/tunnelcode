@@ -15,6 +15,10 @@
 - Migrations are additive only: never drop, rename, or retype an existing table or column without explicit approval.
 - Never edit a migration that has already shipped. Add a new one instead.
 - A new column is either nullable or has a default, so existing rows stay valid.
+- An engine's own shape stays in its adapter: permission transport, nested sessions, and output format are normalized there, one file per engine. The protocol stays flat.
+- Never shorten a value the machine also decides with. Permission targets, commands, and paths are recorded whole; shortening is the surface's job and belongs in CSS, not in an event.
+- A path shown to the user is relative to the workspace, with no prefix marker in front of it.
+- An adapter is pinned by tests built from output shapes recorded from the real engine, never from what its documentation implies.
 - Web UI styling uses Tailwind CSS v4 and CSS variables (`--bg`, `--surface`, `--accent`, `--border`) for theme support.
 - All UI layouts must be responsive without horizontal scroll overflow: use `min-width: 0` on flex/grid items and `overflow-wrap: anywhere` on message text.
 - Prompt controls (such as model selection) belong inside the prompt box container footer, co-located with text entry.

@@ -159,6 +159,10 @@ Reason
 
 Reduces database writes.
 
+Amended by ADR-024: a turn stores the answer in the pieces the activities between them
+split it into, so the transcript can be read in the order it happened. Deltas are
+still not stored.
+
 ---
 
 # ADR-009
@@ -361,6 +365,18 @@ an engine that is not coming back.
 
 Deltas are not stored, so an answer streamed while no browser was attached cannot
 be recovered. Waiting for the turn to finish is what restores it.
+
+Amended by ADR-022: the silence clock stops while a person is being asked for
+permission, because waiting for someone produces no engine events either.
+
+Amended by ADR-026: a session has a lifetime of its own on the server. A turn
+outliving its socket is not the same as a session id outliving its usefulness.
+
+Amended by ADR-023: silence is only honest if everything the engine is doing is
+reported, including the work its subagents do.
+
+Amended by ADR-024: an answer cut short is stored as a partial rather than lost,
+so what the user watched arrive survives a reload.
 
 ---
 
@@ -599,6 +615,12 @@ browser attached to the session that owns that turn.
 How an engine raises an ask is the adapter's business, not the protocol's. Both
 arrive as the same protocol event.
 
+Amended by ADR-023: a subagent's ask is one of these too, answered on the session
+that raised it.
+
+Amended by ADR-025: what an ask says it will do is never abbreviated, because it is
+also what a grant is recorded from and judged against.
+
 Claude is asked over its control protocol. The prompt is sent as a streaming JSON
 message, stdin stays open for the turn, and asks arrive as a `can_use_tool`
 control request answered with a control response.
@@ -731,3 +753,332 @@ today. That makes turning asks on the first thing an adapter has to get right, a
 it makes both switches load-bearing rather than cosmetic. One of them is not a
 documented flag, so it is pinned by a test that fails loudly if it stops working
 rather than degrading into silent refusals nobody notices.
+
+---
+
+# ADR-023
+
+## Subagent Sessions Belong To The Turn That Started Them
+
+Amends ADR-022.
+
+Decision
+
+A session opencode starts under a session this turn owns belongs to this turn too.
+
+A subagent's tool calls are reported as activities of the turn that started it.
+
+A subagent's permission ask is raised to the browser like any other, and the answer
+is sent back on the session that asked rather than on the session that was
+prompted.
+
+A subagent's text is not the turn's answer.
+
+Only the prompted session ends the turn. A subagent falling idle, or failing, is
+not the turn falling idle or failing.
+
+Reason
+
+The `task` tool runs in a child session with an id of its own, so everything a
+subagent does arrives under a session the turn has never seen. Treating those ids
+as another conversation's business had two consequences, and both were worse than
+the leak it was guarding against.
+
+The permission ask was dropped, which stranded the subagent waiting for an answer
+nobody was ever given the chance to make. The turn then produced nothing at all
+and was abandoned as a hung engine five minutes later, having done nothing wrong.
+A fan-out of subagents made this certain rather than likely, because the first
+thing each one does is reach for a shell.
+
+The work was invisible. A turn spent minutes inside one `task` activity with no
+output and nothing else on screen, which reads as stalled whether it is or not.
+Reporting the nested calls is also what keeps the silence timeout honest: it can
+only tell working from hung by what it is told.
+
+Ownership is followed rather than assumed, because a server hosts every
+conversation on the machine. A session is adopted only when its parent is already
+owned, so another conversation's subagents stay foreign.
+
+Text is the exception. A subagent reports to the parent, which says what it
+concluded; forwarding both would put the same work in the transcript twice, and
+interleave two voices while it was at it.
+
+This is opencode's problem alone, which is why it is fixed in its adapter rather
+than above it. Claude Code carries a subagent's calls and its asks on the one
+channel the turn already reads, naming the agent that raised them, so nested work
+arrives without being asked for. Nesting is a fact about the engines, not about the
+protocol, and normalizing it at the adapter is what ADR-022 already decided.
+
+---
+
+# ADR-024
+
+## The Transcript Is Chronological
+
+Amends ADR-008 and ADR-017.
+
+Decision
+
+A turn is stored as the sequence of things that happened, not as one reply.
+
+The answer so far is stored as its own message whenever an activity interrupts it, so
+a turn can hold several assistant messages.
+
+An activity is stored with what the tool produced, and the browser shows that output
+on demand rather than in the line itself.
+
+An answer cut short by a failure is stored, marked as partial, and shown as partial.
+Nothing is stored when the turn failed before saying anything.
+
+Deltas are still not stored as they arrive.
+
+Reason
+
+ADR-008 buffered a turn into one message because writes should be proportional to
+messages rather than to tokens. That holds, and it is why deltas are still not
+written. What it did not survive is an answer that stops to do something: reading a
+finished reply above a list of tool calls left the reader guessing which sentence
+caused which command, and the two orders disagreed the moment a turn did more than
+one thing.
+
+Flushing on interruption keeps the write count tied to how much the turn did, which
+is the same bound ADR-008 wanted, and it is the smallest unit that can be placed on
+a timeline honestly.
+
+A partial answer is stored because a reload that made it disappear looked like the
+work had never happened. It is marked rather than stored plainly, since presenting a
+cut answer as a finished one is the mistake ADR-017 already refuses to make.
+
+Tool output is kept out of the line and behind a tap. A command's output is often
+longer than the whole conversation around it, and a transcript that pastes it inline
+stops being readable on a phone.
+
+---
+
+# ADR-025
+
+## An Activity Target Is Not Abbreviated
+
+Amends ADR-022.
+
+Decision
+
+What a tool acted on is recorded whole. It is flattened to one line and nothing else.
+
+No engine event carries an ellipsis to say something was cut.
+
+The browser drops the workspace path from a target instead of replacing it with a
+marker. The workspace on its own stays a dot.
+
+How much of a target fits on screen is the surface's decision, taken in CSS.
+
+Reason
+
+A cut target is not only harder to read, it is wrong. The same string is what a
+permission ask says it will do, what a lasting grant is recorded from, and what the
+ceiling is matched against. A chained shell command that lost its tail is a different
+command from the one that ran, and a rule granted for it means something the user
+never agreed to.
+
+It also hid the part people look for. A command ends in what it is really doing, so
+cutting the end of it removes the answer to the only question being asked.
+
+Length was cut in the engine because that is where the value is built, which put a
+presentation limit in the one place that had no idea how wide the screen was. The
+pill already scrolls, so the browser can show as much as it has room for and the
+transcript keeps the whole thing.
+
+The workspace prefix is dropped because every path in a transcript starts there, so
+naming it says nothing. A marker in front of it was as much to read as the folder name
+behind it, which is the opposite of the point.
+
+---
+
+# ADR-026
+
+## A Session Has A Lifetime On The Server
+
+Amends ADR-017.
+
+Decision
+
+A session stops being valid after an hour without conversation activity, enforced
+where the session is read rather than where the CLI runs.
+
+Activity is a prompt, an answer, something the engine did, or an ask being decided.
+A heartbeat is not activity, and neither is a browser attaching.
+
+The last activity is stored on the session row, not in memory.
+
+An ended session stays ended, whatever activity arrives afterwards.
+
+Reason
+
+The hour was specified from the start and implemented only in the CLI, where it
+ends the process. A session id is not held by the process; it is held by a browser,
+and it was accepted forever. Nothing read the timestamp that existed for this, so
+there was no lifetime at all.
+
+That matters more here than it would elsewhere, because the device id is derived
+from the machine and the workspace and is therefore stable. A leaked id kept
+matching every time the CLI was started in that directory again, so a session that
+was logically dead could take over a connection that had nothing to do with it and
+send prompts to an agent with access to the user's files.
+
+Stored rather than remembered, because the id survives a restart and so must its
+deadline. Reading it in memory would hand every id a fresh hour each time the
+server came back, which is exactly when a leaked id is most likely to be tried.
+
+Enforced in the one function every caller already goes through, for the same reason
+the ended check lives there: a check each caller has to remember is a check one of
+them will forget.
+
+Attaching is left out deliberately. A phone with a tab open on the conversation
+would otherwise keep the session alive indefinitely without anybody using it, which
+is the same mistake as counting heartbeats. Deltas are left out too, but for a
+different reason: they arrive many times a second, and writing on each would put
+token-rate traffic into the database that ADR-008 keeps out. Everything else the
+engine reports already writes a row, so recording activity alongside it stays
+proportional to what the turn did.
+
+---
+
+# ADR-027
+
+## Forwarded Client Addresses Are Trusted Only When Told To
+
+Decision
+
+The server does not believe a forwarded client address unless a deployment says
+whose to believe.
+
+`TRUST_PROXY` decides: unset trusts nobody, `true` trusts every hop, anything else
+names the proxies to trust.
+
+Reason
+
+The rate limit counts per client address, and behind a proxy that address can only
+come from a forwarded header. Trusting it unconditionally was the shortest way to
+make that work, and it also meant the header was worth nothing: the server can be
+reached directly, and then `X-Forwarded-For` is simply a string the client writes.
+A new value per request is a new identity, so the limit on pairing attempts stopped
+counting anything.
+
+That limit exists because the pairing code is short enough to be worth guessing if
+guessing were free. Approval in the terminal is still the thing that actually stops
+a wrong guess, so this was never the whole defence, but a defence that quietly does
+nothing is worse than one that is absent: it is still written down as a reason.
+
+Opt-in rather than opt-out because the safe setting is the one a deployment gets by
+forgetting. A deployment that forgets to trust its proxy sees every client share one
+address, which is visible and annoying. A deployment that forgets to distrust the
+internet sees nothing at all.
+
+---
+
+# ADR-028
+
+## A WebSocket Handshake Names Where It Came From
+
+Decision
+
+A WebSocket handshake carrying an Origin is refused unless that origin is a host
+this request was addressed to.
+
+A handshake with no Origin is accepted.
+
+The check runs before the upgrade, on both sockets.
+
+Reason
+
+WebSocket is not subject to CORS. Any page the user visits can open a socket to a
+server on their own machine and start sending on it, and the rate limit does not
+apply once the socket is open because that limit is HTTP's. Attaching still requires
+a session id, which a page cannot read across origins, so this was never the only
+thing in the way. It was the only thing in the way of trying, and of the same trick
+played through a rebound DNS name.
+
+Compared against the host the request was addressed to rather than a configured
+list, because the server already knows what it is serving and a list is one more
+thing to get wrong. A forwarded host is only compared when a proxy is trusted at
+all, since otherwise it is another header the client writes.
+
+An absent Origin is allowed because the CLI is not a browser and sends none.
+Withholding it is not a way in for a page: a browser always sends it and script
+cannot remove it.
+
+Refused at the handshake rather than at the first message, because a socket that is
+already open has passed every HTTP-level check the server has.
+
+---
+
+# ADR-029
+
+## What This Machine Writes Is Readable Only By Its Owner
+
+Decision
+
+The config, the granted permissions, and the machine id are written with mode 0600,
+in a directory created with mode 0700.
+
+The mode is corrected on every write, not only when the file is created.
+
+Reason
+
+These files were written at whatever the umask allowed, which is usually
+world-readable. The granted permissions are the worst of it: that file is the list
+of tool calls this machine will make without asking anyone, so on a shared machine
+it told every other account what could be done to this one. The config names the
+server the agent answers to, and the machine id is what every device id here is
+derived from.
+
+Corrected after the rename because a mode only applies to a file being created. An
+install from before this change would otherwise keep the permissions it was first
+written with forever, which is precisely the case that needs fixing.
+
+The atomic write already goes through a temp file, so the mode is set there and the
+rename carries it over. The target is never briefly readable on the way.
+
+---
+
+# ADR-030
+
+## Every Message Has A Length
+
+Decision
+
+A prompt has a maximum length, and a message longer than it is refused.
+
+Engine output has a larger maximum, and the CLI shortens output before sending it
+rather than letting a message be refused. What was cut is said in the text.
+
+A WebSocket frame larger than the longest legal message is refused by the transport,
+before it is parsed.
+
+The browser says a prompt is too long where it is typed, instead of leaving the
+server to refuse it.
+
+Reason
+
+Every field here was unbounded, and everything these fields carry is written to
+SQLite. The browser socket is reachable before anything has been proved, so a
+prompt is a field an unknown sender controls, which makes it the one that has to be
+refused outright rather than trimmed.
+
+Output is the opposite case. A command prints as much as it prints, and refusing the
+message would not protect anything worth protecting: the CLI would have sent a
+`turn_done` the server dropped, and the browser would wait forever for an answer
+that had already arrived. Shortening at the source keeps the turn honest and keeps
+the transcript readable, which is why the limit is enforced there and only checked
+here. The cut says how much it removed, so a trimmed log is never mistaken for the
+whole of it.
+
+The frame limit exists because a schema only gets to judge a message after the frame
+has been read and turned into a string. `ws` allows 100 MiB by default, so the
+expensive part happened before anything decided the message was unreasonable. The
+limit is set above the longest legal message rather than at it, because JSON escaping
+can double a string and a legal message must never be dropped by the transport.
+
+Said in the composer because the server cannot explain itself. A rejected frame is
+answered with "invalid message", which names nothing the user could act on, and the
+send button that stops working is the part they would notice first.

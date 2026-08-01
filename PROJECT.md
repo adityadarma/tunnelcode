@@ -96,8 +96,8 @@ QR
 
 apps/
 
-tunnelcode/
-CLI Application
+tunnelcode-cli/
+CLI Application, published as `tunnelcode`
 
 tunnelcode-server/
 Backend + Web
@@ -105,7 +105,7 @@ Backend + Web
 packages/
 
 config/
-Global & Project Config
+User config and the grants a machine has made
 
 engine/
 Engine Adapter
@@ -115,10 +115,6 @@ Shared Events
 
 shared/
 Utilities
-
-docs/
-
-examples/
 
 ---
 
@@ -342,6 +338,9 @@ Session ends
 
 The code cannot be used again
 
+The session id stops being accepted, enforced by the server and not only by the CLI
+exiting. See ADR-026.
+
 A new pairing requires a new code.
 
 ---
@@ -376,9 +375,14 @@ A conversation records the engine it runs on and the model it asks for.
 
 AI streaming is not stored as it arrives.
 
-Buffer all deltas.
+Buffer the deltas, and store the answer when the turn has nothing more to add to it.
 
-Once the assistant finishes, store it as a single message.
+A turn that stops to do something stores what it said so far, so one turn can hold
+several assistant messages and the transcript reads in the order it happened. An
+answer cut short by a failure is stored and marked as partial. See ADR-024.
+
+What the engine did during a turn is stored too: the tool, what it acted on, whatever
+it produced, and whether it was refused.
 
 A browser refresh must be able to load the full history.
 
@@ -419,6 +423,29 @@ The engine named in Setup is what a new conversation starts on.
 
 See ADR-020.
 
+Permission
+
+An engine is told to ask before it does something it will not do on its own. The ask
+reaches the browser, and the answer returns to the turn that asked. See ADR-022.
+
+How an engine raises an ask is the adapter's business. Claude Code is driven in
+streaming-input mode with its asks routed over stdin. opencode is driven as a client
+of a headless server started for the workspace, because `opencode run` answers asks
+itself and answers by refusing them.
+
+Always allow is recorded for the machine, not for the server or the settings file.
+Setup lists what was granted and can clear it, and names a ceiling the browser cannot
+reach past.
+
+Subagents
+
+An engine may answer by starting agents of its own. Their tool calls are reported as
+activities of the turn that started them, and their permission asks are raised like
+any other. Their narration is not the turn's answer. See ADR-023.
+
+Nesting is a fact about the engines, so it is normalized in the adapter. The protocol
+stays flat.
+
 ---
 
 # Server
@@ -445,6 +472,10 @@ SQLite is only used for:
 
 Conversation
 
+Message
+
+Activity
+
 Session
 
 Device
@@ -452,6 +483,14 @@ Device
 Metadata
 
 It is not used as a realtime transport.
+
+A pending permission request is not stored. It only matters while the engine is
+waiting for it, and a request that outlived a restart would have nothing left to
+answer. See ADR-022.
+
+A session records when its conversation last moved, because that is what bounds how
+long its id is worth anything. The idle timeout is enforced on the server as well as
+in the CLI: the CLI timer only ends the process, and the id outlives it. See ADR-026.
 
 ---
 

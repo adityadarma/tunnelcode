@@ -589,6 +589,173 @@ test('another session on the same server is not this turn', async () => {
   );
 });
 
+/** How opencode announces the session it starts for a subagent. */
+function childSession(id: string, parentID: string): unknown {
+  return {
+    type: 'session.created',
+    properties: { sessionID: id, info: { id, parentID } },
+  };
+}
+
+function childToolPart(sessionID: string, state: Record<string, unknown>): unknown {
+  return {
+    type: 'message.part.updated',
+    properties: {
+      sessionID,
+      part: { type: 'tool', tool: 'bash', callID: 'call-child', messageID: 'msg-child', state },
+    },
+  };
+}
+
+test('a subagent reports the work it does', async () => {
+  await withFakeOpenCode(
+    {
+      events: [
+        assistantMessage,
+        toolPart({ status: 'running', input: { description: 'Audit the server' } }),
+        childSession('ses-child', SESSION),
+        childToolPart('ses-child', { status: 'running', input: { command: 'rg -n router' } }),
+        idle,
+      ],
+    },
+    async (engine) => {
+      const events = await collect(engine.prompt('hi', base));
+      const activities = activitiesOf(events);
+
+      // A subagent runs in a session of its own, and a turn that ignored it saw
+      // nothing at all while the work happened: the browser showed a bare tool name
+      // and the silence was read as a hung engine.
+      assert.deepEqual(
+        activities.map((activity) => activity.target),
+        ['Audit the server', 'rg -n router'],
+      );
+    },
+  );
+});
+
+test("a subagent's narration is not the answer", async () => {
+  await withFakeOpenCode(
+    {
+      events: [
+        childSession('ses-child', SESSION),
+        {
+          type: 'message.updated',
+          properties: { sessionID: 'ses-child', info: { id: 'msg-child', role: 'assistant' } },
+        },
+        {
+          type: 'message.part.delta',
+          properties: {
+            sessionID: 'ses-child',
+            messageID: 'msg-child',
+            partID: 'prt-child',
+            field: 'text',
+            delta: 'thinking out loud',
+          },
+        },
+        assistantMessage,
+        delta('prt-1', 'the answer'),
+        idle,
+      ],
+    },
+    async (engine) => {
+      const events = await collect(engine.prompt('hi', base));
+
+      // The subagent answers the parent, which reports its own conclusion. Merging
+      // both would put the same work in the transcript twice.
+      assert.equal(textOf(events), 'the answer');
+    },
+  );
+});
+
+test('a subagent falling idle does not end the turn', async () => {
+  await withFakeOpenCode(
+    {
+      events: [
+        assistantMessage,
+        childSession('ses-child', SESSION),
+        idleFor('ses-child'),
+        delta('prt-1', 'after the subagent'),
+        idle,
+      ],
+    },
+    async (engine) => {
+      const events = await collect(engine.prompt('hi', base));
+
+      // The turn ends when the session that was prompted is done, not when the first
+      // subagent under it finishes.
+      assert.equal(textOf(events), 'after the subagent');
+    },
+  );
+});
+
+test("a subagent's ask is answered on its own session", async () => {
+  await withFakeOpenCode(
+    {
+      events: [
+        childSession('ses-child', SESSION),
+        {
+          type: 'permission.asked',
+          properties: {
+            sessionID: 'ses-child',
+            id: 'per-child',
+            permission: 'bash',
+            patterns: ['ls -la'],
+            metadata: { command: 'ls -la' },
+          },
+        },
+        idle,
+      ],
+    },
+    async (engine, fake) => {
+      await collect(engine.prompt('hi', { ...base, requestPermission: async () => 'once' }));
+
+      // Unanswered, the subagent waits forever and the turn produces nothing until it
+      // is abandoned as hung. The reply goes to the session that asked, because the
+      // prompted session does not know the id.
+      assert.deepEqual(fake.replies, [{ permissionId: 'per-child', response: 'once' }]);
+      assert.ok(
+        fake.requests.some((request) =>
+          request.path.startsWith('/session/ses-child/permissions/per-child'),
+        ),
+      );
+    },
+  );
+});
+
+test('a session started under another conversation stays foreign', async () => {
+  await withFakeOpenCode(
+    {
+      events: [
+        // Parented on a session this turn never owned, which is what a second
+        // conversation on the same server produces.
+        childSession('ses-stranger', 'ses-other'),
+        {
+          type: 'message.part.updated',
+          properties: {
+            sessionID: 'ses-stranger',
+            part: {
+              type: 'tool',
+              tool: 'bash',
+              callID: 'call-stranger',
+              messageID: 'msg-stranger',
+              state: { status: 'running', input: { command: 'not ours' } },
+            },
+          },
+        },
+        assistantMessage,
+        delta('prt-1', 'ours'),
+        idle,
+      ],
+    },
+    async (engine) => {
+      const events = await collect(engine.prompt('hi', base));
+
+      assert.deepEqual(activitiesOf(events), []);
+      assert.equal(textOf(events), 'ours');
+    },
+  );
+});
+
 test('a chosen model is split the way opencode wants it', async () => {
   await withFakeOpenCode({ events: [idle] }, async (engine, fake) => {
     await collect(engine.prompt('hi', { ...base, model: 'anthropic/claude-sonnet-4' }));

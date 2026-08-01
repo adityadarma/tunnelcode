@@ -29,8 +29,10 @@ export type { CreateConversationRequest, UpdateConversationRequest } from './con
 export {
   browserMessageSchema,
   cliMessageSchema,
+  ENGINE_TEXT_MAX_LENGTH,
   parseBrowserMessage,
   parseCliMessage,
+  PROMPT_MAX_LENGTH,
   serverToBrowserMessageSchema,
   serverToCliMessageSchema,
 } from './events.js';

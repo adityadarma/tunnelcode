@@ -15,14 +15,21 @@ const TARGET_KEYS = [
   'query',
   'url',
   'notebook_path',
+  'description',
 ] as const;
 
-/** Keeps a target short enough to read in a conversation line. */
-const TARGET_MAX_LENGTH = 120;
-
-function shorten(value: string): string {
-  const flat = value.replace(/\s+/g, ' ').trim();
-  return flat.length <= TARGET_MAX_LENGTH ? flat : `${flat.slice(0, TARGET_MAX_LENGTH - 1)}…`;
+/**
+ * Puts a target on one line, which is all this does to it.
+ *
+ * Deliberately not cut to a length. A target is read as the thing that happened,
+ * and a chained shell command ends in the part that matters, so a trailing ellipsis
+ * hides exactly what a person is looking for. It is also what a permission rule is
+ * judged against, and a rule granted for a cut command means something other than
+ * the command that ran. How much of it fits on screen is the surface's business,
+ * and the browser already scrolls a long one.
+ */
+function oneLine(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
 }
 
 /**
@@ -42,7 +49,7 @@ export function readActivityTarget(input: unknown): string | undefined {
     const value = record[key];
 
     if (typeof value === 'string' && value.trim() !== '') {
-      return shorten(value);
+      return oneLine(value);
     }
   }
 

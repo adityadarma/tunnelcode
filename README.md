@@ -58,8 +58,13 @@ Continue to print a QR code and an 8 letter pairing code.
 3. The terminal shows the same number. Press `y` to approve, `n` to reject.
 
 The approval number never travels in a URL, so a leaked link is not enough to
-pair. The pairing code is single use and only valid while the CLI is running. A
-session ends after one hour without conversation.
+pair. The pairing code is single use and only valid while the CLI is running.
+
+A session ends after one hour without conversation, enforced by the server as well as
+by the CLI exiting, so a session id that leaked stops working rather than waiting for
+the next time the CLI runs in that directory. A prompt, an answer, work the engine
+did, or a permission answered all count as conversation; a browser being open does
+not.
 
 ## CLI
 
@@ -73,7 +78,8 @@ tunnelcode
   Exit
 ```
 
-Setup holds four entries: Server URL, Device name, Engine, and Check environment.
+Setup holds Server URL, Device name, Engine, Never allow, Granted permissions, and
+Check environment. The last two are explained under Permissions.
 
 Each field is written as soon as it is answered, so leaving the menu never
 discards a change. Arrow keys and Enter move through the lists, Escape goes back.
@@ -95,6 +101,40 @@ engine.
 The Engine entry in Setup names what a new conversation starts on. A configured
 engine that is not installed is skipped in favour of one that is. See ADR-020.
 
+## Permissions
+
+The agent asks before it does something it will not do on its own. A tool call that
+needs approval appears in the browser above the composer, and the turn stops there
+until it is answered:
+
+- **Allow once** runs this call and nothing else.
+- **Always allow** runs it and records a rule, so calls like it are not asked about
+  again on this machine.
+- **Deny** refuses the call. The turn carries on and the answer explains what it
+  could not do.
+
+The card lists every operation the request covers, not only the first: one request
+from opencode can carry several commands, and agreeing to one of them would mean
+agreeing to all. A request nobody answers within 10 minutes is refused, never
+allowed, and a phone that locks mid-turn is shown the request again when it comes
+back.
+
+Always allow is recorded for the machine, not for the engine and not on the server.
+The rules live in `permissions.json` next to the config, owner-readable only, and
+they are withdrawn from the terminal rather than from the browser:
+
+- **Setup → Granted permissions** lists what was granted from a phone and can clear
+  it.
+- **Setup → Never allow** names rules this machine will never agree to, whatever the
+  browser answers. Written as `Bash` for a whole tool or `Bash(rm *)` for a pattern.
+  A request it matches is refused where it is raised and never sent to the browser.
+
+Never allow is a filter on what may be allowed, not a sandbox. It can only recognise
+what its patterns describe, and an engine that decides a call is safe on its own,
+such as Claude Code with a read-only shell command, never asks and so never reaches
+it. Judge a grant by what it would allow next time, not only by the call in front of
+you.
+
 ## Configuration
 
 Configuration is per user. There is one file:
@@ -109,6 +149,10 @@ Configuration is per user. There is one file:
   "engine": "opencode"
 }
 ```
+
+Two more files sit beside it, both written owner-readable only: `permissions.json`
+for what was granted from a browser, and `machine-id`, from which every device id on
+this machine is derived.
 
 A project directory is never read from. The working directory decides what the
 agent works in and derives its device id, but not how it is configured. See
@@ -137,6 +181,16 @@ Read by the server:
 | `DATABASE_FILE` | `data/tunnelcode.sqlite` | SQLite location                   |
 | `LOG_LEVEL`     | `info`                   | `fatal` through `trace`, `silent` |
 | `ENV_FILE`      | nearest `.env`           | Environment file to load          |
+| `TRUST_PROXY`   | unset                    | Whose forwarded client address to believe |
+
+`TRUST_PROXY` matters when the server sits behind a reverse proxy. Unset, the
+connection's own address is the only one trusted, and `X-Forwarded-For` is ignored:
+the server can be reached directly, and then that header is only what the client
+wrote, which would let one client look like a new one on every request and stop the
+pairing rate limit from counting. Set it to `true` when nothing but the proxy can
+reach the port, or name the proxy addresses to trust. Leaving it unset behind a proxy
+is safe but blunt: every client shares the proxy's address, so one of them can
+exhaust the limit for all of them.
 
 Changing `HOST` away from `127.0.0.1` exposes an agent that can read and write
 files on the paired machine. Only do that on a network you trust, and read the
@@ -179,6 +233,27 @@ There is no user authentication in this version. Anyone who can reach the server
 and complete pairing controls an agent that can read and write files on the
 paired machine. The server binds to loopback by default for that reason. Put it
 behind TLS and think about who can reach the port before exposing it.
+
+What the server does enforce, so it is clear what is and is not being relied on:
+
+- Pairing needs the 4 digit number approved in the terminal. The number never
+  travels in a URL, the code is single use, and the pair endpoint is rate limited.
+- A session id stops working an hour after the conversation went quiet, and a
+  restart does not give it another hour. Ending a session from the browser retires
+  it immediately while keeping the stored history.
+- A conversation id is not a credential. Reading, changing, or deleting a
+  conversation over HTTP needs the session in an `x-tunnelcode-session` header, and
+  the conversation has to belong to the same workspace.
+- A WebSocket handshake from a page that is not this server's own is refused before
+  the upgrade, because WebSocket is not subject to CORS.
+- Messages have a maximum length, and oversized frames are refused by the transport
+  rather than parsed.
+- The config, the granted permissions, and the machine id are written `0600` in a
+  `0700` directory, so another account on the machine cannot read what this one
+  agreed to.
+
+Permission prompts are a control over what the agent does with your files, not a
+boundary around it. See Permissions, and ADR-022 for the reasoning.
 
 ## Development
 

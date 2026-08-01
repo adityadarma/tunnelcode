@@ -1,6 +1,28 @@
 import type { Engine, EnginePermissionDecision, EnginePermissionRequest } from '@tunnelcode/engine';
+import { ENGINE_TEXT_MAX_LENGTH } from '@tunnelcode/protocol';
 import type { CliMessage } from '@tunnelcode/protocol';
 import type { PermissionPolicy } from './permission-policy.js';
+
+/**
+ * Shortens anything too long to send, keeping the beginning and saying what was
+ * dropped.
+ *
+ * A command can print more than the protocol accepts, and the protocol has to
+ * refuse an unbounded field because everything it carries is stored. Shortened
+ * here rather than refused there: a message the server rejects is a turn that
+ * never reports finishing, which leaves the browser waiting forever for an answer
+ * that already arrived. Saying how much was cut is what keeps it honest, so nobody
+ * reads a trimmed log as the whole of it. See ADR-030.
+ */
+function clamp(text: string): string {
+  if (text.length <= ENGINE_TEXT_MAX_LENGTH) {
+    return text;
+  }
+
+  const note = `\n\n[${String(text.length - ENGINE_TEXT_MAX_LENGTH)} more characters were not sent.]`;
+
+  return `${text.slice(0, ENGINE_TEXT_MAX_LENGTH - note.length)}${note}`;
+}
 
 /**
  * How long the engine may produce nothing at all before the turn is abandoned.
@@ -158,7 +180,7 @@ export class PromptRunner {
      * watched arrive survives a reload. Omitted when nothing was said, because an
      * empty answer is nothing to keep.
      */
-    const partial = (): { text?: string } => (answer === '' ? {} : { text: answer });
+    const partial = (): { text?: string } => (answer === '' ? {} : { text: clamp(answer) });
 
     const stopWaiting = (): void => {
       if (silenceTimer !== undefined) {
@@ -199,7 +221,7 @@ export class PromptRunner {
      */
     const reportRefusal = (tool: string, reason: string): void => {
       if (answer !== '') {
-        send({ type: 'turn_message', turnId, text: answer });
+        send({ type: 'turn_message', turnId, text: clamp(answer) });
         answer = '';
       }
       send({ type: 'turn_blocked', turnId, tool, reason });
@@ -308,14 +330,14 @@ export class PromptRunner {
         switch (event.type) {
           case 'delta':
             answer += event.text;
-            send({ type: 'delta', turnId, text: event.text });
+            send({ type: 'delta', turnId, text: clamp(event.text) });
             break;
           case 'log':
-            send({ type: 'turn_log', turnId, text: event.text });
+            send({ type: 'turn_log', turnId, text: clamp(event.text) });
             break;
           case 'activity':
             if (answer !== '') {
-              send({ type: 'turn_message', turnId, text: answer });
+              send({ type: 'turn_message', turnId, text: clamp(answer) });
               answer = '';
             }
             send({
@@ -331,12 +353,12 @@ export class PromptRunner {
               type: 'turn_activity_output',
               turnId,
               activityId: event.id,
-              output: event.output,
+              output: clamp(event.output),
             });
             break;
           case 'blocked':
             if (answer !== '') {
-              send({ type: 'turn_message', turnId, text: answer });
+              send({ type: 'turn_message', turnId, text: clamp(answer) });
               answer = '';
             }
             // The turn keeps running after a refusal, so this is reported rather
@@ -351,7 +373,7 @@ export class PromptRunner {
             break;
           case 'error':
             failed = true;
-            send({ type: 'turn_error', turnId, message: event.message, ...partial() });
+            send({ type: 'turn_error', turnId, message: clamp(event.message), ...partial() });
             break;
           case 'done':
             if (event.exitCode !== 0 && !failed) {
@@ -372,17 +394,19 @@ export class PromptRunner {
       if (wasAbandoned()) {
         send({ type: 'turn_error', turnId, message: abandonedMessage, ...partial() });
       } else if (!failed) {
-        send({ type: 'turn_done', turnId, text: answer });
+        send({ type: 'turn_done', turnId, text: clamp(answer) });
       }
     } catch (error) {
       send({
         type: 'turn_error',
         turnId,
-        message: wasAbandoned()
-          ? abandonedMessage
-          : error instanceof Error
-            ? error.message
-            : 'The engine failed.',
+        message: clamp(
+          wasAbandoned()
+            ? abandonedMessage
+            : error instanceof Error
+              ? error.message
+              : 'The engine failed.',
+        ),
         ...partial(),
       });
     } finally {

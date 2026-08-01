@@ -2,9 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   approvalNumberSchema,
+  ENGINE_TEXT_MAX_LENGTH,
   pairingCodeSchema,
   parseBrowserMessage,
   parseCliMessage,
+  PROMPT_MAX_LENGTH,
   serverToBrowserMessageSchema,
   serverToCliMessageSchema,
 } from '../dist/index.js';
@@ -273,4 +275,50 @@ test('a resolved ask reports how it ended, including nobody answering', () => {
 
     assert.equal(serverToBrowserMessageSchema.safeParse(message).success, true);
   }
+});
+
+test('a prompt has a length the browser cannot exceed', () => {
+  const prompt = (length: number): string =>
+    JSON.stringify({
+      type: 'prompt',
+      conversationId: '3f8c1e42-2a5b-4f7d-9c11-6b2d0e5a7c93',
+      text: 'x'.repeat(length),
+    });
+
+  // Everything a prompt carries is stored, and the browser socket is reachable
+  // before anything has been proved, so this is the one field an unknown sender
+  // controls. See ADR-030.
+  assert.notEqual(parseBrowserMessage(prompt(PROMPT_MAX_LENGTH)), undefined);
+  assert.equal(parseBrowserMessage(prompt(PROMPT_MAX_LENGTH + 1)), undefined);
+});
+
+test('engine output has a length the CLI cannot exceed', () => {
+  const output = (length: number): string =>
+    JSON.stringify({
+      type: 'turn_activity_output',
+      turnId: '9d4b7c10-8e3f-4a26-b5d8-1c0f9a2e6b74',
+      activityId: 'call-1',
+      output: 'x'.repeat(length),
+    });
+
+  assert.notEqual(parseCliMessage(output(ENGINE_TEXT_MAX_LENGTH)), undefined);
+  assert.equal(parseCliMessage(output(ENGINE_TEXT_MAX_LENGTH + 1)), undefined);
+});
+
+test('the engine may say more than a person may ask', () => {
+  // A command's output is not typed by anyone, so holding it to the prompt limit
+  // would truncate ordinary work.
+  assert.ok(ENGINE_TEXT_MAX_LENGTH > PROMPT_MAX_LENGTH);
+});
+
+test('an answer longer than the limit is not a message', () => {
+  const done = JSON.stringify({
+    type: 'turn_done',
+    turnId: '9d4b7c10-8e3f-4a26-b5d8-1c0f9a2e6b74',
+    text: 'x'.repeat(ENGINE_TEXT_MAX_LENGTH + 1),
+  });
+
+  // Which is why the CLI shortens before sending: a refused turn_done would leave
+  // the browser waiting forever for an answer that had already arrived.
+  assert.equal(parseCliMessage(done), undefined);
 });

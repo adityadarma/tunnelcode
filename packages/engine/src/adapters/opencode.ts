@@ -62,7 +62,7 @@ interface EventProperties {
   field?: unknown;
   delta?: unknown;
   part?: EventPart;
-  info?: { id?: unknown; role?: unknown };
+  info?: { id?: unknown; role?: unknown; parentID?: unknown };
   error?: unknown;
   /** Carried by a permission ask. */
   id?: unknown;
@@ -275,6 +275,18 @@ export class OpenCodeEngine implements Engine {
     const reader = body.getReader();
     const decoder = new TextDecoder();
 
+    /**
+     * Sessions this turn owns: the one that was prompted, and the ones opencode
+     * starts under it.
+     *
+     * A subagent runs in a child session of its own, so everything it does arrives
+     * under a session id this turn has never seen. Ignoring those ids leaves the
+     * turn blind to the work: its tool calls go unreported, and its permission asks
+     * are dropped, which strands the subagent waiting for an answer nobody was
+     * given the chance to make. See ADR-023.
+     */
+    const ownSessions = new Set([sessionId]);
+
     // Text is only the assistant's. The prompt comes back as a part of its own, and
     // emitting that would replay the user's own words as an answer.
     const assistantMessages = new Set<string>();
@@ -311,16 +323,39 @@ export class OpenCodeEngine implements Engine {
 
         const properties = event.properties ?? {};
 
-        // The server can host more than one session, so anything else is not this
-        // turn's business.
-        if (typeof properties.sessionID === 'string' && properties.sessionID !== sessionId) {
+        // Read before the session filter, which is what decides whether the new
+        // session belongs to this turn at all.
+        if (event.type === 'session.created') {
+          const info = properties.info;
+          const created = typeof info?.id === 'string' ? info.id : '';
+          const parent = typeof info?.parentID === 'string' ? info.parentID : '';
+
+          if (created !== '' && ownSessions.has(parent)) {
+            ownSessions.add(created);
+          }
           continue;
         }
+
+        const from = typeof properties.sessionID === 'string' ? properties.sessionID : undefined;
+
+        // The server can host more than one session, so anything outside the ones
+        // this turn owns is not its business.
+        if (from !== undefined && !ownSessions.has(from)) {
+          continue;
+        }
+
+        // Whether this came from the session that was prompted rather than from a
+        // subagent under it. What ends the turn, and what counts as the answer, is
+        // only ever the prompted session's.
+        const prompted = from === undefined || from === sessionId;
 
         if (event.type === 'message.updated') {
           const info = properties.info;
 
-          if (info?.role === 'assistant' && typeof info.id === 'string') {
+          // Only the prompted session's assistant messages, because a subagent's
+          // narration is not the answer to the prompt. Its tool calls are still
+          // reported: leaving those out is what made a working turn look hung.
+          if (prompted && info?.role === 'assistant' && typeof info.id === 'string') {
             assistantMessages.add(info.id);
           }
           continue;
@@ -371,14 +406,16 @@ export class OpenCodeEngine implements Engine {
             }
           }
 
+          // Answered on the session that asked, which is a subagent's own session
+          // when a subagent asked. The prompted session does not know the id.
           await call(
-            `/session/${encodeURIComponent(sessionId)}/permissions/${encodeURIComponent(ask.id)}`,
+            `/session/${encodeURIComponent(from ?? sessionId)}/permissions/${encodeURIComponent(ask.id)}`,
             { response: decision },
           );
           continue;
         }
 
-        if (event.type === 'session.error') {
+        if (prompted && event.type === 'session.error') {
           const error = properties.error;
           yield {
             type: 'error',
@@ -388,7 +425,9 @@ export class OpenCodeEngine implements Engine {
           return;
         }
 
-        if (event.type === 'session.idle') {
+        // A subagent falling idle only means its own session finished, and the turn
+        // it was started for is still working.
+        if (prompted && event.type === 'session.idle') {
           yield { type: 'done', exitCode: 0 };
           return;
         }

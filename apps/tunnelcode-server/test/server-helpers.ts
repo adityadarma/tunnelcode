@@ -8,6 +8,13 @@ import type { FastifyInstance } from 'fastify';
 export interface TestServer {
   baseUrl: string;
   app: FastifyInstance;
+  /** Exposed so a test can read a column the API has no reason to report. */
+  databaseFile: string;
+}
+
+/** Options a test needs to build a server that is not the default one. */
+export interface ServerOptions {
+  trustProxy?: boolean | string;
 }
 
 /**
@@ -16,9 +23,17 @@ export interface TestServer {
  * Port 0 lets the OS pick a free port, so tests never collide with a development
  * server or with each other. Logging is off because output would only add noise.
  */
-export async function withServer<T>(run: (server: TestServer) => Promise<T>): Promise<T> {
+export async function withServer<T>(
+  run: (server: TestServer) => Promise<T>,
+  options: ServerOptions = {},
+): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), 'tunnelcode-int-'));
-  const app = await buildApp({ logger: false, databaseFile: join(dir, 'test.sqlite') });
+  const databaseFile = join(dir, 'test.sqlite');
+  const app = await buildApp({
+    logger: false,
+    databaseFile,
+    ...(options.trustProxy === undefined ? {} : { trustProxy: options.trustProxy }),
+  });
 
   await app.listen({ host: '127.0.0.1', port: 0 });
 
@@ -26,7 +41,7 @@ export async function withServer<T>(run: (server: TestServer) => Promise<T>): Pr
   const port = typeof address === 'object' && address !== null ? address.port : 0;
 
   try {
-    return await run({ baseUrl: `http://127.0.0.1:${String(port)}`, app });
+    return await run({ baseUrl: `http://127.0.0.1:${String(port)}`, app, databaseFile });
   } finally {
     await app.close();
     await rm(dir, { recursive: true, force: true });
@@ -72,8 +87,13 @@ export interface Recorder<T> {
   close: () => void;
 }
 
-export async function connect<T>(baseUrl: string, path: string): Promise<Recorder<T>> {
-  const socket = new WebSocket(`${baseUrl.replace('http://', 'ws://')}${path}`);
+export async function connect<T>(
+  baseUrl: string,
+  path: string,
+  /** Headers to send with the handshake, for the checks that read them. */
+  headers: Record<string, string> = {},
+): Promise<Recorder<T>> {
+  const socket = new WebSocket(`${baseUrl.replace('http://', 'ws://')}${path}`, { headers });
   const events: T[] = [];
 
   socket.on('message', (raw: Buffer) => {
@@ -115,10 +135,12 @@ export async function postJson(
   baseUrl: string,
   path: string,
   body: unknown,
+  /** Extra headers, for the checks that read them rather than the body. */
+  headers: Record<string, string> = {},
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const response = await fetch(`${baseUrl}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(body),
   });
 

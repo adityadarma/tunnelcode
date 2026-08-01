@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { PermissionDecision, ServerToCliMessage } from '@tunnelcode/protocol';
 import type { ConversationRepository } from '../db/conversation-repository.js';
+import type { SessionRepository } from '../db/session-repository.js';
 import type { PendingPermission, PermissionService } from '../services/permission.js';
-import type { TurnService } from '../services/turn.js';
+import type { Turn, TurnService } from '../services/turn.js';
 import type { BrowserRegistry } from './browser-registry.js';
 import type { CliRegistry } from './registry.js';
 
@@ -21,6 +22,7 @@ export interface TurnRelayOptions {
   turns: TurnService;
   browsers: BrowserRegistry;
   conversationRepository: ConversationRepository;
+  sessionRepository: SessionRepository;
   permissions: PermissionService;
   /** Needed because an answer has to travel back to the waiting engine. */
   registry: CliRegistry;
@@ -35,6 +37,26 @@ export interface TurnRelayOptions {
  */
 export class TurnRelay {
   constructor(private readonly options: TurnRelayOptions) {}
+
+  /**
+   * The turn a report belongs to, counting the report as session activity.
+   *
+   * A turn that keeps reporting is the session being used, so the idle timeout
+   * must not run out underneath it. Deltas deliberately do not come through here:
+   * they arrive many times a second, and writing on each one would put token-rate
+   * traffic into the database that ADR-008 keeps out of it. Everything routed here
+   * already writes a row of its own, so the extra update stays proportional to
+   * what the turn did. See ADR-026.
+   */
+  private activeTurn(deviceId: string, turnId: string): Turn | undefined {
+    const turn = this.options.turns.findForDevice(turnId, deviceId);
+
+    if (turn !== undefined) {
+      this.options.sessionRepository.touch(turn.sessionId);
+    }
+
+    return turn;
+  }
 
   /** Forwards a fragment of the answer as it arrives. */
   delta(deviceId: string, turnId: string, text: string): void {
@@ -60,7 +82,7 @@ export class TurnRelay {
    * issued it, and it is not part of the transcript the user reads.
    */
   engineSession(deviceId: string, turnId: string, engineSessionId: string): void {
-    const turn = this.options.turns.findForDevice(turnId, deviceId);
+    const turn = this.activeTurn(deviceId, turnId);
 
     if (turn === undefined) {
       return;
@@ -89,7 +111,7 @@ export class TurnRelay {
     tool: string,
     target: string | undefined,
   ): void {
-    const turn = this.options.turns.findForDevice(turnId, deviceId);
+    const turn = this.activeTurn(deviceId, turnId);
 
     if (turn === undefined) {
       return;
@@ -121,7 +143,7 @@ export class TurnRelay {
    * without this the answer that follows has no visible cause.
    */
   blocked(deviceId: string, turnId: string, tool: string, reason: string): void {
-    const turn = this.options.turns.findForDevice(turnId, deviceId);
+    const turn = this.activeTurn(deviceId, turnId);
 
     if (turn === undefined) {
       return;
@@ -164,7 +186,7 @@ export class TurnRelay {
    * reports as a blocked activity of its own. See ADR-022.
    */
   permissionRequest(deviceId: string, turnId: string, ask: PermissionAsk): void {
-    const turn = this.options.turns.findForDevice(turnId, deviceId);
+    const turn = this.activeTurn(deviceId, turnId);
 
     if (turn === undefined) {
       return;
@@ -218,6 +240,11 @@ export class TurnRelay {
     if (this.options.permissions.resolve(pending.turnId, pending.id) === undefined) {
       return false;
     }
+
+    // Answering an ask is the user working, and it is the one moment in a turn
+    // that only they can move. A session must not go idle underneath the person
+    // deciding whether to allow something.
+    this.options.sessionRepository.touch(pending.sessionId);
 
     this.answerEngine(pending, decision);
     this.announceResolved(pending, decision);
@@ -294,7 +321,7 @@ export class TurnRelay {
    * Stores tool output when it arrives.
    */
   activityOutput(deviceId: string, turnId: string, activityId: string, output: string): void {
-    const turn = this.options.turns.findForDevice(turnId, deviceId);
+    const turn = this.activeTurn(deviceId, turnId);
 
     if (turn === undefined) {
       return;
@@ -316,7 +343,7 @@ export class TurnRelay {
    * Called when the engine pauses streaming text to execute a tool.
    */
   message(deviceId: string, turnId: string, text: string): void {
-    const turn = this.options.turns.findForDevice(turnId, deviceId);
+    const turn = this.activeTurn(deviceId, turnId);
 
     if (turn === undefined || text === '') {
       return;
@@ -343,7 +370,7 @@ export class TurnRelay {
    * An empty answer is not stored, since there is nothing to show later.
    */
   done(deviceId: string, turnId: string, text: string): void {
-    const turn = this.options.turns.findForDevice(turnId, deviceId);
+    const turn = this.activeTurn(deviceId, turnId);
 
     if (turn === undefined) {
       return;
@@ -387,7 +414,7 @@ export class TurnRelay {
    * reply. Nothing is stored when the turn failed before saying anything.
    */
   fail(deviceId: string, turnId: string, message: string, text?: string): void {
-    const turn = this.options.turns.findForDevice(turnId, deviceId);
+    const turn = this.activeTurn(deviceId, turnId);
 
     if (turn === undefined) {
       return;

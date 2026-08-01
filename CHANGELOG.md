@@ -6,12 +6,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The CLI and the server image share one version and ship from a single `v*` tag.
 
-## [Unreleased]
+## [0.3.2] - 2026-07-31
 
 The agent now asks before it does something it will not do on its own, and the answer
 comes from the phone. Until now a tool call that needed approval was simply refused,
 because nobody could be asked: the turn carried on and the reply explained what it
 could not do. A refusal is now a question.
+
+Asking made the rest of the release necessary. An answer that can allow a command has
+to be judged against the whole command, a session id that can carry that answer cannot
+be valid forever, and a socket that can deliver it cannot be opened by any page the
+user happens to visit. The Security section is the longest part of this release and
+closes holes that are open in 0.3.1; read Migration before upgrading, because a
+deployment behind a reverse proxy now has to say so.
+
+A turn that fans out into subagents also works now, and says what it is doing while it
+does it.
 
 ### Added
 
@@ -53,6 +63,32 @@ could not do. A refusal is now a question.
 
 ### Fixed
 
+- A turn that spawns opencode subagents no longer stalls until it is abandoned. A `task`
+  runs in a session of its own, and the permission request its first shell command
+  raised was dropped as another conversation's business, so the subagent waited for an
+  answer nobody was ever shown. The turn produced nothing and was cancelled five
+  minutes later as a hung engine. Sessions started under this turn now belong to it.
+- What a subagent is doing is now visible. Its tool calls appear as activities of the
+  turn that started it, instead of a lone `task` line that sat there for minutes with
+  nothing under it. Its own narration stays out of the answer, which is the parent's to
+  give.
+- A subagent finishing no longer ends the turn, and a subagent failing no longer fails
+  it. Both are its parent's to report.
+- A tool call whose only readable argument is a description now shows it, so a subagent
+  says what it was sent to do rather than showing as a bare tool name.
+- What a tool acted on is no longer cut off at 120 characters with an ellipsis. A chained
+  shell command ends in the part that matters, so the cut hid exactly what the reader
+  was looking for; the pill scrolls instead. It also fixes what a lasting grant records,
+  since a rule was being judged against a command that had lost its tail.
+- A workspace path in a target is dropped rather than replaced with `./`. `Read` on
+  `/home/me/project/src/a.ts` now reads `src/a.ts`. Every path in a transcript starts at
+  the workspace, so the marker was as much to read as the folder name behind it. The
+  workspace on its own is still a dot, because nothing is left of it to name.
+
+### Security
+
+**What a granted rule covers**
+
 - A grant made for one command no longer widens into a grant for the tool. A request
   that reported nothing about what it would do was treated as covered by any rule for
   that tool, so one tap meant for `Bash(curl *)` allowed every later Bash request that
@@ -60,29 +96,86 @@ could not do. A refusal is now a question.
 - A grant no longer carries a second command along. `Bash(curl *)` matched
   `curl example.com; rm -rf ~` as a single line, so the rm ran without being asked
   about. Every command in a line must now be covered, and a line containing `$( )`,
-  backticks, or `<( )` is never covered, because there is no honest way to read what it
-  would run.
-- Never allow now looks inside a chained line as well as at it, so `Bash(rm *)` catches
-  `echo hi; rm -rf ~`. Missing it there was worse than missing it on a grant, since
-  this is the limit that is supposed to win.
+  backticks, or `<( )` is never covered, because there is no honest way to read what
+  it would run.
+- Never allow now looks inside a chained line as well as at it, so `Bash(rm *)`
+  catches `echo hi; rm -rf ~`. Missing it there was worse than missing it on a grant,
+  since this is the limit that is supposed to win.
+
+**Who may reach a conversation**
+
+- A conversation id on its own no longer opens a transcript. `GET`, `PATCH`, and
+  `DELETE` on a conversation now require the session in an `x-tunnelcode-session`
+  header, and the conversation has to belong to it. A transcript carries the output of
+  every tool the agent ran, which is file contents and command results from the
+  machine. Entitlement is the workspace rather than the session row, so pairing again
+  still reopens the same history.
 - A session ended from the browser can no longer be used. `endedAt` was written and
   never read, so the same id could attach again afterwards and still answer a
   permission request on the machine. It is now absent everywhere a session is looked
   up, including over HTTP.
-- A conversation id on its own no longer opens a transcript. `GET`, `PATCH`, and
-  `DELETE` on a conversation now require the session to be presented in an
-  `x-tunnelcode-session` header, and the conversation has to belong to it. A transcript
-  carries the output of every tool the agent ran, which is file contents and command
-  results from the machine. Entitlement is the workspace rather than the session row,
-  so pairing again still reopens the same history.
+- A session now expires on the server after an hour without conversation activity.
+  The hour existed only in the CLI, where it ends the process, and the id is not held
+  by the process: the timestamp meant for this was never read, so a session id was
+  accepted forever. The device id is derived from the machine and the workspace, so a
+  leaked id kept matching every time the CLI was started in that directory again, and
+  a session that was logically dead could send prompts to the agent. Activity is a
+  prompt, an answer, engine work, or an ask being decided; a heartbeat, a browser
+  attaching, and individual deltas are not. It is stored on the session row, so a
+  restart does not hand a stale id another hour.
+
+**What may reach the server**
+
+- A WebSocket handshake carrying an `Origin` that is not a host the request was
+  addressed to is refused, before the upgrade, on both sockets. WebSocket is not
+  subject to CORS, so any page the user visited could open a socket to the agent and
+  start sending. Attaching still needed a session id it could not read, but this is
+  what stops it trying at all, and what stands in the way of the same trick through a
+  rebound DNS name. A handshake with no `Origin` is still accepted, which is what the
+  CLI sends.
+- Forwarded client addresses are no longer trusted by default. `trustProxy` was on
+  unconditionally so the rate limit could tell clients apart behind a proxy, but the
+  server can be reached directly, and then `X-Forwarded-For` is a string the client
+  writes: a new value per request was a new identity, and the limit of 10 pairing
+  attempts a minute stopped counting. Set `TRUST_PROXY=true` behind a proxy, or name
+  the proxy addresses to trust.
+- Messages now have a maximum length, and a frame larger than the longest legal
+  message is refused by the transport before it is parsed. Every text field was
+  unbounded and all of them are stored, while `ws` accepts 100 MiB a frame by default.
+  A prompt is capped at 100,000 characters and refused past it; engine output is
+  capped higher and shortened by the CLI before it is sent, saying how much was cut,
+  because a refused frame would be a turn the browser never sees finish. The composer
+  says a prompt is too long where it is typed, since the server can only answer
+  "invalid message".
+
+**What is left on disk**
+
+- The config, the granted permissions, and the machine id are written `0600` in a
+  directory created `0700`. They followed the umask before, which is usually
+  world-readable, and the grants file is the list of tool calls this machine will make
+  without asking anyone. The mode is corrected on every write, so a file left loose by
+  an earlier install is tightened rather than kept as it was born.
 
 ### Migration
 
-- No schema change and no migration to apply.
+Nothing to do by hand unless a proxy sits in front of the server. The rest applies
+itself.
+
+- `TRUST_PROXY` is new and unset by default. **A deployment behind a reverse proxy has
+  to set it**, or every client will share the proxy's address and one of them will
+  exhaust the rate limit for all of them. Set `true` when nothing but the proxy can
+  reach the port, or name the proxy addresses to trust.
+- `sessions` gains a nullable `last_activity_at`, applied by migration `0007`. A row
+  written before it has none and is read as active since it was created, so an upgrade
+  does not lock anyone out of their own history.
 - The config file gains an optional `permission.deny`, defaulted to empty, so a config
   written before this release loads unchanged and refuses nothing outright.
-- `permissions.json` is created next to the config the first time something is granted.
-  An unreadable one is treated as no grants, which only means being asked again.
+- `permissions.json` is created next to the config the first time something is
+  granted. An unreadable one is treated as no grants, which only means being asked
+  again.
+- The config, `permissions.json`, and `machine-id` are tightened to `0600` the next
+  time each is written. Files that are never written again keep the mode they have, so
+  `chmod 600` them if a shared machine is a concern.
 
 ## [0.3.1] - 2026-07-31
 
@@ -348,6 +441,8 @@ between the browser, a server, and a local agent.
   visible prompt rather than something the surrounding shell or a cloned repository
   can decide.
 
+[0.3.2]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.2
+[0.3.1]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.1
 [0.3.0]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.0
 [0.2.1]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.2.1
 [0.2.0]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.2.0

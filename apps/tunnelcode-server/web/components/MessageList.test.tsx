@@ -182,7 +182,7 @@ describe('MessageList', () => {
     expect(screen.getByText('TodoWrite')).toBeDefined();
   });
 
-  test('a workspace path in a target is shortened', () => {
+  test('a workspace path in a target is dropped, not marked', () => {
     const activities: Activity[] = [
       { id: 'a1', tool: 'Read', target: '/work/src/a.ts', createdAt: 1 },
     ];
@@ -191,7 +191,46 @@ describe('MessageList', () => {
       <MessageList messages={[]} activities={activities} streaming={undefined} workspace="/work" />,
     );
 
-    expect(screen.getByText('./src/a.ts')).toBeDefined();
+    // Every path in a transcript starts at the workspace, so what is left of one is
+    // already relative to it and needs no marker to say so.
+    expect(screen.getByText('src/a.ts')).toBeDefined();
+  });
+
+  test('a workspace path inside a command is dropped too', () => {
+    const activities: Activity[] = [
+      { id: 'a1', tool: 'Bash', target: 'ls /work/.github && cat /work/README.md', createdAt: 1 },
+    ];
+
+    render(
+      <MessageList messages={[]} activities={activities} streaming={undefined} workspace="/work" />,
+    );
+
+    // A command carries paths inside it rather than as the whole of it.
+    expect(screen.getByText('ls .github && cat README.md')).toBeDefined();
+  });
+
+  test('the workspace on its own stays a dot', () => {
+    const activities: Activity[] = [{ id: 'a1', tool: 'Bash', target: 'ls /work', createdAt: 1 }];
+
+    render(
+      <MessageList messages={[]} activities={activities} streaming={undefined} workspace="/work" />,
+    );
+
+    // Nothing is left of it to name, and an empty target would read as a call that
+    // acted on nothing.
+    expect(screen.getByText('ls .')).toBeDefined();
+  });
+
+  test('a long target is kept whole', () => {
+    const files = new Array(8).fill('.github/workflows/ci.yml').join(' ');
+    const target = `grep -n "uses:\\|permissions:\\|pull_request_target" ${files}`;
+    const activities: Activity[] = [{ id: 'a1', tool: 'Bash', target, createdAt: 1 }];
+
+    render(<MessageList messages={[]} activities={activities} streaming={undefined} />);
+
+    // A chained command ends in the part that matters, so cutting it hides what the
+    // reader came for. The pill scrolls instead.
+    expect(screen.getByText(target)).toBeDefined();
   });
 
   test('activities alone are enough to show a transcript', () => {

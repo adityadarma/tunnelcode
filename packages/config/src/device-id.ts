@@ -28,8 +28,11 @@ async function readOrCreateMachineId(): Promise<string> {
   }
 
   const created = randomUUID();
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${created}\n`, 'utf8');
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  // Owner-only like everything else in this directory. It grants nothing by
+  // itself, but every device id on this machine is derived from it, and there is
+  // no reason for another account to be able to work them out. See ADR-029.
+  await writeFile(path, `${created}\n`, { encoding: 'utf8', mode: 0o600 });
   return created;
 }
 

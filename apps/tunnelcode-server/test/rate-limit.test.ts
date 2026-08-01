@@ -65,3 +65,48 @@ test('the limit is per server, not per code', async () => {
     assert.equal(next.status, 429);
   });
 });
+
+test('a forwarded address cannot reset the limit', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const statuses: number[] = [];
+
+    // A header the client writes, claiming to be a different machine each time.
+    // Trusted unconditionally, this made the pairing limit stop counting, which is
+    // the one thing standing between a short code and free guessing. See ADR-027.
+    for (let i = 0; i < PAIR_MAX_ATTEMPTS + 3; i += 1) {
+      const response = await postJson(
+        baseUrl,
+        '/pair',
+        { code: 'ZZZZZZZZ' },
+        { 'x-forwarded-for': `203.0.113.${String(i + 1)}` },
+      );
+      statuses.push(response.status);
+    }
+
+    assert.equal(statuses.filter((status) => status !== 429).length, PAIR_MAX_ATTEMPTS);
+  });
+});
+
+test('a trusted proxy can still tell its clients apart', async () => {
+  await withServer(
+    async ({ baseUrl }) => {
+      const statuses: number[] = [];
+
+      for (let i = 0; i < PAIR_MAX_ATTEMPTS + 3; i += 1) {
+        const response = await postJson(
+          baseUrl,
+          '/pair',
+          { code: 'ZZZZZZZZ' },
+          { 'x-forwarded-for': `203.0.113.${String(i + 1)}` },
+        );
+        statuses.push(response.status);
+      }
+
+      // Opting in is what a real deployment behind a proxy needs: without it every
+      // client shares the proxy's address and one of them exhausts the budget for
+      // all of them.
+      assert.equal(statuses.filter((status) => status === 429).length, 0);
+    },
+    { trustProxy: true },
+  );
+});

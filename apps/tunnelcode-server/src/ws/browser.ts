@@ -189,6 +189,11 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
         return;
       }
 
+      // A question is the clearest activity there is, and it is what keeps the
+      // session from going idle. Recorded here rather than on attach, because a
+      // browser reconnecting is not somebody using the agent. See ADR-026.
+      sessionRepository.touch(sessionId);
+
       // The prompt is stored before the answer starts, so a refresh mid-answer
       // still shows what was asked.
       const stored = conversationRepository.appendMessage(

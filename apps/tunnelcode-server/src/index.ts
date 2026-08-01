@@ -43,7 +43,35 @@ function readDatabaseFile(): string {
   return raw === undefined || raw === '' ? DEFAULT_DATABASE_FILE : raw;
 }
 
-const app = await buildApp({ logger: true, databaseFile: readDatabaseFile() });
+/**
+ * Whether to believe a forwarded client address, and from whom.
+ *
+ * Unset means the connection's own address is the only one trusted. `true` trusts
+ * every hop, which is only honest when nothing can reach the server except the
+ * proxy; anything else is passed to Fastify as the addresses to trust, so a
+ * deployment can name its proxy instead. See ADR-027.
+ */
+function readTrustProxy(): boolean | string | undefined {
+  const raw = process.env['TRUST_PROXY'];
+
+  if (raw === undefined || raw === '') {
+    return undefined;
+  }
+
+  if (raw === 'true') {
+    return true;
+  }
+
+  return raw === 'false' ? undefined : raw;
+}
+
+const trustProxy = readTrustProxy();
+
+const app = await buildApp({
+  logger: true,
+  databaseFile: readDatabaseFile(),
+  ...(trustProxy === undefined ? {} : { trustProxy }),
+});
 
 // Reported so a .env that was expected but not found is visible, rather than the
 // server quietly listening somewhere else.

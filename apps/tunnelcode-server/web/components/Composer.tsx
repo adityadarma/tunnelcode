@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { PROMPT_MAX_LENGTH } from '@tunnelcode/protocol';
 
 interface ComposerProps {
   disabled: boolean;
@@ -19,10 +20,14 @@ export function Composer({
 }: ComposerProps): React.JSX.Element {
   const [text, setText] = useState('');
 
-  const send = (): void => {
-    const trimmed = text.trim();
+  const trimmed = text.trim();
+  const tooLong = trimmed.length > PROMPT_MAX_LENGTH;
 
-    if (trimmed === '' || disabled) {
+  const send = (): void => {
+    // Said here as well as enforced on the server, because the server can only
+    // answer a rejected frame with "invalid message", which tells the user nothing
+    // about the one thing they could fix. See ADR-030.
+    if (trimmed === '' || disabled || tooLong) {
       return;
     }
 
@@ -63,11 +68,22 @@ export function Composer({
         <div className="composer-toolbar">
           <div className="composer-toolbar-left">
             {modelPicker}
-            <span className="composer-hint">
-              Press <strong>Enter</strong> to send, <strong>Shift + Enter</strong> for newline
-            </span>
+            {tooLong ? (
+              <span className="composer-hint composer-hint-warning" role="alert">
+                Too long by {(trimmed.length - PROMPT_MAX_LENGTH).toLocaleString()} characters.
+                Shorten it or send it in parts.
+              </span>
+            ) : (
+              <span className="composer-hint">
+                Press <strong>Enter</strong> to send, <strong>Shift + Enter</strong> for newline
+              </span>
+            )}
           </div>
-          <button type="submit" className="btn-send" disabled={disabled || text.trim() === ''}>
+          <button
+            type="submit"
+            className="btn-send"
+            disabled={disabled || trimmed === '' || tooLong}
+          >
             <span>Send</span>
             <svg
               aria-hidden="true"

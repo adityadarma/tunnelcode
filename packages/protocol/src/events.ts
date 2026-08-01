@@ -13,6 +13,27 @@ import {
 } from './ids.js';
 
 /**
+ * Longest prompt the browser may send.
+ *
+ * Generous for a question, including a pasted file, and far below anything worth
+ * calling an upload. Enforced because everything a prompt carries is stored, and
+ * the sender is the least trusted party in the system: the socket is reachable
+ * before anything is proved, so an unbounded field is a way to write to the disk
+ * of a machine the sender has no claim to. See ADR-030.
+ */
+export const PROMPT_MAX_LENGTH = 100_000;
+
+/**
+ * Longest single piece of engine output the CLI may report.
+ *
+ * Larger than a prompt because a command's output is not written by a person, and
+ * smaller than what a command can actually produce, which is why the CLI shortens
+ * before it sends rather than letting a message be refused: a refused frame would
+ * be a turn that never finishes. See ADR-030.
+ */
+export const ENGINE_TEXT_MAX_LENGTH = 500_000;
+
+/**
  * What an ask carries, wherever it travels.
  *
  * Shared between the CLI and the browser halves of the trip so the two cannot
@@ -94,12 +115,12 @@ export const cliMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('delta'),
     turnId: turnIdSchema,
-    text: z.string(),
+    text: z.string().max(ENGINE_TEXT_MAX_LENGTH),
   }),
   z.object({
     type: z.literal('turn_log'),
     turnId: turnIdSchema,
-    text: z.string(),
+    text: z.string().max(ENGINE_TEXT_MAX_LENGTH),
   }),
   // Something the engine did rather than said: a file it wrote, a command it
   // ran. Reported separately from deltas so it never lands inside answer text.
@@ -142,24 +163,24 @@ export const cliMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('turn_message'),
     turnId: turnIdSchema,
-    text: z.string(),
+    text: z.string().max(ENGINE_TEXT_MAX_LENGTH),
   }),
   z.object({
     type: z.literal('turn_activity_output'),
     turnId: turnIdSchema,
     activityId: z.string().min(1),
-    output: z.string(),
+    output: z.string().max(ENGINE_TEXT_MAX_LENGTH),
   }),
   z.object({
     type: z.literal('turn_done'),
     turnId: turnIdSchema,
     // Full answer assembled by the CLI, stored as one message. See ADR-008.
-    text: z.string(),
+    text: z.string().max(ENGINE_TEXT_MAX_LENGTH),
   }),
   z.object({
     type: z.literal('turn_error'),
     turnId: turnIdSchema,
-    message: z.string(),
+    message: z.string().max(ENGINE_TEXT_MAX_LENGTH),
     /**
      * Whatever the engine had already said before it failed.
      *
@@ -167,7 +188,7 @@ export const cliMessageSchema = z.discriminatedUnion('type', [
      * Optional because a turn can fail before saying anything, and because an
      * older CLI does not send it at all.
      */
-    text: z.string().optional(),
+    text: z.string().max(ENGINE_TEXT_MAX_LENGTH).optional(),
   }),
 ]);
 
@@ -199,7 +220,7 @@ export const serverToCliMessageSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('error'),
-    message: z.string(),
+    message: z.string().max(ENGINE_TEXT_MAX_LENGTH),
     // True when retrying cannot help, so the CLI stops instead of reconnecting
     // and repeating the same failure. Optional so an older server still parses.
     fatal: z.boolean().optional(),
@@ -208,7 +229,7 @@ export const serverToCliMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('prompt'),
     turnId: turnIdSchema,
-    text: z.string().min(1),
+    text: z.string().min(1).max(PROMPT_MAX_LENGTH),
     /**
      * Engine to answer with, taken from the conversation rather than from
      * configuration. Always one of the engines this CLI registered, so it can
@@ -265,7 +286,7 @@ export const browserMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('prompt'),
     conversationId: conversationIdSchema,
-    text: z.string().min(1),
+    text: z.string().min(1).max(PROMPT_MAX_LENGTH),
   }),
   /**
    * What the user decided about an ask.
@@ -324,7 +345,7 @@ export const serverToBrowserMessageSchema = z.discriminatedUnion('type', [
     conversationId: conversationIdSchema,
     id: z.string().min(1),
     role: z.enum(['user', 'assistant']),
-    content: z.string(),
+    content: z.string().max(ENGINE_TEXT_MAX_LENGTH),
     /**
      * True when the answer was cut short by a failure. The browser marks it, so a
      * truncated reply is never mistaken for a finished one. Absent means complete.
@@ -336,7 +357,7 @@ export const serverToBrowserMessageSchema = z.discriminatedUnion('type', [
     type: z.literal('delta'),
     conversationId: conversationIdSchema,
     turnId: turnIdSchema,
-    text: z.string(),
+    text: z.string().max(ENGINE_TEXT_MAX_LENGTH),
   }),
   // Relayed as it happens and also stored, so a refresh still shows what the
   // engine did during an earlier turn.
@@ -361,7 +382,7 @@ export const serverToBrowserMessageSchema = z.discriminatedUnion('type', [
     conversationId: conversationIdSchema,
     turnId: turnIdSchema,
     activityId: z.string().min(1),
-    output: z.string(),
+    output: z.string().max(ENGINE_TEXT_MAX_LENGTH),
   }),
   /**
    * An ask waiting for an answer.
@@ -410,7 +431,7 @@ export const serverToBrowserMessageSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('error'),
-    message: z.string(),
+    message: z.string().max(ENGINE_TEXT_MAX_LENGTH),
   }),
 ]);
 

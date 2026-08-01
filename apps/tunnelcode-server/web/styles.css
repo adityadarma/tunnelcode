@@ -904,6 +904,12 @@
   @apply hidden md:inline-block text-xs text-[var(--muted)] select-none truncate;
 }
 
+/* Shown on every width, unlike the hint: a refusal the phone hides is a send
+   button that stops working for no visible reason. */
+.composer-hint-warning {
+  @apply inline-block text-[var(--danger)];
+}
+
 .model-picker {
   @apply flex items-center shrink min-w-0;
 }

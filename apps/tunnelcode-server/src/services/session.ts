@@ -17,12 +17,16 @@ export interface PendingRequest {
 
 /**
  * A session exists only after the user approved the pairing request.
+ *
+ * Carries no activity timestamp. One used to live here and nothing ever read it,
+ * which is how a session came to have no lifetime at all: the id that matters is
+ * the persisted one, and it outlives this map. Activity is recorded on the row.
+ * See ADR-026.
  */
 export interface Session {
   id: string;
   deviceId: string;
   createdAt: number;
-  lastActivityAt: number;
 }
 
 export type ApprovalOutcome =
@@ -83,12 +87,10 @@ export class SessionService {
       return { status: 'unknown' };
     }
 
-    const now = Date.now();
     const session: Session = {
       id: generateId(),
       deviceId,
-      createdAt: now,
-      lastActivityAt: now,
+      createdAt: Date.now(),
     };
 
     this.pending.delete(requestId);
@@ -129,17 +131,6 @@ export class SessionService {
 
   findSession(id: string): Session | undefined {
     return this.sessions.get(id);
-  }
-
-  /**
-   * Marks conversation activity. Only messages count, never heartbeats, so the
-   * idle timeout can actually be reached. See PROJECT.md (Pairing Code Lifetime).
-   */
-  touch(sessionId: string): void {
-    const session = this.sessions.get(sessionId);
-    if (session !== undefined) {
-      session.lastActivityAt = Date.now();
-    }
   }
 
   /** Drops everything owned by a device once its CLI disconnects. */
