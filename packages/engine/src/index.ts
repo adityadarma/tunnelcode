@@ -8,6 +8,7 @@ export {
   workspaceWriteRule,
 } from './adapters/antigravity-settings.js';
 export { ClaudeEngine } from './adapters/claude.js';
+export { KiroEngine } from './adapters/kiro.js';
 export { OpenCodeEngine } from './adapters/opencode.js';
 export { createEngine, discoverEngines, isEngineName, ENGINE_NAMES } from './registry.js';
 export type { AvailableEngine, EngineName } from './registry.js';
