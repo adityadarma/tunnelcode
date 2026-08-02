@@ -76,22 +76,65 @@ function globMatches(rule: PermissionRule, operation: string): boolean {
  * A shell command line is one operation as far as an engine reports it, but the
  * shell will happily run several commands from it. Matching the line as a whole
  * would let `curl example.com; rm -rf ~` pass a rule written for curl.
+ *
+ * One character class rather than a list of operators: `&&` and `||` need no
+ * alternative of their own, because splitting on either character leaves an empty
+ * segment that is dropped anyway. `&` on its own is what this used to miss, and it
+ * was the worst one to miss: it backgrounds the first command and runs the second,
+ * so a grant written for curl covered `curl example.com & rm -rf ~` in full, and a
+ * ceiling written for `rm *` did not recognise it at all. A lone carriage return
+ * starts a new command for the same reason a newline does.
  */
-const COMMAND_SEPARATORS = /(?:&&|\|\||[;|\n])/;
+const COMMAND_SEPARATORS = /[;|&\n\r]/;
 
 /**
  * Constructs that can hide a command inside another one.
  *
  * Unlike a separator these cannot be decomposed by splitting, so an operation
- * containing one is never treated as covered.
+ * containing one is never treated as covered. Both process substitutions are
+ * listed: `>(...)` runs a command just as `<(...)` does, and leaving it out let
+ * `curl example.com > >(rm -rf ~)` pass as one curl call.
  */
-const HIDDEN_COMMAND = /\$\(|`|<\(/;
+const HIDDEN_COMMAND = /\$\(|`|<\(|>\(/;
+
+/**
+ * Text that opens or closes a command written inside another one.
+ *
+ * Only the ceiling splits on these. A grant is refused outright for anything
+ * HIDDEN_COMMAND recognises, because there is no honest reading of the whole of
+ * what such a line would run. The ceiling has the opposite job: it has to see the
+ * `rm` in `echo hi > >(rm -rf ~)` in order to forbid it, and refusing to read the
+ * line would mean the rule the user set in their own terminal simply does not
+ * apply. Every substitution form ends in `(`, so the bracket alone reaches all of
+ * them, along with a subshell and a brace group.
+ */
+const NESTED_COMMAND_BOUNDARY = /[`(){}]/;
+
+function partsOf(text: string, separator: RegExp): string[] {
+  return text
+    .split(separator)
+    .map((part) => part.trim())
+    .filter((part) => part !== '');
+}
 
 function segmentsOf(operation: string): string[] {
-  return operation
-    .split(COMMAND_SEPARATORS)
-    .map((segment) => segment.trim())
-    .filter((segment) => segment !== '');
+  return partsOf(operation, COMMAND_SEPARATORS);
+}
+
+/**
+ * Every command an operation would run that a rule may be judged against,
+ * including the ones written inside another command.
+ *
+ * The segments are kept alongside their inner parts rather than replaced by them,
+ * so a rule describing the whole of `find . -exec rm {} \;` still reaches it.
+ */
+function reachableParts(operation: string): string[] {
+  const parts = segmentsOf(operation).flatMap((segment) => [
+    segment,
+    ...partsOf(segment, NESTED_COMMAND_BOUNDARY),
+  ]);
+
+  return [...new Set(parts)];
 }
 
 /**
@@ -107,7 +150,8 @@ function ruleReaches(rule: PermissionRule, operation: string): boolean {
   }
 
   return (
-    globMatches(rule, operation) || segmentsOf(operation).some((part) => globMatches(rule, part))
+    globMatches(rule, operation) ||
+    reachableParts(operation).some((part) => globMatches(rule, part))
   );
 }
 

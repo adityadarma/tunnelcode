@@ -17,6 +17,14 @@ export interface ServerOptions {
   trustProxy?: boolean | string;
   /** Shortened so a test can watch an unauthenticated socket be dropped. */
   authTimeoutMs?: number;
+  /**
+   * Turns logging on and collects every line into this array.
+   *
+   * Absent leaves logging off, which is the default because output would only add
+   * noise. Present is for the checks that assert on what a log does and does not
+   * carry.
+   */
+  logLines?: string[];
 }
 
 /**
@@ -31,9 +39,19 @@ export async function withServer<T>(
 ): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), 'tunnelcode-int-'));
   const databaseFile = join(dir, 'test.sqlite');
+  const lines = options.logLines;
   const app = await buildApp({
-    logger: false,
+    logger: lines !== undefined,
     databaseFile,
+    ...(lines === undefined
+      ? {}
+      : {
+          logStream: {
+            write: (line: string) => {
+              lines.push(line);
+            },
+          },
+        }),
     ...(options.trustProxy === undefined ? {} : { trustProxy: options.trustProxy }),
     ...(options.authTimeoutMs === undefined ? {} : { authTimeoutMs: options.authTimeoutMs }),
   });

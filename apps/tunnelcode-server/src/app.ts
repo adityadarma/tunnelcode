@@ -20,8 +20,9 @@ import { isAllowedOrigin } from './ws/origin.js';
 import { registerPairRoutes } from './routes/pair.js';
 import { registerConversationRoutes } from './routes/conversations.js';
 import { registerSessionRoutes } from './routes/sessions.js';
-import { registerWeb } from './web.js';
+import { registerWeb, webRoot } from './web.js';
 import { registerErrorHandler } from './errors.js';
+import { registerSecurityHeaders } from './security-headers.js';
 import { buildLoggerOptions } from './logging.js';
 import { createLifecycle } from './lifecycle.js';
 
@@ -56,6 +57,14 @@ export interface AppOptions {
    * the timeout itself.
    */
   authTimeoutMs?: number;
+  /**
+   * Where log lines go.
+   *
+   * Only set by tests, which have to read what was written to assert that a
+   * pairing code or a session id never reaches a log. Unset means stdout, which is
+   * what a deployment collects.
+   */
+  logStream?: { write: (line: string) => void };
 }
 
 /**
@@ -66,7 +75,12 @@ export interface AppOptions {
  */
 export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: options.logger ? buildLoggerOptions() : false,
+    logger: options.logger
+      ? {
+          ...buildLoggerOptions(),
+          ...(options.logStream === undefined ? {} : { stream: options.logStream }),
+        }
+      : false,
     // Off unless a deployment says otherwise. Behind a proxy the client address
     // has to come from a forwarded header for the rate limit to tell clients
     // apart, but the server can also be reached directly, and then that header is
@@ -76,6 +90,11 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   });
 
   registerErrorHandler(app);
+
+  // Before every route, so the headers reach the responses a plugin sends as well
+  // as the ones this app writes: a rate limited request and a static file are both
+  // answers a browser applies a policy to.
+  registerSecurityHeaders(app, { webRoot: webRoot() });
 
   const handle = openDb(options.databaseFile);
   runMigrations(handle.db);

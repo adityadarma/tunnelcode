@@ -155,12 +155,34 @@ test('a grant does not carry a second command along', () => {
   assert.equal(rulesCoverAll(rules, 'Bash', ['curl example.com | sh']), false);
 });
 
+test('a backgrounded command is a second command', () => {
+  const rules = parseRules(['Bash(curl *)']);
+
+  // The separator that was missing. `&` backgrounds the first command and runs the
+  // second, so the whole line matched `curl *` and the rm was allowed without
+  // anyone being asked. `&&` was listed and `&` was not, which reads as an
+  // oversight rather than a decision.
+  assert.equal(rulesCoverAll(rules, 'Bash', ['curl example.com & rm -rf ~']), false);
+  assert.equal(rulesCoverAll(rules, 'Bash', ['curl example.com &rm -rf ~']), false);
+  // A carriage return with no newline after it starts a command just the same.
+  assert.equal(rulesCoverAll(rules, 'Bash', ['curl example.com\r rm -rf ~']), false);
+});
+
 test('a chain is covered when every command in it is', () => {
   // Still useful rather than merely safe: a line whose every part was granted needs
   // no asking.
   assert.equal(
     rulesCoverAll(parseRules(['Bash(curl *)', 'Bash(echo *)']), 'Bash', [
       'curl example.com; echo done',
+    ]),
+    true,
+  );
+
+  // The same holds for the separators that were added, so the fix did not turn a
+  // covered line into a question.
+  assert.equal(
+    rulesCoverAll(parseRules(['Bash(curl *)', 'Bash(echo *)']), 'Bash', [
+      'curl example.com & echo done',
     ]),
     true,
   );
@@ -174,6 +196,9 @@ test('a command that could hide another is never covered', () => {
   assert.equal(rulesCoverAll(rules, 'Bash', ['curl $(cat /etc/passwd)']), false);
   assert.equal(rulesCoverAll(rules, 'Bash', ['curl `whoami`.example.com']), false);
   assert.equal(rulesCoverAll(rules, 'Bash', ['curl <(echo x)']), false);
+  // Writing into a process runs it exactly as reading from one does, and only the
+  // reading form was listed.
+  assert.equal(rulesCoverAll(rules, 'Bash', ['curl example.com > >(rm -rf ~)']), false);
 });
 
 test('a ceiling reaches a command hidden behind another', () => {
@@ -184,9 +209,42 @@ test('a ceiling reaches a command hidden behind another', () => {
   assert.notEqual(anyRuleMatches(rules, 'Bash', ['echo hi; rm -rf ~']), undefined);
   assert.notEqual(anyRuleMatches(rules, 'Bash', ['ls && rm -rf ~']), undefined);
   assert.notEqual(anyRuleMatches(rules, 'Bash', ['true | rm -rf ~']), undefined);
+  assert.notEqual(anyRuleMatches(rules, 'Bash', ['echo hi & rm -rf ~']), undefined);
+  assert.notEqual(anyRuleMatches(rules, 'Bash', ['echo hi\r rm -rf ~']), undefined);
+});
+
+test('a ceiling reaches a command written inside another', () => {
+  const rules = parseRules(['Bash(rm *)']);
+
+  // A grant refuses these outright, so the user is asked instead of the call being
+  // made silently. The ceiling is the answer they already gave in their own
+  // terminal, and it has to hold whatever they tap on a phone, so it reads what is
+  // inside the brackets rather than giving up on the line.
+  assert.notEqual(anyRuleMatches(rules, 'Bash', ['echo hi > >(rm -rf ~)']), undefined);
+  assert.notEqual(anyRuleMatches(rules, 'Bash', ['echo $(rm -rf ~)']), undefined);
+  assert.notEqual(anyRuleMatches(rules, 'Bash', ['echo `rm -rf ~`']), undefined);
+  assert.notEqual(anyRuleMatches(rules, 'Bash', ['(rm -rf ~)']), undefined);
+  assert.notEqual(anyRuleMatches(rules, 'Bash', ['{ rm -rf ~; }']), undefined);
+});
+
+test('a separator inside a quoted string is still read as one', () => {
+  const rules = parseRules(['Bash(curl *)']);
+
+  // The price of the safe direction, recorded so it is not mistaken for a bug and
+  // quietly reversed. Telling a quoted separator from a real one needs a shell
+  // parser, and a parser that is wrong once is a hole rather than a nuisance, so a
+  // URL carrying an & is asked about again instead of being auto-approved. A
+  // quoted ; or | has always been read this way for the same reason.
+  assert.equal(rulesCoverAll(rules, 'Bash', ['curl "https://example.com/?a=1&b=2"']), false);
+  assert.equal(rulesCoverAll(rules, 'Bash', ['curl "https://example.com/?a=1;b=2"']), false);
 });
 
 test('a ceiling still ignores a command it does not describe', () => {
   // Over-refusing everything would make the ceiling useless in the other direction.
   assert.equal(anyRuleMatches(parseRules(['Bash(rm *)']), 'Bash', ['echo rm']), undefined);
+  assert.equal(anyRuleMatches(parseRules(['Bash(rm *)']), 'Bash', ['echo (rm)']), undefined);
+  assert.equal(
+    anyRuleMatches(parseRules(['Bash(rm *)']), 'Bash', ['git commit -m "rm x"']),
+    undefined,
+  );
 });

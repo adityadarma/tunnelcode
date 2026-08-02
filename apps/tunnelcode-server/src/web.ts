@@ -11,13 +11,24 @@ import type { FastifyInstance } from 'fastify';
 const API_PREFIXES = ['/pair', '/sessions', '/conversations', '/health', '/ws'];
 
 /**
+ * Where the built web app lives.
+ *
+ * Exported because the content security policy has to hash the inline scripts of
+ * the document served from here, and a policy derived from anywhere else could
+ * disagree with what the browser actually receives.
+ */
+export function webRoot(): string {
+  return join(import.meta.dirname, 'web');
+}
+
+/**
  * Serves the built web app.
  *
  * Unknown GET paths fall back to index.html so client side routes survive a
  * refresh.
  */
 export async function registerWeb(app: FastifyInstance): Promise<void> {
-  const root = join(import.meta.dirname, 'web');
+  const root = webRoot();
 
   if (!existsSync(root)) {
     app.log.warn('Web app is not built, skipping static hosting.');
