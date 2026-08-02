@@ -100,6 +100,8 @@ function readAsk(event: ServerEvent): PermissionAsk | undefined {
 interface RunningTurn {
   conversationId: string;
   turnId: string;
+  /** The answer as it stood when this browser attached, if any had streamed. */
+  pendingText?: string;
 }
 
 /**
@@ -113,13 +115,21 @@ function readActiveTurn(value: unknown): RunningTurn | undefined {
     return undefined;
   }
 
-  const candidate = value as { conversationId?: unknown; turnId?: unknown };
+  const candidate = value as {
+    conversationId?: unknown;
+    turnId?: unknown;
+    pendingText?: unknown;
+  };
 
   if (typeof candidate.conversationId !== 'string' || typeof candidate.turnId !== 'string') {
     return undefined;
   }
 
-  return { conversationId: candidate.conversationId, turnId: candidate.turnId };
+  return {
+    conversationId: candidate.conversationId,
+    turnId: candidate.turnId,
+    ...(typeof candidate.pendingText === 'string' ? { pendingText: candidate.pendingText } : {}),
+  };
 }
 
 /**
@@ -203,6 +213,17 @@ export function ConversationPage({
   const runningTurnRef = useRef<RunningTurn | undefined>(undefined);
   runningTurnRef.current = runningTurn;
 
+  /**
+   * The answer so far for the turn that is running, kept outside React state.
+   *
+   * Deltas arrive many times a second, so this is the accumulator and `streaming`
+   * is only what is on screen. Holding it here is also what lets the text survive
+   * leaving the conversation and coming back to it: the effect below reads this
+   * instead of starting the answer over as empty. Cleared once the text is stored
+   * as a message, since the transcript carries it from then on.
+   */
+  const streamedRef = useRef('');
+
   const selectActiveId = useCallback((id: string | undefined): void => {
     setActiveId(id);
     if (id !== undefined) {
@@ -228,11 +249,20 @@ export function ConversationPage({
         // what stops a reconnect from leaving an answered ask on screen.
         setAsks([]);
 
-        // Deltas sent while the socket was gone are lost for good, so nothing can
-        // be shown until the turn finishes and stores its message. An empty
-        // string still marks the answer as pending.
+        // The server keeps the deltas it sent while this browser was away, so a
+        // reconnect mid-answer picks the text up where it stood rather than
+        // waiting on an empty indicator until the turn ends. Taken as the whole of
+        // the accumulator rather than added to it, because a reconnect starts from
+        // what the server has.
+        streamedRef.current = active?.pendingText ?? '';
+
+        // Shown only for the conversation on screen. The conversation may not be
+        // known yet on a first load, and the effect that opens one reads the text
+        // back from the accumulator.
         setStreaming(
-          active !== undefined && active.conversationId === activeIdRef.current ? '' : undefined,
+          active !== undefined && active.conversationId === activeIdRef.current
+            ? streamedRef.current
+            : undefined,
         );
         return;
       }
@@ -268,6 +298,10 @@ export function ConversationPage({
         );
 
         if (message.role === 'assistant') {
+          // The transcript carries this text now, so the accumulator lets go of it
+          // and the rest of the answer starts from empty.
+          streamedRef.current = '';
+
           // Not the end of the turn: the engine flushes its buffered text as a
           // stored message every time it pauses to run a tool, so this arrives
           // mid-answer too. Clearing the indicator here made it disappear for the
@@ -317,10 +351,17 @@ export function ConversationPage({
       }
 
       case 'delta': {
+        const text = String(event.text);
+
+        // Accumulated whichever conversation it belongs to, so opening that
+        // conversation shows the answer already in progress. Only one turn runs at
+        // a time, so there is one answer to accumulate.
+        streamedRef.current += text;
+
         if (event.conversationId !== activeIdRef.current) {
           return;
         }
-        const text = String(event.text);
+
         setStreaming((current) => (current ?? '') + text);
         return;
       }
@@ -361,6 +402,7 @@ export function ConversationPage({
       case 'turn_done':
         setRunningTurn(undefined);
         setStreaming(undefined);
+        streamedRef.current = '';
         // The server resolves the asks of an ending turn first, so this is only a
         // guard against a card outliving the turn it belongs to.
         setAsks((current) => current.filter((item) => item.turnId !== String(event.turnId)));
@@ -425,9 +467,14 @@ export function ConversationPage({
 
   useEffect(() => {
     // Switching conversations drops streaming text, unless the turn still running
-    // belongs to the one being opened: that answer is still on its way.
+    // belongs to the one being opened: that answer is still on its way, and the
+    // accumulator has what has arrived of it so far.
     const running = runningTurnRef.current;
-    setStreaming(running !== undefined && running.conversationId === activeId ? '' : undefined);
+    setStreaming(
+      running !== undefined && running.conversationId === activeId
+        ? streamedRef.current
+        : undefined,
+    );
 
     if (activeId === undefined) {
       setMessages([]);
@@ -508,6 +555,7 @@ export function ConversationPage({
 
     setError(undefined);
     setStreaming('');
+    streamedRef.current = '';
 
     const derivedTitle = deriveTitle(text);
     setConversations((current) =>

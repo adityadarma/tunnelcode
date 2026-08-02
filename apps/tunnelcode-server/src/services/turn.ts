@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { ENGINE_TEXT_MAX_LENGTH } from '@tunnelcode/protocol';
 
 /**
  * A prompt that was sent to a device and is waiting for its answer.
@@ -23,8 +24,30 @@ export interface Turn {
   startedAt: number;
 }
 
+/**
+ * A turn that was dropped without finishing, with whatever it had streamed.
+ *
+ * The text travels with it because the buffer dies with the turn, and a turn cut
+ * off mid-answer is exactly the case where what it had already said still has to
+ * be kept. See ADR-033.
+ */
+export interface AbandonedTurn extends Turn {
+  pendingText: string;
+}
+
 export class TurnService {
   private readonly byId = new Map<string, Turn>();
+
+  /**
+   * What the engine has streamed for a turn and not yet stored as a message.
+   *
+   * Held so a browser that attaches mid-answer can be given the answer as it
+   * stands. It is not persisted and it is not written per delta: this is the same
+   * text the turn will store once, when it flushes or finishes, which is what
+   * keeps writes proportional to messages rather than tokens. See ADR-008 and
+   * ADR-032.
+   */
+  private readonly streamed = new Map<string, string>();
 
   start(input: Omit<Turn, 'id' | 'startedAt'>): Turn {
     const turn: Turn = {
@@ -46,8 +69,48 @@ export class TurnService {
     return turn?.deviceId === deviceId ? turn : undefined;
   }
 
+  /**
+   * Keeps a fragment of the answer for as long as it is unstored.
+   *
+   * Ignored for a turn that is not running, so a late delta cannot leave text
+   * behind for a turn nobody will read it from. The oldest text is dropped once
+   * the buffer reaches the length a message is allowed to be, since what a
+   * returning browser is watching is the end of the answer, and the stored
+   * message is what carries the whole of it.
+   */
+  appendText(turnId: string, text: string): void {
+    if (!this.byId.has(turnId)) {
+      return;
+    }
+
+    const combined = (this.streamed.get(turnId) ?? '') + text;
+
+    this.streamed.set(
+      turnId,
+      combined.length > ENGINE_TEXT_MAX_LENGTH
+        ? combined.slice(combined.length - ENGINE_TEXT_MAX_LENGTH)
+        : combined,
+    );
+  }
+
+  /** The unstored part of an answer, empty when there is none. */
+  textOf(turnId: string): string {
+    return this.streamed.get(turnId) ?? '';
+  }
+
+  /**
+   * Forgets the buffered text, called once it has been stored as a message.
+   *
+   * Without this the flushed text would be sent again on the next attach and
+   * appear twice: once from the transcript and once as the answer in progress.
+   */
+  clearText(turnId: string): void {
+    this.streamed.delete(turnId);
+  }
+
   finish(turnId: string): void {
     this.byId.delete(turnId);
+    this.streamed.delete(turnId);
   }
 
   /**
@@ -83,13 +146,14 @@ export class TurnService {
   }
 
   /** Drops every turn owned by a device whose CLI disconnected. */
-  removeByDevice(deviceId: string): Turn[] {
-    const dropped: Turn[] = [];
+  removeByDevice(deviceId: string): AbandonedTurn[] {
+    const dropped: AbandonedTurn[] = [];
 
     for (const [id, turn] of this.byId) {
       if (turn.deviceId === deviceId) {
-        dropped.push(turn);
+        dropped.push({ ...turn, pendingText: this.textOf(id) });
         this.byId.delete(id);
+        this.streamed.delete(id);
       }
     }
 

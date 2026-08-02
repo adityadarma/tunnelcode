@@ -66,6 +66,12 @@ export class TurnRelay {
       return;
     }
 
+    // Kept in memory as well as forwarded, so a browser that arrives later in the
+    // same turn is given what it missed instead of an empty indicator. Nothing is
+    // written here: this is the text the turn stores once, when it flushes or
+    // finishes. See ADR-032.
+    this.options.turns.appendText(turnId, text);
+
     this.options.browsers.broadcast(turn.sessionId, {
       type: 'delta',
       conversationId: turn.conversationId,
@@ -355,6 +361,11 @@ export class TurnRelay {
       text,
     );
 
+    // The transcript carries this text now, so the buffer must let go of it: a
+    // reattaching browser would otherwise read it from both places and show it
+    // twice.
+    this.options.turns.clearText(turnId);
+
     this.options.browsers.broadcast(turn.sessionId, {
       type: 'message',
       conversationId: turn.conversationId,
@@ -406,12 +417,40 @@ export class TurnRelay {
   }
 
   /**
+   * Records that a turn ended without a complete answer, and forwards the record.
+   *
+   * Stored even when nothing was said, which is the part that used to be lost: the
+   * error naming the cause is broadcast and gone, so a browser that was away came
+   * back to a prompt with no reply and nothing to say why. An empty partial is what
+   * the transcript shows as an answer that stopped, and the surface already says so
+   * in words. See ADR-033.
+   */
+  private storeInterruption(conversationId: string, sessionId: string, text: string): void {
+    const stored = this.options.conversationRepository.appendMessage(
+      conversationId,
+      'assistant',
+      text,
+      true,
+    );
+
+    this.options.browsers.broadcast(sessionId, {
+      type: 'message',
+      conversationId,
+      id: stored.id,
+      role: 'assistant',
+      content: stored.content,
+      partial: true,
+      createdAt: stored.createdAt,
+    });
+  }
+
+  /**
    * Reports a failed turn, keeping whatever the engine had already said.
    *
    * The partial answer is stored rather than dropped: the user watched it arrive,
    * and a reload that made it disappear looked like the work never happened. It
    * is stored as a partial so the transcript does not present it as a complete
-   * reply. Nothing is stored when the turn failed before saying anything.
+   * reply.
    */
   fail(deviceId: string, turnId: string, message: string, text?: string): void {
     const turn = this.activeTurn(deviceId, turnId);
@@ -420,27 +459,15 @@ export class TurnRelay {
       return;
     }
 
+    // What the CLI reported is preferred, since it assembled the answer, and the
+    // streamed buffer stands in when a failure arrived without any text. Read
+    // before the turn is finished, because finishing forgets the buffer.
+    const said = text !== undefined && text !== '' ? text : this.options.turns.textOf(turnId);
+
     this.options.turns.finish(turnId);
     this.dropPermissions(this.options.permissions.removeByTurn(turnId));
 
-    if (text !== undefined && text !== '') {
-      const stored = this.options.conversationRepository.appendMessage(
-        turn.conversationId,
-        'assistant',
-        text,
-        true,
-      );
-
-      this.options.browsers.broadcast(turn.sessionId, {
-        type: 'message',
-        conversationId: turn.conversationId,
-        id: stored.id,
-        role: 'assistant',
-        content: stored.content,
-        partial: true,
-        createdAt: stored.createdAt,
-      });
-    }
+    this.storeInterruption(turn.conversationId, turn.sessionId, said);
 
     this.options.browsers.broadcast(turn.sessionId, { type: 'error', message });
     this.options.browsers.broadcast(turn.sessionId, {
@@ -458,6 +485,12 @@ export class TurnRelay {
     this.dropPermissions(this.options.permissions.removeByDevice(deviceId));
 
     for (const turn of this.options.turns.removeByDevice(deviceId)) {
+      // The machine that was answering is gone, so nothing else will ever report
+      // this turn. Written to the transcript for that reason: the error below is
+      // seen only by a browser that happens to be attached, and this is the one
+      // interruption nobody can ask about afterwards. See ADR-033.
+      this.storeInterruption(turn.conversationId, turn.sessionId, turn.pendingText);
+
       this.options.browsers.broadcast(turn.sessionId, {
         type: 'error',
         message: 'The device went offline before the answer finished.',

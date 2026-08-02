@@ -1183,3 +1183,91 @@ working directory and need nothing said, which is exactly why this is easy to mi
 the engine looks installed, answers questions, and only fails on the one thing it is
 for. Naming the workspace also settles permissions, since reads and writes inside it
 are allowed without asking, and asking is not something headless mode can do.
+
+---
+
+# ADR-032
+
+## A Reattaching Browser Is Given The Answer So Far
+
+Amends ADR-008.
+
+Decision
+
+The server keeps the text of the turn it is streaming, in memory, alongside the turn
+itself. It is sent to a browser when it attaches, as part of the turn that is
+running.
+
+The buffer is emptied the moment that text becomes a stored message, whether the
+turn flushed it to run a tool or finished, and it goes away with the turn.
+
+Nothing else changes about deltas: they are still forwarded and still written
+nowhere.
+
+Reason
+
+Leaving and coming back lost the part of an answer that arrived while nobody was
+watching. Everything else already survived it, because it was stored: the prompt, the
+activities, the flushed messages, the finished reply. Only the answer in flight did
+not, so a browser that came back mid-turn knew an answer was running and had nothing
+to show for it until the turn ended. On a long turn that is minutes of a blank
+indicator, which reads as a stalled agent rather than a working one.
+
+Held in memory rather than persisted because the text is already going to be stored
+once, and storing it per delta is the token-rate writing ADR-008 exists to avoid. An
+answer in flight also cannot outlive the turn, and a turn cannot outlive the CLI
+connection that owns it, so there is nothing here a restart could bring back.
+
+Sent with the attach rather than as replayed deltas because a browser that has just
+attached does not yet know which conversation it is showing: its transcript is still
+loading, and a delta for an unknown conversation is dropped. The attach is the one
+message it is certain to read.
+
+Cleared on flush for the same reason it is sent at all. The flushed text is in the
+transcript from then on, and a buffer that still held it would put it on screen
+twice: once as a stored message and once as the answer in progress.
+
+The buffer stops growing at the length a message is allowed to be, dropping the
+oldest text rather than the newest. What a returning browser is watching is the end
+of the answer, and the whole of it arrives as a stored message when the turn ends.
+
+---
+
+# ADR-033
+
+## A Turn That Never Finished Says So In The Transcript
+
+Amends ADR-032.
+
+Decision
+
+A turn that ends without a complete answer stores a partial message, and it is
+stored even when nothing was said. What it carries is whatever the engine had
+already produced: the text the CLI reported, or the streamed buffer when the CLI
+never got to report anything.
+
+The reason the turn ended is still only broadcast. It is not written down.
+
+Reason
+
+Everything about an interrupted turn was transient. A device that went offline
+mid-answer dropped what it had streamed and announced the cause to whichever browser
+happened to be attached, so coming back later showed a prompt with nothing after it.
+That is the one reading a user cannot correct by asking again, because it looks like
+the prompt was never sent rather than like an answer that stopped.
+
+Stored empty for the same reason. An interruption before the engine said anything is
+still the fact that has to survive, and the surface already states it in words next
+to the partial flag, so an empty record is a sentence on screen rather than a blank
+bubble. The alternative was writing the reason into the message content, which would
+put server prose where engine speech goes and make the two impossible to tell apart.
+
+The reason itself stays transient because it is about the machine rather than about
+the conversation: "the engine gave up" and "the device went offline" both describe a
+turn that stopped, which is what the flag says, and neither is worth a column on a
+shipped table. A user who needs to know which one it was is looking at their own
+terminal.
+
+Failures are treated the same way as an abandoned device, deliberately. Both end a
+turn that will never be answered, and having one leave a record while the other left
+nothing is the sort of difference nobody can predict from the outside.

@@ -80,12 +80,25 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
       // idle composer and have its next prompt refused.
       const active = turns.findActiveForSession(detail.id);
 
+      // What the engine has said so far and not yet stored. Sent with the turn so
+      // a browser that was away while it streamed shows the answer in progress
+      // rather than waiting on a blank indicator until the turn ends. See ADR-032.
+      const pendingText = active === undefined ? '' : turns.textOf(active.id);
+
       reply({
         type: 'attached',
         sessionId: detail.id,
         online: registry.isConnected(detail.deviceId),
         ...(active !== undefined
-          ? { activeTurn: { conversationId: active.conversationId, turnId: active.id } }
+          ? {
+              activeTurn: {
+                conversationId: active.conversationId,
+                turnId: active.id,
+                // Left out when nothing has streamed yet, so an answer that has
+                // not started is not described as an empty one.
+                ...(pendingText !== '' ? { pendingText } : {}),
+              },
+            }
           : {}),
       });
 

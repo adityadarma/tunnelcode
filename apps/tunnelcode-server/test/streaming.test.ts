@@ -39,7 +39,7 @@ interface BrowserEvent {
   target?: string;
   blocked?: boolean;
   reason?: string;
-  activeTurn?: { conversationId: string; turnId: string };
+  activeTurn?: { conversationId: string; turnId: string; pendingText?: string };
 }
 
 const register = {
@@ -242,7 +242,7 @@ test('an empty answer is not stored', async () => {
   });
 });
 
-test('a failure that produced nothing stores no answer', async () => {
+test('a failure that produced nothing is still recorded as an answer that stopped', async () => {
   await withServer(async ({ baseUrl }) => {
     const { cli, sessionId, conversationId } = await pair(baseUrl);
 
@@ -262,13 +262,21 @@ test('a failure that produced nothing stores no answer', async () => {
     await browser.waitFor((events) => events.some((event) => event.type === 'error'));
 
     const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
-    const messages = stored.body['messages'] as { role: string }[];
+    const messages = stored.body['messages'] as {
+      role: string;
+      content: string;
+      partial: boolean;
+    }[];
 
-    // An empty answer is nothing to keep, so only the question remains.
+    // The error naming the cause is only broadcast, so a prompt left on its own
+    // would read as a message that never sent rather than an answer that stopped.
+    // The record is empty and flagged, which is what the surface states in words.
     assert.deepEqual(
       messages.map((message) => message.role),
-      ['user'],
+      ['user', 'assistant'],
     );
+    assert.equal(messages[1]?.content, '');
+    assert.equal(messages[1]?.partial, true);
 
     browser.close();
     cli.close();
@@ -321,6 +329,81 @@ test('a partial answer survives the failure that cut it short', async () => {
 
     browser.close();
     cli.close();
+  });
+});
+
+test('a device that goes offline mid-answer leaves what it said in the transcript', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const { cli, sessionId, conversationId } = await pair(baseUrl);
+
+    const browser = await connect<BrowserEvent>(baseUrl, '/ws/browser');
+    browser.send({ type: 'attach', sessionId });
+    await browser.waitFor((events) => events.some((event) => event.type === 'attached'));
+
+    browser.send({ type: 'prompt', conversationId, text: 'machine will die' });
+    await cli.waitFor((events) => events.some((event) => event.type === 'prompt'));
+
+    const turnId = String(cli.events.find((event) => event.type === 'prompt')?.turnId);
+    cli.send({ type: 'delta', turnId, text: 'I got this far' });
+    await browser.waitFor((events) => events.some((event) => event.type === 'delta'));
+
+    // Nobody is watching when the machine goes, which is the case that used to
+    // lose the text: the CLI never reports it, and the error naming the cause is
+    // broadcast to a browser that is not there.
+    browser.close();
+    cli.close();
+
+    await waitUntil(async () => {
+      const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+      return (stored.body['messages'] as unknown[]).length === 2;
+    }, 'the abandoned turn to be recorded');
+
+    const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+    const messages = stored.body['messages'] as {
+      role: string;
+      content: string;
+      partial: boolean;
+    }[];
+
+    assert.equal(messages[1]?.content, 'I got this far');
+
+    // Marked as cut short, because the machine that was answering is gone and this
+    // reply is never going to be finished.
+    assert.equal(messages[1]?.partial, true);
+  });
+});
+
+test('a turn cut off before it said anything still leaves a record', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const { cli, sessionId, conversationId } = await pair(baseUrl);
+
+    const browser = await connect<BrowserEvent>(baseUrl, '/ws/browser');
+    browser.send({ type: 'attach', sessionId });
+    await browser.waitFor((events) => events.some((event) => event.type === 'attached'));
+
+    browser.send({ type: 'prompt', conversationId, text: 'dies immediately' });
+    await cli.waitFor((events) => events.some((event) => event.type === 'prompt'));
+
+    browser.close();
+    cli.close();
+
+    await waitUntil(async () => {
+      const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+      return (stored.body['messages'] as unknown[]).length === 2;
+    }, 'the cut off turn to be recorded');
+
+    const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+    const messages = stored.body['messages'] as {
+      role: string;
+      content: string;
+      partial: boolean;
+    }[];
+
+    // Empty, and stored anyway. A prompt with nothing after it reads as a message
+    // that never sent; the record is what says the answer was cut off instead.
+    assert.equal(messages[1]?.role, 'assistant');
+    assert.equal(messages[1]?.content, '');
+    assert.equal(messages[1]?.partial, true);
   });
 });
 
@@ -1078,6 +1161,86 @@ test('attaching mid-answer reports the turn still running', async () => {
     // Without this the browser would show an idle composer and have its next
     // prompt refused with no way to know why.
     assert.deepEqual(attached?.activeTurn, { conversationId, turnId });
+
+    reopened.close();
+    cli.close();
+  });
+});
+
+test('attaching mid-answer is given the text already streamed', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const { cli, sessionId, conversationId } = await pair(baseUrl);
+
+    const browser = await connect<BrowserEvent>(baseUrl, '/ws/browser');
+    browser.send({ type: 'attach', sessionId });
+    await browser.waitFor((events) => events.some((event) => event.type === 'attached'));
+
+    browser.send({ type: 'prompt', conversationId, text: 'takes a while' });
+    await cli.waitFor((events) => events.some((event) => event.type === 'prompt'));
+
+    const turnId = String(cli.events.find((event) => event.type === 'prompt')?.turnId);
+
+    cli.send({ type: 'delta', turnId, text: 'half an ' });
+    cli.send({ type: 'delta', turnId, text: 'answer' });
+    await browser.waitFor(
+      (events) => events.filter((event) => event.type === 'delta').length === 2,
+    );
+
+    // The phone locks, or the tab is closed, while the answer is being written.
+    browser.close();
+
+    const reopened = await connect<BrowserEvent>(baseUrl, '/ws/browser');
+    reopened.send({ type: 'attach', sessionId });
+    await reopened.waitFor((events) => events.some((event) => event.type === 'attached'));
+
+    // Coming back must not lose what was already said. Without this the browser
+    // knew a turn was running but had nothing to show for it until it ended.
+    assert.deepEqual(reopened.events.find((event) => event.type === 'attached')?.activeTurn, {
+      conversationId,
+      turnId,
+      pendingText: 'half an answer',
+    });
+
+    reopened.close();
+    cli.close();
+  });
+});
+
+test('text already flushed as a message is not replayed on attach', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const { cli, sessionId, conversationId } = await pair(baseUrl);
+
+    const browser = await connect<BrowserEvent>(baseUrl, '/ws/browser');
+    browser.send({ type: 'attach', sessionId });
+    await browser.waitFor((events) => events.some((event) => event.type === 'attached'));
+
+    browser.send({ type: 'prompt', conversationId, text: 'runs a tool' });
+    await cli.waitFor((events) => events.some((event) => event.type === 'prompt'));
+
+    const turnId = String(cli.events.find((event) => event.type === 'prompt')?.turnId);
+
+    // The engine says something, stores it because it is about to run a tool, then
+    // carries on streaming.
+    cli.send({ type: 'delta', turnId, text: 'thinking' });
+    cli.send({ type: 'turn_message', turnId, text: 'thinking' });
+    cli.send({ type: 'delta', turnId, text: 'and more' });
+    await browser.waitFor(
+      (events) => events.filter((event) => event.type === 'delta').length === 2,
+    );
+
+    browser.close();
+
+    const reopened = await connect<BrowserEvent>(baseUrl, '/ws/browser');
+    reopened.send({ type: 'attach', sessionId });
+    await reopened.waitFor((events) => events.some((event) => event.type === 'attached'));
+
+    // Only what the transcript does not already hold. The flushed part arrives
+    // from the transcript, and sending it here as well would show it twice.
+    assert.deepEqual(reopened.events.find((event) => event.type === 'attached')?.activeTurn, {
+      conversationId,
+      turnId,
+      pendingText: 'and more',
+    });
 
     reopened.close();
     cli.close();

@@ -332,6 +332,17 @@ export const serverToBrowserMessageSchema = z.discriminatedUnion('type', [
       .object({
         conversationId: conversationIdSchema,
         turnId: turnIdSchema,
+        /**
+         * The answer so far, when the engine has already streamed part of it.
+         *
+         * Deltas are forwarded and forgotten, so a browser that was away while
+         * they arrived has nothing to show and used to wait on a blank indicator
+         * until the turn ended. Sent here rather than as replayed deltas, because
+         * a browser that has just attached does not yet know which conversation
+         * it is showing and would drop them. Absent when nothing has been
+         * streamed yet. See ADR-032.
+         */
+        pendingText: z.string().max(ENGINE_TEXT_MAX_LENGTH).optional(),
       })
       .optional(),
   }),

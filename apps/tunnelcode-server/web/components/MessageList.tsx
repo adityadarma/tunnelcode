@@ -516,7 +516,11 @@ export function MessageList({
               {turn.items.map((item) =>
                 item.kind === 'text' ? (
                   <div key={item.id} className="message-text-block">
-                    {renderFormattedContent(item.content)}
+                    {/* A turn that was cut off before it said anything still
+                        leaves a record, so the content can be empty. Rendering it
+                        would add a blank paragraph above the notice that is the
+                        whole point of the record. */}
+                    {item.content !== '' && renderFormattedContent(item.content)}
                     {item.partial === true && (
                       <p className="partial-notice muted">Answer stopped before it finished.</p>
                     )}
