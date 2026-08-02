@@ -670,6 +670,9 @@ export function ConversationPage({
           conversations={conversations}
           activeId={activeId}
           engines={session?.engines ?? []}
+          // The device default is only a starting point for the picker now that an
+          // engine belongs to a conversation. See ADR-020.
+          defaultEngine={session?.engine}
           // The engine list describes what the running CLI can serve, so there is
           // nothing to create against while the device is offline.
           createDisabled={offline}

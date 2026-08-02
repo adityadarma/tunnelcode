@@ -4,6 +4,11 @@ import type { DeviceEngine } from '../api.js';
 
 interface NewConversationButtonProps {
   engines: DeviceEngine[];
+  /**
+   * Engine the paired device runs by default, preselected when the dialog opens.
+   * Ignored when the device no longer reports it among its engines.
+   */
+  defaultEngine?: string | undefined;
   disabled: boolean;
   onCreate: (engine: string | undefined, model: string | undefined) => void;
   onOpenModal?: (() => void) | undefined;
@@ -12,11 +17,15 @@ interface NewConversationButtonProps {
 /**
  * Starts a conversation with a Modal dialog to choose Engine and Model.
  *
+ * The device default is the preselected engine, since that is the one the user
+ * configured for this machine and the sidebar no longer states it anywhere else.
+ *
  * Rendered via createPortal to document.body so the modal is centered over the entire
  * viewport and free from CSS transform constraints of the mobile sidebar drawer.
  */
 export function NewConversationButton({
   engines,
+  defaultEngine,
   disabled,
   onCreate,
   onOpenModal,
@@ -27,13 +36,13 @@ export function NewConversationButton({
 
   useEffect(() => {
     if (open && engines.length > 0) {
-      const initialEngine = engines[0];
+      const initialEngine = engines.find((engine) => engine.name === defaultEngine) ?? engines[0];
       if (initialEngine !== undefined) {
         setSelectedEngine(initialEngine.name);
         setSelectedModel(initialEngine.models[0] ?? '');
       }
     }
-  }, [open, engines]);
+  }, [open, engines, defaultEngine]);
 
   const currentEngineObj = engines.find((e) => e.name === selectedEngine) ?? engines[0];
   const availableModels = currentEngineObj?.models ?? [];

@@ -6,6 +6,8 @@ interface ConversationListProps {
   activeId: string | undefined;
   /** Engines the paired machine can run, offered when starting a conversation. */
   engines: DeviceEngine[];
+  /** The machine's default engine, preselected when starting a conversation. */
+  defaultEngine?: string | undefined;
   /** True while the device is offline, when a new conversation cannot be created. */
   createDisabled: boolean;
   onSelect: (id: string) => void;
@@ -32,6 +34,7 @@ export function ConversationList({
   conversations,
   activeId,
   engines,
+  defaultEngine,
   createDisabled,
   onSelect,
   onCreate,
@@ -63,6 +66,7 @@ export function ConversationList({
         <div className="sidebar-head-actions">
           <NewConversationButton
             engines={engines}
+            defaultEngine={defaultEngine}
             disabled={createDisabled}
             onCreate={onCreate}
             onOpenModal={onOpenModal}

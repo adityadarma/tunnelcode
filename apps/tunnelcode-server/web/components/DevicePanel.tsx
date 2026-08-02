@@ -11,6 +11,10 @@ interface DevicePanelProps {
  * Offline is shown plainly because it explains why sending is blocked: the
  * agent runs on the paired machine, so nothing can be asked while its CLI is
  * stopped.
+ *
+ * The device's engine is not shown: an engine belongs to a conversation now, so
+ * each row in the list names its own and the device default only matters as the
+ * preselected option when starting a new one. See ADR-020.
  */
 export function DevicePanel({ session, onDisconnect }: DevicePanelProps): React.JSX.Element {
   return (
@@ -35,10 +39,6 @@ export function DevicePanel({ session, onDisconnect }: DevicePanelProps): React.
           <dd className="mono" title={session.workspace}>
             {session.workspace}
           </dd>
-        </div>
-        <div>
-          <dt>Engine</dt>
-          <dd>{session.engine}</dd>
         </div>
       </dl>
 
