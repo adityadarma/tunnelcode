@@ -91,6 +91,7 @@ Run OpenCode through an adapter.
 - [x] OpenCode adapter
 - [x] Claude Code adapter
 - [x] Antigravity CLI adapter
+- [x] Kiro CLI adapter
 - [x] Engine registry
 - [x] Spawn process
 - [x] Stream stdout
@@ -105,6 +106,10 @@ Claude Code can be started from the CLI.
 Antigravity CLI can be started from the CLI. It answers, reports its tool calls, and
 continues an earlier conversation. It raises no permission ask, and a call its policy
 refuses is reported as blocked rather than run. See ADR-031.
+
+Kiro CLI can be started from the CLI. It answers, reports its tool calls, continues an
+earlier conversation, and raises a permission ask that reaches the browser. See
+ADR-034.
 
 ---
 
@@ -552,3 +557,48 @@ Nothing this machine writes is readable by another account on it.
 
 No message can write an unbounded amount into the database, and no legitimate turn is
 lost to the limit that stops it.
+
+---
+
+# Milestone 19 — Kiro Engine
+
+## Goal
+
+Add Kiro CLI as an engine that can be asked, and pin it to what the real CLI does
+rather than to what its protocol allows. See ADR-034.
+
+### Tasks
+
+- [x] Kiro adapter driven over ACP, with the JSON-RPC transport in a file of its own
+- [x] Register kiro with its own models, appended so Setup answers by position still hold
+- [x] Route an ask to the browser and answer it on the request that raised it
+- [x] Name a tool as Kiro names it, not by the coarser protocol kind
+- [x] Take what a call would do from the update that announced it, keyed by tool call id
+- [x] Report no separate operations for an ask that covers one call
+- [x] Leave a refusal decided here to be reported once, by the CLI that knows the reason
+- [x] Continue a conversation with the load method the CLI implements
+- [x] Relay nothing while a load replays the transcript
+- [x] Apply the model chosen in the browser to the session, per turn
+- [x] Keep a turn whose model was refused, saying so as a log
+- [x] Read model ids from the fields the listing actually uses
+- [x] Read the plain listing by its credit column, so the default model is kept
+- [x] Ask whether anyone is logged in before listing models
+- [x] Report a missing login only when the engine's words say so
+- [x] Decline the file system and terminal capabilities
+- [x] Unit: streaming, thinking, tool calls, asks, load, model, listing, and failures
+- [x] Unit: a quota failure is reported as itself, not as a missing login
+- [x] Unit: the model list is never asked for without a login
+
+Acceptance
+
+A conversation on Kiro answers, reports what it did, and remembers what was said in
+earlier turns.
+
+A shell command Kiro will not run alone reaches the phone as an ask, and a refusal is
+stated once.
+
+Starting the CLI never opens a login page, and a machine with no Kiro login still
+offers its other engines.
+
+A failure Kiro reports is read in its own words, so a quota problem is not answered
+with a login.

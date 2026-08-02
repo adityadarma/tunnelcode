@@ -406,7 +406,7 @@ Custom Engine
 
 Without changing business logic.
 
-Implemented so far: OpenCode, Claude Code, Antigravity CLI.
+Implemented so far: OpenCode, Claude Code, Antigravity CLI, Kiro CLI.
 
 Engine Selection
 
@@ -433,7 +433,9 @@ reaches the browser, and the answer returns to the turn that asked. See ADR-022.
 How an engine raises an ask is the adapter's business. Claude Code is driven in
 streaming-input mode with its asks routed over stdin. opencode is driven as a client
 of a headless server started for the workspace, because `opencode run` answers asks
-itself and answers by refusing them.
+itself and answers by refusing them. Kiro CLI is driven over the Agent Client
+Protocol, which has a request for the question, so an ask is answered on the request
+that raised it. See ADR-034.
 
 Not every engine can be asked. Antigravity CLI runs headless and has no prompt of its
 own, so there is nothing to carry a question out and an answer back: a call it will not

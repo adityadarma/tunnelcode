@@ -10,8 +10,9 @@ not an IDE and not an AI provider. See `PROJECT.md` for the full specification a
 
 - Node.js 24 or newer
 - pnpm 11
-- An engine on PATH: [OpenCode](https://opencode.ai), Claude Code, or
-  [Antigravity CLI](https://antigravity.google/product/antigravity-cli)
+- An engine on PATH: [OpenCode](https://opencode.ai), Claude Code,
+  [Antigravity CLI](https://antigravity.google/product/antigravity-cli), or
+  [Kiro CLI](https://kiro.dev)
 
 ## Platforms
 
@@ -134,6 +135,12 @@ from opencode can carry several commands, and agreeing to one of them would mean
 agreeing to all. A request nobody answers within 10 minutes is refused, never
 allowed, and a phone that locks mid-turn is shown the request again when it comes
 back.
+
+A recorded rule answers for a command line only when it accounts for the whole of
+it. A line that runs a second command is asked about again even when the first one
+matches, and so is a line where a shell character merely could run one — a `&`
+inside a quoted URL, say. Reading that difference correctly would need a shell
+parser, and one that is wrong once is a hole rather than a nuisance.
 
 Always allow is recorded for the machine, not for the engine and not on the server.
 The rules live in `permissions.json` next to the config, owner-readable only, and
@@ -285,6 +292,13 @@ What the server does enforce, so it is clear what is and is not being relied on:
   the conversation has to belong to the same workspace.
 - A WebSocket handshake from a page that is not this server's own is refused before
   the upgrade, because WebSocket is not subject to CORS.
+- No page may put this app in a frame. Every response says so, because the origin
+  check above cannot help there: inside a frame the page is this server's own
+  origin, so a handshake from it looks exactly as it should, and a click laid over
+  the approval card would be answered by the paired machine.
+- Neither a pairing code nor a session id is written to the log. The shape of the
+  route is kept and the values are not, since a log outlives the session it
+  describes and can end up somewhere the user does not control.
 - Messages have a maximum length, and oversized frames are refused by the transport
   rather than parsed.
 - The config, the granted permissions, and the machine id are written `0600` in a

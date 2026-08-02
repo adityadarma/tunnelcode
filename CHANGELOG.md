@@ -5,6 +5,102 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The CLI and the server image share one version and ship from a single `v*` tag.
+Every change is written under `Unreleased` as it is made; a release renames that section
+to the version it ships as and leaves an empty one behind.
+
+## [Unreleased]
+
+## [0.3.6] - 2026-08-02
+
+A fourth engine, and an answer that survives leaving the page. Kiro CLI can now answer a
+conversation, and it is the third engine that can be asked before it acts: a shell
+command it will not run alone reaches the browser as an Allow or Deny, like Claude Code
+and opencode. Offered in Setup and in the browser only when `kiro-cli` is installed.
+
+A browser that comes back mid-answer is given the text so far instead of a blank
+indicator, and a turn that never finished says so in the transcript rather than leaving a
+prompt with nothing after it.
+
+### Added
+
+- Kiro CLI adapter, driven as `kiro-cli acp`, which speaks the Agent Client Protocol
+  over stdio. Text streams as it is written, tool calls are reported with their output,
+  and the session id is reported so a later prompt continues the same conversation.
+  `--trust-all-tools` is never passed, so nothing is approved on the agent's behalf.
+  See ADR-034.
+- A permission ask reaches the browser and the answer returns to the turn waiting on
+  it. The call is named as Kiro names it, `shell` or `write` rather than the protocol's
+  coarser `execute` or `edit`, so a rule granted for one command does not quietly cover
+  a whole category. What the call would do is taken from the update that announced it,
+  because the ask itself carries only a tool call id and a title.
+- The model chosen in the browser is applied to the session on every turn, so changing
+  it mid-conversation takes effect. A model Kiro will not take is said as a log and the
+  turn still answers on the default.
+- A browser that attaches mid-turn is given the answer so far. The text being streamed is
+  kept in memory beside the running turn and sent with the attach, so coming back to a
+  long answer no longer shows minutes of a blank indicator. It is dropped the moment that
+  text becomes a stored message, so nothing appears twice. See ADR-032.
+- A turn that ends without a complete answer stores what the engine had already produced,
+  marked partial, and is stored even when nothing was said. A device that went offline
+  mid-answer used to leave a prompt with nothing after it, which reads as a prompt that
+  was never sent. See ADR-033.
+
+### Changed
+
+- The engine belongs to the conversation in the browser too. The device card no longer
+  states an engine, since each conversation row already names its own, and the New
+  Conversation dialog opens on the engine this machine runs by default. See ADR-020.
+- Activity output scrolls sideways rather than wrapping, the way a fenced code block
+  already does. Read output carries a line number in front of every line, and a wrapped
+  line read as a line with no number: the numbers stopped matching the file and
+  indentation stopped meaning anything. A sideways drag stays inside the panel.
+- The GitHub Actions used by CI and release are on their current major versions.
+
+### Fixed
+
+- Starting the CLI no longer opens a Kiro login page. Listing Kiro's models does not
+  fail when nobody is logged in: it opens a browser, starts a device login and waits.
+  That ran during engine discovery at every startup. The login is now checked first
+  with `kiro-cli user whoami`, which answers instead of trying to fix it, and a machine
+  with no Kiro login simply offers its other engines. See ADR-034.
+- A Kiro failure is reported in its own words. Every error carrying JSON-RPC's
+  implementation-defined `-32000` was read as a missing login, so a quota problem
+  answered with "run kiro-cli login", which cannot fix it.
+- A Kiro conversation keeps its context. Continuing one used a resume method kiro-cli
+  does not implement, so every prompt quietly started over. It now loads the session,
+  and the transcript the load replays is not repeated into the new answer.
+- Kiro's model list is no longer empty. The ids were read from fields the listing does
+  not use, and the plain listing dropped `auto`, which is the default.
+- A refused Kiro tool call is explained once. The engine fails the call with a notice
+  wording it as the user having denied it, which was relayed on top of the reason this
+  machine actually had, and sometimes nobody had been asked at all.
+- opencode's thinking is no longer read as its answer. A reasoning part streams through
+  the same event as text and names its own field `text` as well, so the model working
+  itself out was shown run together with the reply that followed. Recognised by part id,
+  which is announced before any of its fragments arrive.
+- Dismissing the sidebar no longer collapses two of them. Below md it is a drawer over the
+  conversation and from md up a column beside it, and one tap closed both, which is why an
+  extra Show sidebar icon appeared in the header after closing the drawer with the button
+  but not after tapping the overlay.
+
+### Security
+
+- A recorded rule answers for a command line only when it accounts for the whole of it.
+  `&` on its own was not read as a separator, so a grant written for curl covered
+  `curl example.com & rm -rf ~` in full, and a ceiling written for `rm *` did not
+  recognise it at all. `>(...)` is now read as a hidden command like `<(...)`, and the
+  ceiling looks inside a nested command so the `rm` in `echo hi > >(rm -rf ~)` can be
+  forbidden.
+- No page may put this app in a frame. Every response carries a content security policy
+  with `frame-ancestors 'none'`, whose only inline script is allowed by a hash derived
+  from the document actually served, plus HSTS for a year without `includeSubDomains`.
+  Refusing a WebSocket handshake by origin cannot help inside a frame: the page is this
+  server's own origin, so a click laid over the approval card would be answered by the
+  paired machine.
+- Neither a pairing code nor a session id is written to the log. The code arrives in the
+  query string of the QR link and the session id as a path segment, so redacting field
+  names never reached either of them. The shape of the route and the names of the query
+  parameters are kept, and the values are not. See ADR-014.
 
 ## [0.3.5] - 2026-08-02
 
@@ -555,6 +651,7 @@ between the browser, a server, and a local agent.
   visible prompt rather than something the surrounding shell or a cloned repository
   can decide.
 
+[0.3.6]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.6
 [0.3.5]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.5
 [0.3.4]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.4
 [0.3.2]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.2

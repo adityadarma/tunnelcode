@@ -1271,3 +1271,110 @@ terminal.
 Failures are treated the same way as an abandoned device, deliberately. Both end a
 turn that will never be answered, and having one leave a record while the other left
 nothing is the sort of difference nobody can predict from the outside.
+
+---
+
+# ADR-034
+
+## Kiro Is Driven Over ACP, And Asked Before It Is Trusted
+
+Amends ADR-022.
+
+Decision
+
+Kiro CLI is driven through `kiro-cli acp`, which speaks the Agent Client Protocol
+over stdio: JSON-RPC, one object per line. Not `kiro-cli chat --no-interactive`.
+
+`--trust-all-tools` and `--trust-tools` are never passed.
+
+An ask arrives as `session/request_permission` and is answered on the request that
+raised it, so a tool call reaches the browser and the answer returns to the turn
+that is waiting. `always` is allowed on the wire and recorded on this machine, as it
+is for the other engines.
+
+A tool call is named by the name Kiro gives it, read from `_meta.kiro.toolName`, not
+by the ACP kind. `shell` and `write` are what a rule on this machine is written
+against; `execute` and `edit` are categories several tools share.
+
+What a call would do is taken from the update that announced it, keyed by the tool
+call id. The ask itself carries only that id and a title.
+
+One ask covers one call, so it reports no separate operations. The labels of the
+options the agent offers are not read as operations.
+
+A refusal decided here is not relayed as the call's output. The engine fails the
+call with a notice of its own, and the refusal is reported one level up, where the
+reason is known.
+
+A conversation is continued with `session/load`. `session/resume` is not
+implemented by kiro-cli. Loading replays the whole transcript as ordinary updates,
+and nothing is relayed until it returns.
+
+A model is applied with `session/set_model`, per turn, and a model the agent will
+not take is reported without failing the turn.
+
+The model list is only asked for once `kiro-cli user whoami` says somebody is logged
+in.
+
+A failure is only reported as a missing login when the agent's own words say so. The
+code alone does not decide it.
+
+Thinking is dropped. `agent_thought_chunk` and `user_message_chunk` are not the
+answer.
+
+The file system and terminal client capabilities are declined at `initialize`.
+
+Reason
+
+`kiro-cli chat --no-interactive` cannot be asked at all. Its only permission
+controls are `--trust-all-tools` and `--trust-tools`, and the first approves every
+call on the agent's behalf, which is the thing the ceiling on this machine exists to
+prevent. ACP has a request for exactly this question, so Kiro is the third engine
+that can be asked, and the second that can be asked about a shell command.
+
+Naming the tool as Kiro names it is what makes a grant mean what it says. A rule
+recorded against `execute` would quietly cover every tool ACP files under that kind,
+and a person who allowed one command would have allowed a category.
+
+Joining the ask to the announced call is not an optimisation. Recorded traffic shows
+the ask carrying `toolCallId` and `title` and nothing else, so read on its own it
+reaches the phone as an unnamed tool acting on nothing, and no rule can match it. The
+call was fully described one update earlier.
+
+The option labels read as Yes, Always and No. Listed as the operations an ask covers
+they would describe nothing that would run, and a grant judged against them could
+never match the call it was made for, so every later ask would be asked again.
+
+The engine's refusal notice is worded as the user having denied the call. Sometimes
+nobody was asked: a limit set in the terminal refuses before the browser hears about
+it. Relaying that would state the refusal twice and credit it to the wrong party, and
+the CLI already reports the reason it actually had.
+
+Loading is the only way to continue: `session/resume` answers Method not found. The
+replay is why suppression is needed rather than tidy. Those updates are the same
+shape as new ones, so relayed they would repeat the entire conversation inside the
+next answer, and report earlier tool calls as work done in this turn.
+
+The model is told to the session rather than passed as `--model`, which only applies
+to a session being started. A continued conversation would otherwise keep whatever
+model it was created with, and a model changed in the browser would never take
+effect. It is not worth failing a turn over: an answer on the default model is better
+than no answer.
+
+The login is checked before models are listed because listing them does not fail
+without one. Recorded from the real CLI: it opens a browser, starts a device login and
+waits, taking 27 seconds to be authorised, and waiting indefinitely when it cannot
+be. Discovery runs at startup, so that put a login page in front of anyone who merely
+opened the menu and held the CLI there until they dealt with it. `user whoami`
+answers the question instead of trying to fix it. The turn itself needs no such guard:
+`kiro-cli acp` states that nobody is logged in and exits.
+
+Reading a missing login from the code alone was wrong in the other direction. JSON-RPC
+leaves -32000 and the codes below it to the implementation, so Kiro uses it for
+anything that went wrong on its side, and the transport here uses it for a connection
+that ended. A quota problem was reported as a login problem, which sent the user to
+`kiro-cli login` to fix something a login cannot fix.
+
+The client capabilities are declined because the agent already reaches the workspace
+through its own tools, and those are what an ask is raised about. Granting them would
+give it a second way in, around the question.

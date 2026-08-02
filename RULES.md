@@ -23,3 +23,7 @@
 - Web UI styling uses Tailwind CSS v4 and CSS variables (`--bg`, `--surface`, `--accent`, `--border`) for theme support.
 - All UI layouts must be responsive without horizontal scroll overflow: use `min-width: 0` on flex/grid items and `overflow-wrap: anywhere` on message text.
 - Prompt controls (such as model selection) belong inside the prompt box container footer, co-located with text entry.
+- Every user-visible change is written under `## [Unreleased]` in `CHANGELOG.md` as part of the change itself, never in a later pass. Entries go under `Added`, `Changed`, `Fixed`, `Removed`, or `Security`, and say what changed for the user and why, not which files moved.
+- A release renames `[Unreleased]` to the new version with the date, leaves a fresh empty `[Unreleased]` above it, and adds the tag link at the bottom of the file. Nothing is written straight into a released section.
+- The version is raised only when a release is cut, and every `package.json` in the workspace moves to the same number in the same commit: the CLI and the server image share one version and ship from a single `v*` tag. Patch for fixes only, minor for anything added or changed in behaviour, major for a break.
+- A released section is never edited. A mistake in one is corrected by an entry in the next version.
