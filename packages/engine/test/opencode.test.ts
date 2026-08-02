@@ -175,6 +175,18 @@ function delta(partID: string, text: string): unknown {
   };
 }
 
+/**
+ * A reasoning part, which announces itself exactly like a text part does apart
+ * from its type. Recorded from opencode 1.18.10, where a part is always announced
+ * by message.part.updated before any fragment of it arrives.
+ */
+function reasoningPart(id: string, text = '', messageID = 'msg-1'): unknown {
+  return {
+    type: 'message.part.updated',
+    properties: { sessionID: SESSION, part: { type: 'reasoning', id, text, messageID } },
+  };
+}
+
 function toolPart(state: Record<string, unknown>): unknown {
   return {
     type: 'message.part.updated',
@@ -286,6 +298,55 @@ test('a streamed part is not repeated when it is finished', async () => {
     async (engine) => {
       const events = await collect(engine.prompt('hi', base));
       assert.equal(textOf(events), 'streamed');
+    },
+  );
+});
+
+test('thinking is not relayed as the answer', async () => {
+  await withFakeOpenCode(
+    {
+      // A reasoning part streams through the same event as an answer, with the
+      // same field: 'text'. Only the part id tells the two apart, which is why the
+      // part has to be announced before its fragments are read.
+      events: [
+        assistantMessage,
+        reasoningPart('prt-think'),
+        delta('prt-think', 'The user wants X, so I should'),
+        delta('prt-think', ' check the files first.'),
+        textPart('prt-1', ''),
+        delta('prt-1', 'Here is the answer.'),
+        idle,
+      ],
+    },
+    async (engine) => {
+      const events = await collect(engine.prompt('hi', base));
+      assert.equal(textOf(events), 'Here is the answer.');
+    },
+  );
+});
+
+test('thinking is separated from the answer each time it resumes', async () => {
+  await withFakeOpenCode(
+    {
+      // A model thinks more than once in a turn, going back to deliberating after
+      // it has already said something. Every reasoning part has to be recognised,
+      // not just the first, and the answer parts around them still stream.
+      events: [
+        assistantMessage,
+        reasoningPart('prt-think-1'),
+        delta('prt-think-1', 'First I should look at the files.'),
+        textPart('prt-1', ''),
+        delta('prt-1', 'Reading the code. '),
+        reasoningPart('prt-think-2'),
+        delta('prt-think-2', 'Now I should run the tests.'),
+        textPart('prt-2', ''),
+        delta('prt-2', 'Tests pass.'),
+        idle,
+      ],
+    },
+    async (engine) => {
+      const events = await collect(engine.prompt('hi', base));
+      assert.equal(textOf(events), 'Reading the code. Tests pass.');
     },
   );
 });

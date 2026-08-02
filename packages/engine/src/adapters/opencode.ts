@@ -290,6 +290,21 @@ export class OpenCodeEngine implements Engine {
     // Text is only the assistant's. The prompt comes back as a part of its own, and
     // emitting that would replay the user's own words as an answer.
     const assistantMessages = new Set<string>();
+
+    /**
+     * Parts carrying the model's thinking rather than its answer.
+     *
+     * Tracked because a reasoning part streams through the same
+     * `message.part.delta` event as an answer does, with the same `field: 'text'`:
+     * both parts name their own text field `text`, so the field cannot tell them
+     * apart and the part id is the only thing that can. Without this the thinking
+     * is relayed as assistant text and the reader sees the model deliberating
+     * about them, run together with the answer that follows it.
+     *
+     * A part is announced by `message.part.updated` before any of its fragments
+     * arrive, which is what makes recognising it by id possible at all.
+     */
+    const reasoningParts = new Set<string>();
     const streamedParts = new Set<string>();
     const emittedText = new Map<string, string>();
     const reportedTools = new Set<string>();
@@ -372,6 +387,12 @@ export class OpenCodeEngine implements Engine {
             continue;
           }
 
+          // Thinking, not the answer. Relaying it would show the model working
+          // itself out as though it were speaking to the reader.
+          if (typeof properties.partID === 'string' && reasoningParts.has(properties.partID)) {
+            continue;
+          }
+
           if (typeof properties.partID === 'string') {
             // Remembered so the finished part is not emitted again on top of the
             // fragments it was assembled from.
@@ -437,6 +458,16 @@ export class OpenCodeEngine implements Engine {
     /** One tool part, which is repeated as the call progresses. */
     function* mapPart(part: EventPart | undefined): Generator<EngineEvent> {
       if (part === undefined) {
+        return;
+      }
+
+      // Recorded before any fragment of it arrives, which is the only reason the
+      // deltas that follow can be recognised as thinking. Never emitted: the whole
+      // point is that this text is not part of the answer.
+      if (part.type === 'reasoning') {
+        if (typeof part.id === 'string' && part.id !== '') {
+          reasoningParts.add(part.id);
+        }
         return;
       }
 

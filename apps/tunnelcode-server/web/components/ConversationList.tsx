@@ -12,7 +12,12 @@ interface ConversationListProps {
   onCreate: (engine: string | undefined, model: string | undefined) => void;
   onOpenModal?: (() => void) | undefined;
   onDelete?: (id: string) => void;
-  onToggleSidebar?: (() => void) | undefined;
+  /**
+   * Dismisses the sidebar. Named for what the button does rather than for a
+   * toggle, because the sidebar it dismisses is not the one that reopens it: the
+   * drawer comes back from the hamburger, the desktop column from the header.
+   */
+  onHideSidebar?: (() => void) | undefined;
 }
 
 /**
@@ -32,7 +37,7 @@ export function ConversationList({
   onCreate,
   onOpenModal,
   onDelete,
-  onToggleSidebar,
+  onHideSidebar,
 }: ConversationListProps): React.JSX.Element {
   const sortedConversations = [...conversations].sort(
     (left, right) => right.createdAt - left.createdAt,
@@ -62,11 +67,11 @@ export function ConversationList({
             onCreate={onCreate}
             onOpenModal={onOpenModal}
           />
-          {onToggleSidebar && (
+          {onHideSidebar && (
             <button
               type="button"
               className="btn-toggle-sidebar"
-              onClick={onToggleSidebar}
+              onClick={onHideSidebar}
               title="Hide sidebar"
               aria-label="Hide sidebar"
             >

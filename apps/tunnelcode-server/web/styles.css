@@ -501,6 +501,13 @@
   @apply p-1.5 rounded-lg text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer inline-flex items-center justify-center border-0 bg-transparent shrink-0;
 }
 
+/* The header copy of the button, which only has something to say from md up. The
+   collapsed desktop column is the only sidebar it can reopen, and below md the
+   hamburger sitting next to it already opens the drawer. */
+.btn-toggle-sidebar-wide {
+  @apply hidden md:inline-flex;
+}
+
 .sidebar-title {
   @apply flex items-center gap-2 text-[var(--text)] min-w-0 font-semibold text-sm;
 }
@@ -785,12 +792,20 @@
   @apply ml-auto flex items-center justify-center text-[var(--muted)] opacity-70 hover:opacity-100 transition-opacity;
 }
 
+/* The frame only clips the corners. The height and the scrolling belong to the
+   content, so there is one thing to drag rather than two boxes that both scroll. */
 .activity-output-container {
-  @apply border-t border-[var(--border)] bg-[#0d1117] overflow-hidden max-h-96;
+  @apply border-t border-[var(--border)] bg-[var(--code-bg)] overflow-hidden;
 }
 
+/* Read output carries a line number in front of every line, and a wrapped line
+   reads as a line with no number: the continuation starts in the gutter, the
+   numbers stop matching the file, and indentation stops meaning anything. Scrolled
+   sideways instead, the way a fenced code block already is, so one line of a file
+   stays one line on screen. overscroll-contain keeps a sideways drag inside the
+   panel rather than handing it to the page. */
 .activity-output-content {
-  @apply p-2 m-0 text-xs font-mono text-gray-300 overflow-y-auto max-h-96 whitespace-pre-wrap break-words;
+  @apply p-2 m-0 text-xs font-mono leading-relaxed text-[var(--code-text)] overflow-auto overscroll-contain max-h-96 whitespace-pre;
 }
 
 .typing-indicator-row {

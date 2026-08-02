@@ -161,9 +161,28 @@ export function ConversationPage({
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  const toggleSidebar = (): void => {
-    setSidebarOpen((prev) => !prev);
-    setMenuOpen((prev) => !prev);
+  /**
+   * Dismisses whichever sidebar is on screen.
+   *
+   * There are two of them and they are different states: below md the sidebar is a
+   * drawer over the conversation, held open by menuOpen, and from md up it is a
+   * column beside it, held open by sidebarOpen. The drawer can only be opened by
+   * controls that are hidden from md up, so the drawer being open is itself what
+   * tells the two apart and no viewport has to be measured here.
+   *
+   * Flipping both at once, which this used to do, closed the drawer and collapsed
+   * the desktop column on the same tap. The collapsed column then put its Show
+   * sidebar button in the header beside the hamburger, which is why an extra icon
+   * appeared after dismissing the drawer with the button but not after tapping the
+   * overlay: the overlay only ever closed the drawer.
+   */
+  const dismissSidebar = (): void => {
+    if (menuOpen) {
+      setMenuOpen(false);
+      return;
+    }
+
+    setSidebarOpen(false);
   };
 
   useEffect(() => {
@@ -620,7 +639,7 @@ export function ConversationPage({
           onDelete={(id) => {
             removeConversation(id);
           }}
-          onToggleSidebar={toggleSidebar}
+          onHideSidebar={dismissSidebar}
         />
 
         {session !== undefined && (
@@ -636,11 +655,16 @@ export function ConversationPage({
       <main className="main">
         <header className="main-head">
           <div className="main-head-title">
+            {/* Only from md up. Below that the hamburger beside it opens the same
+                sidebar, and two buttons for one drawer read as two different
+                things. */}
             {!sidebarOpen && (
               <button
                 type="button"
-                className="btn-toggle-sidebar"
-                onClick={toggleSidebar}
+                className="btn-toggle-sidebar btn-toggle-sidebar-wide"
+                onClick={() => {
+                  setSidebarOpen(true);
+                }}
                 title="Show sidebar"
                 aria-label="Show sidebar"
               >
