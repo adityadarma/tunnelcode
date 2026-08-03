@@ -10,6 +10,8 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+## [0.3.8] - 2026-08-03
+
 ### Added
 
 - The web app can be installed. Chrome and Edge offer an install button in the address
