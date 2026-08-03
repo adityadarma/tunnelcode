@@ -31,6 +31,7 @@ interface BrowserEvent {
   content?: string;
   partial?: boolean;
   text?: string;
+  createdAt?: number;
   message?: string;
   online?: boolean;
   sessionId?: string;
@@ -838,6 +839,87 @@ test('a session reported for another device is ignored', async () => {
     // engine session it controls.
     const second = cli.events.filter((event) => event.type === 'prompt').at(1);
     assert.equal(second?.resume, undefined);
+
+    other.close();
+    browser.close();
+    cli.close();
+  });
+});
+
+test('thinking is relayed and stored apart from the answer', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const { cli, sessionId, conversationId } = await pair(baseUrl);
+
+    const browser = await connect<BrowserEvent>(baseUrl, '/ws/browser');
+    browser.send({ type: 'attach', sessionId });
+    await browser.waitFor((events) => events.some((event) => event.type === 'attached'));
+
+    browser.send({ type: 'prompt', conversationId, text: 'work it out' });
+    await cli.waitFor((events) => events.some((event) => event.type === 'prompt'));
+
+    const turnId = cli.events.find((event) => event.type === 'prompt')?.turnId ?? '';
+
+    cli.send({ type: 'reasoning_delta', turnId, text: 'I should look' });
+    await browser.waitFor((events) => events.some((event) => event.type === 'reasoning_delta'));
+
+    cli.send({ type: 'turn_reasoning', turnId, text: 'I should look at the file.' });
+    await browser.waitFor((events) => events.some((event) => event.type === 'reasoning'));
+
+    cli.send({ type: 'turn_done', turnId, text: 'Looked at it.' });
+    await browser.waitFor((events) => events.some((event) => event.type === 'turn_done'));
+
+    const relayed = browser.events.find((event) => event.type === 'reasoning');
+    assert.equal(relayed?.content, 'I should look at the file.');
+    assert.equal(relayed?.conversationId, conversationId);
+
+    const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+    const reasonings = reloaded.body['reasonings'] as { content: string }[];
+    const messages = reloaded.body['messages'] as { role: string; content: string }[];
+
+    // The fold a reader opened comes back after a refresh, and the answer is never
+    // made to carry the deliberation. See ADR-037.
+    assert.deepEqual(
+      reasonings.map((item) => item.content),
+      ['I should look at the file.'],
+    );
+    assert.deepEqual(
+      messages.filter((item) => item.role === 'assistant').map((item) => item.content),
+      ['Looked at it.'],
+    );
+
+    browser.close();
+    cli.close();
+  });
+});
+
+test('a thought is not stored for another device', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const { cli, sessionId, conversationId } = await pair(baseUrl);
+
+    const browser = await connect<BrowserEvent>(baseUrl, '/ws/browser');
+    browser.send({ type: 'attach', sessionId });
+    await browser.waitFor((events) => events.some((event) => event.type === 'attached'));
+
+    browser.send({ type: 'prompt', conversationId, text: 'work it out' });
+    await cli.waitFor((events) => events.some((event) => event.type === 'prompt'));
+
+    const turnId = cli.events.find((event) => event.type === 'prompt')?.turnId ?? '';
+
+    const other = await connect<CliEvent>(baseUrl, '/ws/cli');
+    other.send({
+      ...register,
+      code: 'HGFEDCBA',
+      deviceId: 'device-2',
+      workspace: '/elsewhere',
+    });
+    await other.waitFor((events) => events.some((event) => event.type === 'registered'));
+
+    // A turn belongs to the machine answering it, so another machine cannot write
+    // thinking into its transcript.
+    other.send({ type: 'turn_reasoning', turnId, text: 'not mine to say' });
+
+    const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+    assert.deepEqual(reloaded.body['reasonings'], []);
 
     other.close();
     browser.close();

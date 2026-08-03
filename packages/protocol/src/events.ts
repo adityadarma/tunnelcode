@@ -117,6 +117,31 @@ export const cliMessageSchema = z.discriminatedUnion('type', [
     turnId: turnIdSchema,
     text: z.string().max(ENGINE_TEXT_MAX_LENGTH),
   }),
+  /**
+   * A fragment of the model working itself out, rather than of its answer.
+   *
+   * Carried on an event of its own so it can never land inside answer text: the
+   * two arrive interleaved, and a reader who cannot tell them apart is reading
+   * deliberation as though it had been said to them. Relayed and forgotten, like
+   * an answer delta. See ADR-037.
+   */
+  z.object({
+    type: z.literal('reasoning_delta'),
+    turnId: turnIdSchema,
+    text: z.string().max(ENGINE_TEXT_MAX_LENGTH),
+  }),
+  /**
+   * A finished stretch of deliberation, assembled by the CLI and stored.
+   *
+   * Sent when the model stops thinking and does something else, which is the same
+   * moment an answer is flushed for: it is the smallest unit that can be placed on
+   * the timeline honestly. See ADR-024 and ADR-037.
+   */
+  z.object({
+    type: z.literal('turn_reasoning'),
+    turnId: turnIdSchema,
+    text: z.string().max(ENGINE_TEXT_MAX_LENGTH),
+  }),
   z.object({
     type: z.literal('turn_log'),
     turnId: turnIdSchema,
@@ -369,6 +394,32 @@ export const serverToBrowserMessageSchema = z.discriminatedUnion('type', [
     conversationId: conversationIdSchema,
     turnId: turnIdSchema,
     text: z.string().max(ENGINE_TEXT_MAX_LENGTH),
+  }),
+  /**
+   * Thinking as it arrives, kept apart from the answer all the way to the surface.
+   *
+   * Not stored: this is the same text the turn stores once, as a reasoning record,
+   * when the model stops thinking. See ADR-037.
+   */
+  z.object({
+    type: z.literal('reasoning_delta'),
+    conversationId: conversationIdSchema,
+    turnId: turnIdSchema,
+    text: z.string().max(ENGINE_TEXT_MAX_LENGTH),
+  }),
+  /**
+   * A stored stretch of deliberation, placed on the timeline like an activity.
+   *
+   * Relayed as well as stored, so the block a reader watched arrive is the same
+   * block that comes back after a refresh.
+   */
+  z.object({
+    type: z.literal('reasoning'),
+    conversationId: conversationIdSchema,
+    turnId: turnIdSchema,
+    id: z.string().min(1),
+    content: z.string().max(ENGINE_TEXT_MAX_LENGTH),
+    createdAt: z.number(),
   }),
   // Relayed as it happens and also stored, so a refresh still shows what the
   // engine did during an earlier turn.

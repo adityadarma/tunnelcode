@@ -233,11 +233,13 @@ export function registerConversationRoutes(
       return reply.code(404).send({ error: 'Unknown conversation.' });
     }
 
-    // Activities travel with the messages so one request restores the whole
-    // transcript, including what the engine did between the questions.
+    // Activities and thinking travel with the messages so one request restores the
+    // whole transcript, including what the engine did between the questions and
+    // what it was working out while it did.
     return reply.send({
       messages: conversationRepository.listMessages(conversationId),
       activities: conversationRepository.listActivities(conversationId),
+      reasonings: conversationRepository.listReasonings(conversationId),
     });
   });
 

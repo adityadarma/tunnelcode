@@ -7,6 +7,20 @@ export interface EngineDelta {
 }
 
 /**
+ * The model working itself out, rather than speaking to the reader.
+ *
+ * Reported as an event of its own rather than as a delta, because the two arrive
+ * interleaved on the same channel in every engine that produces both, and a
+ * reader who cannot tell them apart is reading deliberation as though it had been
+ * addressed to them. An engine that reports no thinking simply never emits this.
+ * See ADR-037.
+ */
+export interface EngineReasoning {
+  type: 'reasoning';
+  text: string;
+}
+
+/**
  * Diagnostic output from the engine. Kept separate from deltas so stderr noise
  * never ends up inside an assistant message.
  */
@@ -135,6 +149,7 @@ export interface EngineFailure {
 
 export type EngineEvent =
   | EngineDelta
+  | EngineReasoning
   | EngineLog
   | EngineActivity
   | EngineActivityOutput

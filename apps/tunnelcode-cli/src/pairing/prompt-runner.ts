@@ -159,6 +159,13 @@ export class PromptRunner {
     onActivity();
 
     let answer = '';
+    /**
+     * Thinking the model has produced and not yet stored.
+     *
+     * Kept apart from the answer for the whole turn: they arrive interleaved, and a
+     * single buffer would put the deliberation inside the reply. See ADR-037.
+     */
+    let thought = '';
     let failed = false;
 
     // Aborting kills the engine process, which ends the loop below. Without this a
@@ -219,11 +226,36 @@ export class PromptRunner {
      * Sent from here rather than from the adapter, because only this level knows
      * whether the user said no, a limit on this machine did, or nobody answered.
      */
-    const reportRefusal = (tool: string, reason: string): void => {
-      if (answer !== '') {
-        send({ type: 'turn_message', turnId, text: clamp(answer) });
-        answer = '';
+    /**
+     * Stores the thinking so far, because something else is about to happen.
+     *
+     * Flushed at the same moments the answer is, so the transcript keeps the order
+     * the turn happened in: a thought that led to a tool call is placed before that
+     * call rather than after it. Sent before the answer flush for the same reason,
+     * since a model thinks before it speaks. See ADR-024 and ADR-037.
+     */
+    const flushReasoning = (): void => {
+      if (thought === '') {
+        return;
       }
+
+      send({ type: 'turn_reasoning', turnId, text: clamp(thought) });
+      thought = '';
+    };
+
+    /** The answer so far, stored because the turn is about to do something else. */
+    const flushAnswer = (): void => {
+      if (answer === '') {
+        return;
+      }
+
+      send({ type: 'turn_message', turnId, text: clamp(answer) });
+      answer = '';
+    };
+
+    const reportRefusal = (tool: string, reason: string): void => {
+      flushReasoning();
+      flushAnswer();
       send({ type: 'turn_blocked', turnId, tool, reason });
     };
 
@@ -329,17 +361,22 @@ export class PromptRunner {
 
         switch (event.type) {
           case 'delta':
+            // The model has stopped deliberating and started answering, so the
+            // thinking that led here is closed off before the reply opens.
+            flushReasoning();
             answer += event.text;
             send({ type: 'delta', turnId, text: clamp(event.text) });
+            break;
+          case 'reasoning':
+            thought += event.text;
+            send({ type: 'reasoning_delta', turnId, text: clamp(event.text) });
             break;
           case 'log':
             send({ type: 'turn_log', turnId, text: clamp(event.text) });
             break;
           case 'activity':
-            if (answer !== '') {
-              send({ type: 'turn_message', turnId, text: clamp(answer) });
-              answer = '';
-            }
+            flushReasoning();
+            flushAnswer();
             send({
               type: 'turn_activity',
               turnId,
@@ -357,10 +394,8 @@ export class PromptRunner {
             });
             break;
           case 'blocked':
-            if (answer !== '') {
-              send({ type: 'turn_message', turnId, text: clamp(answer) });
-              answer = '';
-            }
+            flushReasoning();
+            flushAnswer();
             // The turn keeps running after a refusal, so this is reported rather
             // than treated as a failure. Without it the answer that follows would
             // reference work the user never saw refused.
@@ -373,11 +408,16 @@ export class PromptRunner {
             break;
           case 'error':
             failed = true;
+            // Kept for the same reason a partial answer is: the user watched it
+            // arrive, and a turn that failed still explains itself through what
+            // the model was working on. See ADR-033.
+            flushReasoning();
             send({ type: 'turn_error', turnId, message: clamp(event.message), ...partial() });
             break;
           case 'done':
             if (event.exitCode !== 0 && !failed) {
               failed = true;
+              flushReasoning();
               send({
                 type: 'turn_error',
                 turnId,
@@ -389,6 +429,10 @@ export class PromptRunner {
         }
       }
 
+      // The last stretch of thinking has nothing after it to close it off, so the
+      // turn ending is what stores it.
+      flushReasoning();
+
       // An abandoned turn reports why rather than presenting a truncated answer as
       // if the engine had finished.
       if (wasAbandoned()) {
@@ -397,6 +441,7 @@ export class PromptRunner {
         send({ type: 'turn_done', turnId, text: clamp(answer) });
       }
     } catch (error) {
+      flushReasoning();
       send({
         type: 'turn_error',
         turnId,

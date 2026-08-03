@@ -81,6 +81,56 @@ export class TurnRelay {
   }
 
   /**
+   * Forwards a fragment of the model's thinking.
+   *
+   * Nothing is stored and nothing is buffered: the CLI holds the thought and sends
+   * it whole when the model stops thinking, so this is only what a browser watching
+   * right now gets to see. A browser that attaches mid-thought therefore misses the
+   * fragments and is given the stored block instead, which is the same trade the
+   * transcript already makes for tool output. See ADR-037.
+   */
+  reasoningDelta(deviceId: string, turnId: string, text: string): void {
+    const turn = this.options.turns.findForDevice(turnId, deviceId);
+
+    if (turn === undefined) {
+      return;
+    }
+
+    this.options.browsers.broadcast(turn.sessionId, {
+      type: 'reasoning_delta',
+      conversationId: turn.conversationId,
+      turnId,
+      text,
+    });
+  }
+
+  /**
+   * Stores a finished stretch of thinking and forwards it.
+   *
+   * Placed on the timeline as its own record rather than folded into the answer,
+   * because the two are different kinds of thing and the reader decides which of
+   * them to read. An empty one is nothing to fold open, so it is dropped.
+   */
+  reasoning(deviceId: string, turnId: string, text: string): void {
+    const turn = this.activeTurn(deviceId, turnId);
+
+    if (turn === undefined || text === '') {
+      return;
+    }
+
+    const stored = this.options.conversationRepository.appendReasoning(turn.conversationId, text);
+
+    this.options.browsers.broadcast(turn.sessionId, {
+      type: 'reasoning',
+      conversationId: turn.conversationId,
+      turnId,
+      id: stored.id,
+      content: stored.content,
+      createdAt: stored.createdAt,
+    });
+  }
+
+  /**
    * Records the engine conversation behind this turn, so the next prompt in the
    * same conversation continues it.
    *

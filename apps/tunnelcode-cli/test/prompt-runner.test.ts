@@ -308,6 +308,109 @@ test('each turn runs on the engine it names', async () => {
   assert.equal(slow.aborted, false);
 });
 
+test('thinking is relayed live and stored when the model stops thinking', async () => {
+  const engine = new ScriptedEngine(
+    [
+      { type: 'reasoning', text: 'I should read' },
+      { type: 'reasoning', text: ' the file first.' },
+      { type: 'delta', text: 'Here is the answer.' },
+      { type: 'done', exitCode: 0 },
+    ],
+    false,
+  );
+  const { sent, send } = collect();
+  const runner = new PromptRunner({
+    engines: new Map([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    silenceTimeoutMs: 500,
+  });
+
+  await runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+
+  // Fragments are relayed so the reader sees the thought forming, and the whole
+  // thought is stored once, when the model starts answering instead. See ADR-037.
+  assert.deepEqual(typesOf(sent), [
+    'reasoning_delta',
+    'reasoning_delta',
+    'turn_reasoning',
+    'delta',
+    'turn_done',
+  ]);
+
+  const stored = sent.find((message) => message.type === 'turn_reasoning');
+  assert.equal(
+    stored?.type === 'turn_reasoning' ? stored.text : '',
+    'I should read the file first.',
+  );
+
+  // The answer never carries the deliberation.
+  const done = sent.find((message) => message.type === 'turn_done');
+  assert.equal(done?.type === 'turn_done' ? done.text : '', 'Here is the answer.');
+});
+
+test('a thought is stored before the tool call it led to', async () => {
+  const engine = new ScriptedEngine(
+    [
+      { type: 'reasoning', text: 'I need to look at the file.' },
+      { type: 'activity', id: 'a1', tool: 'Read', target: 'a.ts' },
+      { type: 'reasoning', text: 'Now I can answer.' },
+      { type: 'delta', text: 'Done.' },
+      { type: 'done', exitCode: 0 },
+    ],
+    false,
+  );
+  const { sent, send } = collect();
+  const runner = new PromptRunner({
+    engines: new Map([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    silenceTimeoutMs: 500,
+  });
+
+  await runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+
+  // A model thinks before it acts, so the transcript has to store the thought
+  // ahead of the call rather than after it. See ADR-024.
+  assert.deepEqual(typesOf(sent), [
+    'reasoning_delta',
+    'turn_reasoning',
+    'turn_activity',
+    'reasoning_delta',
+    'turn_reasoning',
+    'delta',
+    'turn_done',
+  ]);
+});
+
+test('a turn that fails mid-thought keeps what it was working out', async () => {
+  const engine = new ScriptedEngine(
+    [
+      { type: 'reasoning', text: 'Half a thought' },
+      { type: 'error', message: 'not logged in' },
+    ],
+    false,
+  );
+  const { sent, send } = collect();
+  const runner = new PromptRunner({
+    engines: new Map([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    silenceTimeoutMs: 500,
+  });
+
+  await runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+
+  // Stored for the same reason a partial answer is: the user watched it arrive, and
+  // it is what explains a turn that produced nothing else. See ADR-033.
+  const stored = sent.find((message) => message.type === 'turn_reasoning');
+  assert.equal(stored?.type === 'turn_reasoning' ? stored.text : '', 'Half a thought');
+  assert.equal(typesOf(sent).indexOf('turn_reasoning') < typesOf(sent).indexOf('turn_error'), true);
+});
+
 test('a refused tool call is forwarded without ending the turn', async () => {
   const engine = new ScriptedEngine(
     [

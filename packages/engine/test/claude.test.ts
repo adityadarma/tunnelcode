@@ -173,6 +173,28 @@ process.stdin.on('end', () => {
 });
 `;
 
+/**
+ * A run that thinks before it answers.
+ *
+ * Thinking arrives on a content block of its own, through the same
+ * content_block_delta as an answer, and names its field after itself rather than
+ * calling it text. Only the delta type separates the two.
+ */
+const THINKING = `#!/usr/bin/env node
+const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+process.stdin.resume();
+process.stdin.on('end', () => {
+  out({ type: 'system', subtype: 'init', session_id: 's1' });
+  out({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } } });
+  out({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'The user wants X, so' } } });
+  out({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: ' I should read the file.' } } });
+  out({ type: 'stream_event', event: { type: 'content_block_stop', index: 0 } });
+  out({ type: 'stream_event', event: { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'Here is the answer.' } } });
+  out({ type: 'result', subtype: 'success', is_error: false, result: 'Here is the answer.', session_id: 's1' });
+  process.exit(0);
+});
+`;
+
 async function collect(events: AsyncGenerator<EngineEvent>): Promise<EngineEvent[]> {
   const out: EngineEvent[] = [];
 
@@ -186,6 +208,16 @@ async function collect(events: AsyncGenerator<EngineEvent>): Promise<EngineEvent
 function textOf(events: EngineEvent[]): string {
   return events
     .filter((event): event is Extract<EngineEvent, { type: 'delta' }> => event.type === 'delta')
+    .map((event) => event.text)
+    .join('');
+}
+
+/** The thinking, assembled from the events that carry it and nothing else. */
+function reasoningOf(events: EngineEvent[]): string {
+  return events
+    .filter(
+      (event): event is Extract<EngineEvent, { type: 'reasoning' }> => event.type === 'reasoning',
+    )
     .map((event) => event.text)
     .join('');
 }
@@ -223,6 +255,17 @@ test('fragments are not de-duplicated', async () => {
 
     // Claude already sends only new text, unlike opencode.
     assert.equal(deltas.length, 3);
+  });
+});
+
+test('thinking is reported as itself, not as the answer', async () => {
+  await withFakeEngine('claude', THINKING, async () => {
+    const events = await collect(new ClaudeEngine().prompt('hi', { cwd: process.cwd() }));
+
+    // Kept, and kept apart: the reader decides whether to open it, and the answer is
+    // never made to carry it. See ADR-037.
+    assert.equal(textOf(events), 'Here is the answer.');
+    assert.equal(reasoningOf(events), 'The user wants X, so I should read the file.');
   });
 });
 

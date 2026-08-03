@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { asc, eq, inArray } from 'drizzle-orm';
 import type { Db } from './client.js';
-import { activities, conversations, messages } from './schema.js';
+import { activities, conversations, messages, reasonings } from './schema.js';
 
 export type MessageRole = 'user' | 'assistant';
 
@@ -25,6 +25,13 @@ export interface StoredActivity {
   reason: string | null;
   /** The raw output of the tool execution. Null if not provided. */
   output: string | null;
+  createdAt: number;
+}
+
+/** A stretch of the model working itself out, as stored for later. */
+export interface StoredReasoning {
+  id: string;
+  content: string;
   createdAt: number;
 }
 
@@ -208,6 +215,38 @@ export class ConversationRepository {
   }
 
   /**
+   * Records a finished stretch of thinking.
+   *
+   * Written when the model stops thinking rather than as the fragments arrive, for
+   * the same reason a message is: the fold a reader opens is the whole thought, and
+   * writing per fragment would put token-rate traffic into the database.
+   * See ADR-008 and ADR-037.
+   *
+   * The conversation's updatedAt is deliberately left alone. Thinking is not
+   * something the user said, and letting it reorder the conversation list would
+   * move a conversation nobody had spoken in.
+   */
+  appendReasoning(conversationId: string, content: string): StoredReasoning {
+    const reasoning: StoredReasoning = {
+      id: randomUUID(),
+      content,
+      createdAt: Date.now(),
+    };
+
+    this.db
+      .insert(reasonings)
+      .values({
+        id: reasoning.id,
+        conversationId,
+        content,
+        createdAt: reasoning.createdAt,
+      })
+      .run();
+
+    return reasoning;
+  }
+
+  /**
    * Records something the engine did. Unlike a message this is written as it
    * happens, because an activity is already complete when it is reported.
    */
@@ -321,6 +360,24 @@ export class ConversationRepository {
       .from(messages)
       .where(eq(messages.conversationId, conversationId))
       .orderBy(asc(messages.createdAt))
+      .all();
+  }
+
+  /**
+   * Thinking in order, returned as its own list for the same reason activities
+   * are: the browser places each record by time, and the three shapes have nothing
+   * else in common.
+   */
+  listReasonings(conversationId: string): StoredReasoning[] {
+    return this.db
+      .select({
+        id: reasonings.id,
+        content: reasonings.content,
+        createdAt: reasonings.createdAt,
+      })
+      .from(reasonings)
+      .where(eq(reasonings.conversationId, conversationId))
+      .orderBy(asc(reasonings.createdAt))
       .all();
   }
 

@@ -7,7 +7,7 @@ import {
   readTranscript,
   updateConversationModel,
 } from '../api.js';
-import type { Activity, Conversation, Message, SessionDetail } from '../api.js';
+import type { Activity, Conversation, Message, Reasoning, SessionDetail } from '../api.js';
 import { Composer } from '../components/Composer.js';
 import { ConversationList } from '../components/ConversationList.js';
 import { DevicePanel } from '../components/DevicePanel.js';
@@ -148,7 +148,17 @@ export function ConversationPage({
   const [activeId, setActiveId] = useState<string | undefined>(undefined);
   const [messages, setMessages] = useState<Message[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
+  /** Stretches of thinking already stored, which is what a refresh reloads. */
+  const [reasonings, setReasonings] = useState<Reasoning[]>([]);
   const [streaming, setStreaming] = useState<string | undefined>(undefined);
+  /**
+   * Thinking that is still arriving.
+   *
+   * Held apart from the answer all the way to the surface: the two interleave, and
+   * one buffer would put the deliberation inside the reply. Replaced by the stored
+   * block when the model stops thinking. See ADR-037.
+   */
+  const [reasoningStream, setReasoningStream] = useState<string | undefined>(undefined);
   /**
    * The turn the device is busy with, tracked separately from the streaming text.
    *
@@ -248,6 +258,12 @@ export function ConversationPage({
         // Whatever is still waiting arrives right after this, so starting empty is
         // what stops a reconnect from leaving an answered ask on screen.
         setAsks([]);
+
+        // Thinking is not kept for a browser that was away: the fragments are
+        // relayed and forgotten, and the stored block arrives once the model stops
+        // thinking. Left as it was, a reconnect would show a live thought nothing
+        // will ever finish.
+        setReasoningStream(undefined);
 
         // The server keeps the deltas it sent while this browser was away, so a
         // reconnect mid-answer picks the text up where it stood rather than
@@ -366,6 +382,38 @@ export function ConversationPage({
         return;
       }
 
+      // Thinking as it arrives. Not accumulated outside React like the answer is:
+      // the CLI stores the thought whole the moment the model stops thinking, so a
+      // browser that was away gets the stored block rather than the fragments.
+      case 'reasoning_delta': {
+        if (event.conversationId !== activeIdRef.current) {
+          return;
+        }
+
+        const text = String(event.text);
+        setReasoningStream((current) => (current ?? '') + text);
+        return;
+      }
+
+      // The thought is stored now, so the live one has served its purpose.
+      case 'reasoning': {
+        if (event.conversationId !== activeIdRef.current) {
+          return;
+        }
+
+        const reasoning: Reasoning = {
+          id: String(event.id),
+          content: String(event.content),
+          createdAt: typeof event.createdAt === 'number' ? event.createdAt : Date.now(),
+        };
+
+        setReasonings((current) =>
+          current.some((item) => item.id === reasoning.id) ? current : [...current, reasoning],
+        );
+        setReasoningStream(undefined);
+        return;
+      }
+
       case 'permission_request': {
         const ask = readAsk(event);
 
@@ -403,6 +451,9 @@ export function ConversationPage({
         setRunningTurn(undefined);
         setStreaming(undefined);
         streamedRef.current = '';
+        // Nothing more is coming to close this off. The turn stores what it was
+        // thinking as it ends, so anything left here is already on the timeline.
+        setReasoningStream(undefined);
         // The server resolves the asks of an ending turn first, so this is only a
         // guard against a card outliving the turn it belongs to.
         setAsks((current) => current.filter((item) => item.turnId !== String(event.turnId)));
@@ -476,9 +527,14 @@ export function ConversationPage({
         : undefined,
     );
 
+    // A thought in progress belongs to the conversation it was streamed for, so
+    // switching away drops it rather than carrying it into another transcript.
+    setReasoningStream(undefined);
+
     if (activeId === undefined) {
       setMessages([]);
       setActivities([]);
+      setReasonings([]);
       return;
     }
 
@@ -487,6 +543,7 @@ export function ConversationPage({
         const transcript = await readTranscript(sessionId, activeId);
         setMessages(transcript.messages);
         setActivities(transcript.activities);
+        setReasonings(transcript.reasonings);
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : 'Cannot load messages.');
       }
@@ -556,6 +613,7 @@ export function ConversationPage({
     setError(undefined);
     setStreaming('');
     streamedRef.current = '';
+    setReasoningStream(undefined);
 
     const derivedTitle = deriveTitle(text);
     setConversations((current) =>
@@ -763,7 +821,9 @@ export function ConversationPage({
         <MessageList
           messages={messages}
           activities={activities}
+          reasonings={reasonings}
           streaming={streaming}
+          reasoningStream={reasoningStream}
           workspace={session?.workspace}
         />
 

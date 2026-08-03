@@ -829,6 +829,31 @@
   @apply p-2 m-0 text-xs font-mono leading-relaxed text-[var(--code-text)] overflow-auto overscroll-contain max-h-96 whitespace-pre;
 }
 
+/* Folded thinking. Quieter than an activity, because it is the least of what a
+   turn produced: no border of its own, so a closed one costs a line and nothing
+   more. */
+.reasoning-block {
+  @apply my-1 max-w-full;
+}
+
+.reasoning-summary {
+  @apply flex items-center gap-1.5 px-2.5 py-1 text-xs text-[var(--muted)] rounded-lg bg-transparent border-0 cursor-pointer select-none hover:text-[var(--text)] transition-colors;
+}
+
+.reasoning-label {
+  @apply italic;
+}
+
+.reasoning-toggle-icon {
+  @apply flex items-center justify-center opacity-70;
+}
+
+/* Marked down the side rather than boxed, so an opened thought reads as an aside
+   to the answer instead of as another message. */
+.reasoning-content {
+  @apply mt-1 ml-1 pl-3 border-l-2 border-[var(--border)] text-sm text-[var(--muted)] max-w-full;
+}
+
 .typing-indicator-row {
   @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--surface-2)] border border-[var(--border)] text-xs text-[var(--muted)] w-fit mt-2 shadow-xs select-none;
 }

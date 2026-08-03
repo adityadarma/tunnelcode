@@ -130,6 +130,16 @@ function textOf(events: EngineEvent[]): string {
     .join('');
 }
 
+/** The thinking, assembled from the events that carry it and nothing else. */
+function reasoningOf(events: EngineEvent[]): string {
+  return events
+    .filter(
+      (event): event is Extract<EngineEvent, { type: 'reasoning' }> => event.type === 'reasoning',
+    )
+    .map((event) => event.text)
+    .join('');
+}
+
 type Activity = Extract<EngineEvent, { type: 'activity' }>;
 
 function activitiesOf(events: EngineEvent[]): Activity[] {
@@ -152,10 +162,11 @@ test('streamed chunks are forwarded in order', async () => {
   });
 });
 
-test('thinking is not relayed as the answer', async () => {
+test('thinking is reported as itself, not as the answer', async () => {
   // ACP reports thinking as a chunk of its own, carrying the same text content as
-  // an answer. Relaying it would show the model working itself out as though it
-  // were speaking to the reader.
+  // an answer. Reported as reasoning, so the reader can open it without ever being
+  // shown the model working itself out as though it were speaking to them.
+  // See ADR-037.
   const script = conversation(`
     update(SESSION, { sessionUpdate: 'agent_thought_chunk', content: text('The user wants X, so I should check the files.') });
     update(SESSION, { sessionUpdate: 'agent_message_chunk', content: text('Here is the answer.') });
@@ -165,6 +176,7 @@ test('thinking is not relayed as the answer', async () => {
   await withFakeEngine('kiro-cli', script, async () => {
     const events = await collect(new KiroEngine().prompt('hi', base));
     assert.equal(textOf(events), 'Here is the answer.');
+    assert.equal(reasoningOf(events), 'The user wants X, so I should check the files.');
   });
 });
 

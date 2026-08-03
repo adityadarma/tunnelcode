@@ -22,7 +22,14 @@ test('migrations create every table the app needs', async () => {
       .map((row) => (row as { name: string }).name);
     raw.close();
 
-    for (const expected of ['devices', 'sessions', 'conversations', 'messages']) {
+    for (const expected of [
+      'devices',
+      'sessions',
+      'conversations',
+      'messages',
+      'activities',
+      'reasonings',
+    ]) {
       assert.ok(tables.includes(expected), `missing table: ${expected}`);
     }
   });
@@ -108,6 +115,34 @@ test('an activity written before the blocked flag reads as having run', async ()
   });
 });
 
+test('a database written before thinking existed still opens, and keeps it after', async () => {
+  await withTempDb(async (handle, file) => {
+    new SessionRepository(handle.db).persistApproved(session);
+    const conversations = new ConversationRepository(handle.db);
+    const conversation = conversations.create('session-1');
+    conversations.appendMessage(conversation.id, 'user', 'keep me');
+    handle.close();
+
+    // The table is new, so an existing database simply has nothing in it. Reading
+    // it must answer with an empty list rather than failing the transcript.
+    await reopenDb(file, async (first) => {
+      const repository = new ConversationRepository(first.db);
+
+      assert.deepEqual(repository.listReasonings(conversation.id), []);
+      repository.appendReasoning(conversation.id, 'worked it out');
+    });
+
+    await reopenDb(file, async (second) => {
+      assert.deepEqual(
+        new ConversationRepository(second.db)
+          .listReasonings(conversation.id)
+          .map((item) => item.content),
+        ['worked it out'],
+      );
+    });
+  });
+});
+
 test('the migration journal does not grow on a rerun', async () => {
   await withTempDb(async (handle, file) => {
     handle.close();
@@ -167,6 +202,7 @@ test('deleting a device cascades to its history', async () => {
     assert.equal(remaining('sessions'), 0);
     assert.equal(remaining('conversations'), 0);
     assert.equal(remaining('messages'), 0);
+    assert.equal(remaining('reasonings'), 0);
     raw.close();
   });
 });

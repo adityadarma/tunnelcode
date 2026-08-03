@@ -12,6 +12,22 @@ to the version it ships as and leaves an empty one behind.
 
 ### Added
 
+- The line under a running turn now says what it is doing: reading, writing, editing,
+  running, searching, fetching, answering, or thinking. It used to say `thinking…`
+  throughout, so a minute spent on a build or on a search read as a model sitting
+  still, which is the one thing it was not doing. A call that has finished and a
+  paragraph already written hand the line back to thinking, so it never claims to be
+  reading a file it read a minute ago. The verb is taken from the tool's own name, so
+  an engine this project has never seen still reports something useful. See ADR-038.
+- A turn now shows what the model was working out, folded above the answer it led to.
+  It says `Thinking…` while the thought arrives and `Thought` once it is done, and it
+  opens on a tap. Until now the deliberation was thrown away, so a model that spent a
+  minute reasoning looked stalled, and a wrong answer gave no clue where it went
+  wrong. It is kept apart from the reply at every step, so the answer never carries
+  it, and it comes back with the rest of the transcript after a refresh. Closed by
+  default, because the working should be available rather than in the way. opencode,
+  Claude Code and Kiro report their thinking; Antigravity reports none, so nothing
+  changes there. See ADR-037.
 - Antigravity can be allowed to run commands, from Setup under Antigravity access. It
   is a grant of its own, separate from write access, and withdrawn from the same place.
   Until now a build or a test it wanted to run was always refused mid-turn, where

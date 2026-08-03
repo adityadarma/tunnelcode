@@ -88,9 +88,22 @@ export interface Activity {
   createdAt: number;
 }
 
+/**
+ * A stretch of the model working itself out, shown folded beside the answer.
+ *
+ * Kept out of the messages because it was never addressed to the reader: an answer
+ * is what the agent decided to say, and this is how it got there. See ADR-037.
+ */
+export interface Reasoning {
+  id: string;
+  content: string;
+  createdAt: number;
+}
+
 export interface Transcript {
   messages: Message[];
   activities: Activity[];
+  reasonings: Reasoning[];
 }
 
 export class ApiError extends Error {
@@ -206,21 +219,29 @@ export async function updateConversationModel(
 }
 
 /**
- * Loads a whole conversation: what was said and what the engine did.
+ * Loads a whole conversation: what was said, what the engine did, and what it was
+ * working out while it did.
  *
- * Activities may be absent when talking to a server that predates them, so the
- * list falls back to empty rather than leaving it undefined.
+ * Activities and thinking may be absent when talking to a server that predates
+ * them, so each list falls back to empty rather than being left undefined.
  */
 export async function readTranscript(
   sessionId: string,
   conversationId: string,
 ): Promise<Transcript> {
-  const body = await request<{ messages: Message[]; activities?: Activity[] }>(
-    `/conversations/${encodeURIComponent(conversationId)}/messages`,
-    { headers: { [SESSION_HEADER]: sessionId } },
-  );
+  const body = await request<{
+    messages: Message[];
+    activities?: Activity[];
+    reasonings?: Reasoning[];
+  }>(`/conversations/${encodeURIComponent(conversationId)}/messages`, {
+    headers: { [SESSION_HEADER]: sessionId },
+  });
 
-  return { messages: body.messages, activities: body.activities ?? [] };
+  return {
+    messages: body.messages,
+    activities: body.activities ?? [],
+    reasonings: body.reasonings ?? [],
+  };
 }
 
 export async function deleteConversation(sessionId: string, conversationId: string): Promise<void> {

@@ -1485,3 +1485,144 @@ reintroduce it: a floor on that area is a floor on the screen.
 
 The decoration goes rather than scrolls because nothing in it is worth reading while
 typing, and rather than crops because half a heading reads as a broken page.
+
+---
+
+# ADR-037
+
+## Thinking Belongs To The Transcript, Folded
+
+Amends ADR-008 and ADR-024.
+
+Decision
+
+An engine that reports its thinking has it carried to the browser and stored, on
+events of its own from the adapter all the way to the surface. It is never added
+to answer text at any point on that trip.
+
+Fragments are relayed as they arrive and never stored. The stretch is stored once,
+when the model stops thinking, which is when it starts answering, runs a tool, or
+the turn ends. That is the same moment an answer is flushed for, and thinking is
+flushed first, because a model thinks before it speaks.
+
+A stored stretch is its own record with its own time, placed on the timeline beside
+the messages and the activities rather than inside any of them.
+
+A turn that fails part way stores what it was working out, like a partial answer.
+
+The surface shows it folded, closed, saying in words that it is thinking while it
+arrives and that it was a thought once it is done. Opening it is the reader's
+choice.
+
+A browser that attaches mid-thought is not given the fragments it missed. It sees
+the stored stretch when the model stops thinking.
+
+Nothing is invented for an engine that does not report its thinking. Antigravity CLI
+counts it and never sends it, so nothing arrives from it and nothing is shown.
+
+Reason
+
+The deliberation was dropped, and dropping it was right about one thing: it is not
+the answer, and reading it as one made the agent look like it was muttering at the
+user. It was wrong about everything else.
+
+It is the only account of a turn nobody watched. A long stretch of thinking arrives
+as silence, and silence is what the surface already shows as a stall: the reader
+cannot tell a model working from a model hung, which is the same confusion ADR-017
+went to some length to stop the timeout making. It is also where a wrong answer
+comes from, so a user with no access to it can see that the agent went astray but
+never where.
+
+Folding is what makes keeping it affordable. Laid out with the answer it would be
+several times longer than the reply and would push it off the screen on a phone,
+which is the same objection that put tool output behind a tap in ADR-024. Closed by
+default for the same reason: a transcript should read as a conversation, and the
+working is available rather than presented.
+
+Its own event rather than a flag on a delta, because the two arrive interleaved on
+one channel in every engine that produces both, and one buffer would put the
+deliberation inside the reply. Both opencode and Claude stream the two through the
+same frame, distinguished only by which block a fragment belongs to, so the
+separation has to be made in the adapter and then held everywhere after it.
+
+Its own table for the reason activities got one: this is not conversation text, and
+the role column on messages has shipped. See ADR-005.
+
+Stored per stretch rather than per fragment, because thinking arrives at token rate
+and ADR-008 keeps that traffic out of the database. Storing it at all is the change
+to ADR-008: what is stored is proportional to what the turn did, not to how much it
+said, and a fold that vanished on refresh would be worth less than not keeping it.
+
+Nothing is replayed to a browser that arrives late. Thinking has no value as a
+fragment stream to somebody who missed the beginning of it, and the stored stretch
+is along in a moment. Holding a buffer per turn for it would be a second copy of
+something already on its way to disk.
+
+Not invented where it is not reported, because an adapter is pinned by output shapes
+recorded from the real engine. A speculative branch for an engine that has never sent
+one is a branch no test can honestly cover.
+
+Antigravity is that case, and it was checked rather than assumed. A recorded run on a
+thinking model reports 270, 39 and 726 thinking tokens across its steps and not one
+word of what they were spent on: an `agent_response` that only deliberated before
+reaching for a tool carries no text at all, and the answer arrives on the last one.
+The count is there and the content is not, so there is nothing to fold. Showing the
+count alone would be a fold that opens on nothing, which is worse than no fold. Its
+tool calls are reported in full, so what it is doing is still named while a turn
+runs.
+
+---
+
+# ADR-038
+
+## A Running Turn Says What It Is Doing
+
+Amends ADR-037.
+
+Decision
+
+The line under a running turn names the last thing the turn reported: thinking,
+reading, writing, editing, running something, searching, fetching, or answering.
+
+The verb is read from the tool name the engine gave, matched on the name rather than
+looked up in a list of tools this project maintains. A name nothing recognises is
+working.
+
+An item that is over does not describe the turn any more. A call that produced its
+output or was refused, and a paragraph that has already been stored, both hand the
+line back to thinking.
+
+A turn that has reported nothing yet is thinking.
+
+The line says this in words. The animation beside it carries no meaning of its own.
+
+Reason
+
+The line always said thinking, which was true only at the start of a turn. A minute
+spent on a build, on a search across a repository, or on a file being written all
+read as a model sitting still and deliberating, which is the one thing it was
+demonstrably not doing. The distinction matters because the waits are not alike: work
+that is happening is worth waiting for, and thinking that goes on for minutes is the
+case ADR-017 abandons a turn over.
+
+The activity above the line already names the tool and what it acted on, so this does
+not repeat either. It answers a different question, which is what is happening now,
+and it is the only thing on screen that does.
+
+The verb comes out of the name because the engines do not agree on names and none of
+them declares an action: `Read`, `read`, `fs_read` and `view_file` are one thing under
+four names, and a new engine will bring a fifth. Matching the name means an unknown
+tool degrades to working rather than to nothing, where a fixed list would have to be
+edited for every engine and would silently fall behind the first one to rename a tool.
+It is also why the fallback is a verb and not the tool's own name: an invented name
+reads as jargon in a sentence about waiting.
+
+A finished item is excluded because including it was the same mistake in a smaller
+form. A read that returned in a moment left the line claiming to be reading for as
+long as the model then spent deciding, and a paragraph flushed before a tool call left
+it claiming to be answering through the pause after it. Both are the model working out
+what comes next, which is what thinking means here.
+
+Said in words rather than shown, because the three dots are the same three dots
+whatever is happening, and a reader who cannot see them would otherwise be told
+nothing at all.

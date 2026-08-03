@@ -51,6 +51,29 @@ out({ event: 'result', result: { conversation_id: id, status: 'SUCCESS', respons
 process.exit(0);
 `;
 
+/**
+ * A run on a thinking model, recorded from agy 1.1.9 with gemini-3.1-pro-high.
+ *
+ * The model demonstrably reasoned: the steps report 270, 39 and 726 thinking tokens.
+ * None of them carries a word of it. An `agent_response` that only thought and then
+ * reached for a tool has no `text_delta` at all, and the answer arrives on the last
+ * one. Antigravity counts the deliberation and never streams it, which is why this
+ * adapter reports no reasoning. See ADR-037.
+ */
+const THINKING_MODEL = `#!/usr/bin/env node
+const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+const id = '0faf6cd6-9bfa-4041-ae81-ac27d09f5fa7';
+out({ event: 'init', conversation_id: id, init: { model: 'gemini-3.1-pro-high', cwd: '/tmp', tools: [], permission_mode: 'request-review' } });
+out({ event: 'step_update', step_update: { conversation_id: id, step_index: 0, state: 'DONE', step_type: 'user_input' } });
+out({ event: 'step_update', step_update: { conversation_id: id, step_index: 2, state: 'DONE', step_type: 'agent_response', duration_seconds: 3.1, usage: { input_tokens: 18122, output_tokens: 317, thinking_tokens: 270, total_tokens: 18439 } } });
+out({ event: 'step_update', step_update: { conversation_id: id, step_index: 3, state: 'ACTIVE', step_type: 'tool', tool_name: 'view_file', tool_info: { name: 'view_file', parameters: { AbsolutePath: '/tmp/scratch/note.txt' } } } });
+out({ event: 'step_update', step_update: { conversation_id: id, step_index: 3, state: 'DONE', step_type: 'tool', tool_name: 'view_file', duration_seconds: 0.1, tool_info: { name: 'view_file', parameters: { AbsolutePath: '/tmp/scratch/note.txt' }, output: 'the number is 4271\\n' } } });
+out({ event: 'step_update', step_update: { conversation_id: id, step_index: 4, state: 'DONE', step_type: 'checkpoint', duration_seconds: 0.4, usage: { input_tokens: 113, output_tokens: 4, thinking_tokens: 0, total_tokens: 117 } } });
+out({ event: 'step_update', step_update: { conversation_id: id, step_index: 5, state: 'DONE', step_type: 'agent_response', text_delta: '4271\\n', duration_seconds: 2.2, usage: { input_tokens: 18891, output_tokens: 730, thinking_tokens: 726, total_tokens: 19621 } } });
+out({ event: 'result', result: { conversation_id: id, status: 'SUCCESS', response: '4271\\n', num_turns: 1 } });
+process.exit(0);
+`;
+
 /** An error envelope, which reports an empty conversation id. */
 const FAILURE = `#!/usr/bin/env node
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
@@ -171,6 +194,32 @@ test('the conversation id is reported so the next prompt can continue it', async
   // Read from init, which is where it appears beside the payload rather than
   // inside it, so a run cut short still leaves an id.
   assert.deepEqual(session, { type: 'session', id: '97b12807-37dd-4b16-9c5c-3350e57757f9' });
+});
+
+test('a thinking model reports its work but never its thinking', async () => {
+  const events = await collect(THINKING_MODEL);
+
+  // The recorded run spent 726 thinking tokens on its last step, so the model did
+  // reason. Antigravity reports the count and never the words, and an adapter is
+  // pinned to what the engine actually sends: there is nothing here to fold, and a
+  // reasoning event invented for it would be one no recording could support.
+  // See ADR-037.
+  assert.equal(
+    events.some((event) => event.type === 'reasoning'),
+    false,
+  );
+
+  // What it did is reported in full, which is what the running turn is named from.
+  // See ADR-038.
+  const activities = events.filter((event) => event.type === 'activity');
+  assert.deepEqual(
+    activities.map((event) => (event.type === 'activity' ? event.tool : '')),
+    ['view_file'],
+  );
+
+  // An agent_response that only thought carries no text at all, so the answer is
+  // whatever the steps that do carry some report.
+  assert.equal(textOf(events), '4271\n');
 });
 
 test('a tool call is reported once, with what it acted on', async () => {

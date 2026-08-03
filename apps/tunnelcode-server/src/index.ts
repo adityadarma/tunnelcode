@@ -13,7 +13,7 @@ const DEFAULT_PORT = 3000;
  * has to be an explicit choice. In Docker, HOST is set to 0.0.0.0 and the
  * published port is what controls access.
  */
-const DEFAULT_HOST = '127.0.0.1';
+const DEFAULT_HOST = '0.0.0.0';
 const DEFAULT_DATABASE_FILE = 'data/tunnelcode.sqlite';
 
 /** How long to let in-flight requests finish before forcing exit. */

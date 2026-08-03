@@ -40,6 +40,11 @@ const MODEL_ALIASES = ['opus', 'sonnet', 'haiku'] as const;
 interface ContentBlockDelta {
   type?: unknown;
   text?: unknown;
+  /**
+   * Carried by a thinking_delta, which names its field after itself rather than
+   * calling it text like an answer does.
+   */
+  thinking?: unknown;
 }
 
 interface StreamEvent {
@@ -476,6 +481,16 @@ export class ClaudeEngine implements Engine {
       }
 
       const delta = event.delta;
+
+      // Thinking streams through the same event as an answer, on a block of its
+      // own. Reported as reasoning so the two never run together in the
+      // transcript. See ADR-037.
+      if (delta?.type === 'thinking_delta') {
+        return typeof delta.thinking === 'string' && delta.thinking !== ''
+          ? { type: 'reasoning', text: delta.thinking }
+          : undefined;
+      }
+
       if (delta?.type !== 'text_delta' || typeof delta.text !== 'string' || delta.text === '') {
         return undefined;
       }

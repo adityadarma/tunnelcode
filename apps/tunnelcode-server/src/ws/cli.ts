@@ -153,6 +153,18 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
           }
           return;
 
+        case 'reasoning_delta':
+          if (deviceId !== undefined) {
+            relay.reasoningDelta(deviceId, message.turnId, message.text);
+          }
+          return;
+
+        case 'turn_reasoning':
+          if (deviceId !== undefined) {
+            relay.reasoning(deviceId, message.turnId, message.text);
+          }
+          return;
+
         case 'turn_log':
           // Engine diagnostics stay on the server log; they are not part of the
           // conversation the user reads.

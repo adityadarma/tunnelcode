@@ -250,6 +250,16 @@ function textOf(events: EngineEvent[]): string {
     .join('');
 }
 
+/** The thinking, assembled from the events that carry it and nothing else. */
+function reasoningOf(events: EngineEvent[]): string {
+  return events
+    .filter(
+      (event): event is Extract<EngineEvent, { type: 'reasoning' }> => event.type === 'reasoning',
+    )
+    .map((event) => event.text)
+    .join('');
+}
+
 type Activity = Extract<EngineEvent, { type: 'activity' }>;
 type Blocked = Extract<EngineEvent, { type: 'blocked' }>;
 
@@ -351,6 +361,31 @@ test('thinking is not relayed as the answer', async () => {
     async (engine) => {
       const events = await collect(engine.prompt('hi', base));
       assert.equal(textOf(events), 'Here is the answer.');
+      // Kept, and kept apart: the reader decides whether to open it, and the answer
+      // is never made to carry it. See ADR-037.
+      assert.equal(reasoningOf(events), 'The user wants X, so I should check the files first.');
+    },
+  );
+});
+
+test('a thought that never streamed is still reported, once', async () => {
+  await withFakeOpenCode(
+    {
+      // What a provider answering in one piece produces: the reasoning part carries
+      // the whole thought and no fragments arrive, then the part is repeated as it
+      // is finished.
+      events: [
+        assistantMessage,
+        reasoningPart('prt-think', 'All at once.'),
+        reasoningPart('prt-think', 'All at once.'),
+        textPart('prt-1', 'Answer.'),
+        idle,
+      ],
+    },
+    async (engine) => {
+      const events = await collect(engine.prompt('hi', base));
+      assert.equal(reasoningOf(events), 'All at once.');
+      assert.equal(textOf(events), 'Answer.');
     },
   );
 });
@@ -377,6 +412,10 @@ test('thinking is separated from the answer each time it resumes', async () => {
     async (engine) => {
       const events = await collect(engine.prompt('hi', base));
       assert.equal(textOf(events), 'Reading the code. Tests pass.');
+      assert.equal(
+        reasoningOf(events),
+        'First I should look at the files.Now I should run the tests.',
+      );
     },
   );
 });

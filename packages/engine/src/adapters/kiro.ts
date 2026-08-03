@@ -298,9 +298,9 @@ function chooseOption(options: PermissionOption[], decision: EnginePermissionDec
  * ADR-022.
  *
  * Text arrives as `agent_message_chunk`. Thinking arrives as
- * `agent_thought_chunk` and is deliberately dropped: it is the model working
- * itself out, not its answer, and relaying it would put the deliberation in the
- * conversation as though it had been said to the reader.
+ * `agent_thought_chunk` and is reported as reasoning rather than as answer text:
+ * it is the model working itself out, so it belongs beside the answer rather than
+ * inside it. See ADR-037.
  */
 export class KiroEngine implements Engine {
   readonly name = 'kiro';
@@ -804,11 +804,16 @@ function mapUpdate(params: unknown, tools: Map<string, ToolMemo>): EngineEvent[]
     return text === '' ? [] : [{ type: 'delta', text }];
   }
 
-  // Thinking, not the answer. Dropped rather than relayed: it is the model
-  // working itself out, and showing it would read as though it were speaking to
-  // the person. The prompt comes back as user_message_chunk, which is the user's
-  // own words and equally not an answer.
-  if (kind === 'agent_thought_chunk' || kind === 'user_message_chunk') {
+  // Thinking, not the answer. Reported as its own event, so it reads as the model
+  // working itself out rather than as something said to the person. See ADR-037.
+  if (kind === 'agent_thought_chunk') {
+    const text = readText(update.content);
+    return text === '' ? [] : [{ type: 'reasoning', text }];
+  }
+
+  // The prompt comes back as the user's own words, which are neither an answer nor
+  // deliberation. Relaying it would replay the question as a reply to itself.
+  if (kind === 'user_message_chunk') {
     return [];
   }
 

@@ -384,6 +384,10 @@ answer cut short by a failure is stored and marked as partial. See ADR-024.
 What the engine did during a turn is stored too: the tool, what it acted on, whatever
 it produced, and whether it was refused.
 
+What the model was working out is stored as well, when the engine reports it. It is
+never part of the answer, it is placed on the timeline like an activity, and the
+browser shows it folded. See ADR-037.
+
 A browser refresh must be able to load the full history.
 
 ---

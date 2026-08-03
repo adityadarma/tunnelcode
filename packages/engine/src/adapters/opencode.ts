@@ -388,16 +388,19 @@ export class OpenCodeEngine implements Engine {
             continue;
           }
 
-          // Thinking, not the answer. Relaying it would show the model working
-          // itself out as though it were speaking to the reader.
-          if (typeof properties.partID === 'string' && reasoningParts.has(properties.partID)) {
-            continue;
-          }
-
           if (typeof properties.partID === 'string') {
             // Remembered so the finished part is not emitted again on top of the
             // fragments it was assembled from.
             streamedParts.add(properties.partID);
+          }
+
+          // Thinking, not the answer. Reported as its own event so the reader is
+          // never shown the model working itself out as though it were speaking to
+          // them, and can still open it when they want to see the working.
+          // See ADR-037.
+          if (typeof properties.partID === 'string' && reasoningParts.has(properties.partID)) {
+            yield { type: 'reasoning', text: properties.delta };
+            continue;
           }
 
           yield { type: 'delta', text: properties.delta };
@@ -463,11 +466,30 @@ export class OpenCodeEngine implements Engine {
       }
 
       // Recorded before any fragment of it arrives, which is the only reason the
-      // deltas that follow can be recognised as thinking. Never emitted: the whole
-      // point is that this text is not part of the answer.
+      // deltas that follow can be recognised as thinking.
       if (part.type === 'reasoning') {
-        if (typeof part.id === 'string' && part.id !== '') {
-          reasoningParts.add(part.id);
+        const id = typeof part.id === 'string' ? part.id : '';
+
+        if (id === '') {
+          return;
+        }
+
+        reasoningParts.add(id);
+
+        // Emitted from here only when the part never streamed, which is the same
+        // fallback a text part has: a provider that answers in one piece reports
+        // the whole thought on the part instead of in fragments.
+        if (streamedParts.has(id) || typeof part.text !== 'string') {
+          return;
+        }
+
+        const seen = emittedText.get(id) ?? '';
+        emittedText.set(id, part.text);
+
+        const thought = part.text.startsWith(seen) ? part.text.slice(seen.length) : part.text;
+
+        if (thought !== '') {
+          yield { type: 'reasoning', text: thought };
         }
         return;
       }

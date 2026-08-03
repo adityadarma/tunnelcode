@@ -602,3 +602,51 @@ offers its other engines.
 
 A failure Kiro reports is read in its own words, so a quota problem is not answered
 with a login.
+
+---
+
+# Milestone 20 — Reported Thinking
+
+## Goal
+
+Keep what the model was working out instead of dropping it, without letting it be
+read as the answer. See ADR-037.
+
+### Tasks
+
+- [x] Reasoning event in the engine contract, separate from a delta
+- [x] opencode reports its reasoning parts, streamed and whole
+- [x] Claude reports its thinking blocks
+- [x] Kiro reports its thought chunks
+- [x] Nothing invented for Antigravity, which counts its thinking and never sends it
+- [x] Unit: a recorded Antigravity run on a thinking model reports work, not thinking
+- [x] Fragments relayed live, the stretch stored when the model stops thinking
+- [x] Thinking flushed before the answer or the tool call that closed it off
+- [x] A turn that fails mid-thought keeps what it was working out
+- [x] Its own table, its own record, placed on the timeline by time
+- [x] Thinking travels with the transcript, so a refresh restores the fold
+- [x] The browser shows it folded and closed, saying in words which state it is in
+- [x] A browser attaching mid-thought is given the stored stretch, not the fragments
+- [x] Unit: every adapter that can report thinking keeps it out of the answer
+- [x] Unit: flush order, live relay, and a failure mid-thought
+- [x] Integration: relayed, stored, reloaded, and never written by another device
+- [x] Migration test: an existing database gains the table and keeps its rows
+- [x] UI: the fold is closed, opens on demand, and is placed before what it led to
+- [x] The running turn names what it is doing, from the last thing it reported
+- [x] A verb read from the tool name, with a general word for one nothing recognises
+- [x] A finished call, and a stored paragraph, hand the line back to thinking
+- [x] Unit: the verbs, the overlapping names, the unknown tool, and every turn state
+- [x] UI: a running call is named, and a finished one is not
+
+Acceptance
+
+A turn that thinks for a long time says so while it happens, instead of looking
+stalled.
+
+The answer never carries the deliberation, and a reader who wants the working can
+open it.
+
+A refresh brings the thinking back with the rest of the transcript.
+
+An engine that reports no thinking is unaffected, and its turns still say what they
+are doing, because that is read from the tool calls every engine reports.

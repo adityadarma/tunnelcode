@@ -305,6 +305,40 @@ test('engine output has a length the CLI cannot exceed', () => {
   assert.equal(parseCliMessage(output(ENGINE_TEXT_MAX_LENGTH + 1)), undefined);
 });
 
+test('thinking travels on events of its own, bound like any other output', () => {
+  const turnId = '9d4b7c10-8e3f-4a26-b5d8-1c0f9a2e6b74';
+
+  // Two events, because the two halves are different things: fragments are relayed
+  // and forgotten, and the stretch is stored. See ADR-037.
+  assert.notEqual(
+    parseCliMessage(JSON.stringify({ type: 'reasoning_delta', turnId, text: 'working' })),
+    undefined,
+  );
+  assert.notEqual(
+    parseCliMessage(JSON.stringify({ type: 'turn_reasoning', turnId, text: 'worked it out' })),
+    undefined,
+  );
+
+  // Held to the same length as anything else the engine produces, since a thought
+  // is stored and is not typed by a person either.
+  assert.equal(
+    parseCliMessage(
+      JSON.stringify({
+        type: 'turn_reasoning',
+        turnId,
+        text: 'x'.repeat(ENGINE_TEXT_MAX_LENGTH + 1),
+      }),
+    ),
+    undefined,
+  );
+
+  // A thought with no turn has nothing to be placed against.
+  assert.equal(
+    parseCliMessage(JSON.stringify({ type: 'turn_reasoning', text: 'orphan' })),
+    undefined,
+  );
+});
+
 test('the engine may say more than a person may ask', () => {
   // A command's output is not typed by anyone, so holding it to the prompt limit
   // would truncate ordinary work.

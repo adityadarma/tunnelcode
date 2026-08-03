@@ -16,6 +16,12 @@
 - Never edit a migration that has already shipped. Add a new one instead.
 - A new column is either nullable or has a default, so existing rows stay valid.
 - An engine's own shape stays in its adapter: permission transport, nested sessions, and output format are normalized there, one file per engine. The protocol stays flat.
+- What the model says, what it was working out, and what it did are three different things, and they never share a field. An adapter that can tell them apart reports each on its own event, and nothing downstream merges them back.
+- Every engine that reports its thinking has it mapped. An engine that reports none has nothing invented for it: a shape no recorded output has ever carried is not mapped on the strength of documentation.
+- Thinking is relayed as it arrives and stored once per stretch, when the model stops thinking. Never per fragment, and never left unstored, so what a reader watched arrive is still there after a refresh.
+- Thinking is shown folded and closed. A transcript reads as a conversation, and the working is available rather than presented.
+- A running turn says what it is doing, taken from the last thing it reported, and an item that is over stops describing it. Progress is stated in words: an animation carries no meaning of its own.
+- A verb for a tool is read from the name the engine gave it, never from a list of tool names kept in this project. An unrecognised tool degrades to a general word rather than being shown its own name.
 - Never pass an engine flag that approves tool calls on the agent's behalf. An engine that cannot be asked must be left to refuse, so a limit set on this machine is never bypassed by a flag.
 - Never shorten a value the machine also decides with. Permission targets, commands, and paths are recorded whole; shortening is the surface's job and belongs in CSS, not in an event.
 - A path shown to the user is relative to the workspace, with no prefix marker in front of it.

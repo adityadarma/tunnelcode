@@ -120,6 +120,28 @@ export const messages = sqliteTable(
 );
 
 /**
+ * A stretch of the model working itself out during a turn.
+ *
+ * Its own table for the same reason an activity has one: this is not conversation
+ * text, and the role enum on messages has no room for it without retyping a
+ * shipped column. Stored so the fold a reader opened is still there after a
+ * refresh, and stored once per stretch rather than per fragment, which keeps
+ * writes proportional to what the turn did. See ADR-005, ADR-008 and ADR-037.
+ */
+export const reasonings = sqliteTable(
+  'reasonings',
+  {
+    id: text('id').primaryKey(),
+    conversationId: text('conversation_id')
+      .notNull()
+      .references(() => conversations.id, { onDelete: 'cascade' }),
+    content: text('content').notNull(),
+    createdAt: integer('created_at').notNull(),
+  },
+  (table) => [index('reasonings_conversation_idx').on(table.conversationId)],
+);
+
+/**
  * Something the engine did during a turn: a file it wrote, a command it ran.
  *
  * Kept in its own table rather than as another message role, because an activity

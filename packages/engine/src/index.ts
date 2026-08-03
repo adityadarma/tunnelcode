@@ -28,6 +28,7 @@ export type {
   EngineLog,
   EnginePermissionDecision,
   EnginePermissionRequest,
+  EngineReasoning,
   EngineSession,
   PromptOptions,
 } from './types.js';

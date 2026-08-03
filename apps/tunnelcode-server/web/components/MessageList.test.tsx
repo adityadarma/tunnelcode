@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MessageList } from './MessageList.js';
-import type { Activity, Message } from '../api.js';
+import type { Activity, Message, Reasoning } from '../api.js';
 
 const messages: Message[] = [
   { id: 'm1', role: 'user', content: 'what is this', createdAt: 1700000000000 },
@@ -42,7 +43,9 @@ describe('MessageList', () => {
     render(<MessageList messages={messages} activities={[]} streaming="partial ans" />);
 
     expect(screen.getByText('partial ans')).toBeDefined();
-    expect(screen.getByText('thinking…')).toBeDefined();
+    // Text is arriving, so the turn is answering. Saying it was thinking would
+    // describe the one thing it is demonstrably not doing. See ADR-038.
+    expect(screen.getByText('answering…')).toBeDefined();
   });
 
   test('an empty streaming string still shows the typing state', () => {
@@ -50,6 +53,66 @@ describe('MessageList', () => {
 
     // The prompt was sent, so the user needs feedback before the first delta.
     expect(screen.getByText('thinking…')).toBeDefined();
+  });
+
+  test('a running tool call is named while the turn waits on it', () => {
+    const activities: Activity[] = [
+      { id: 'a1', tool: 'Bash', target: 'pnpm test', createdAt: 1700000002000 },
+    ];
+
+    render(<MessageList messages={messages} activities={activities} streaming="" />);
+
+    // A minute spent on a command is work, and the line has to say so rather than
+    // claiming the model is thinking. See ADR-038.
+    expect(screen.getByText('running…')).toBeDefined();
+    expect(screen.queryByText('thinking…')).toBeNull();
+  });
+
+  test('reading and writing are named as themselves', () => {
+    const reading: Activity[] = [
+      { id: 'a1', tool: 'Read', target: 'a.ts', createdAt: 1700000002000 },
+    ];
+
+    const { unmount } = render(
+      <MessageList messages={messages} activities={reading} streaming="" />,
+    );
+
+    expect(screen.getByText('reading…')).toBeDefined();
+    unmount();
+
+    const writing: Activity[] = [
+      { id: 'a2', tool: 'write_to_file', target: 'a.ts', createdAt: 1700000002000 },
+    ];
+
+    render(<MessageList messages={messages} activities={writing} streaming="" />);
+
+    // Every engine names its tools differently, so the verb is read from the name
+    // rather than from a list of tools this project would have to keep.
+    expect(screen.getByText('writing…')).toBeDefined();
+  });
+
+  test('a finished tool call hands the turn back to thinking', () => {
+    const activities: Activity[] = [
+      {
+        id: 'a1',
+        tool: 'Read',
+        target: 'a.ts',
+        output: 'export function thing(): void {}',
+        createdAt: 1700000002000,
+      },
+    ];
+
+    render(<MessageList messages={messages} activities={activities} streaming="" />);
+
+    // The read is over, so the wait is now the model deciding what to do with it.
+    expect(screen.getByText('thinking…')).toBeDefined();
+  });
+
+  test('a finished turn shows no status line at all', () => {
+    render(<MessageList messages={messages} activities={[]} streaming={undefined} />);
+
+    expect(screen.queryByText('thinking…')).toBeNull();
+    expect(screen.queryByText('answering…')).toBeNull();
   });
 
   test('content is rendered as text, not markup', () => {
@@ -231,6 +294,97 @@ describe('MessageList', () => {
     // A chained command ends in the part that matters, so cutting it hides what the
     // reader came for. The pill scrolls instead.
     expect(screen.getByText(target)).toBeDefined();
+  });
+
+  test('thinking is folded away, and opens on demand', async () => {
+    const reasonings: Reasoning[] = [
+      { id: 'r1', content: 'I should read the file first.', createdAt: 1700000000400 },
+    ];
+
+    render(
+      <MessageList
+        messages={messages}
+        activities={[]}
+        reasonings={reasonings}
+        streaming={undefined}
+      />,
+    );
+
+    // Closed by default, so a turn that thought at length still reads as a
+    // conversation rather than as pages of deliberation. See ADR-037.
+    expect(screen.queryByText('I should read the file first.')).toBeNull();
+
+    const fold = screen.getByRole('button', { name: /Thought/ });
+    expect(fold.getAttribute('aria-expanded')).toBe('false');
+
+    await userEvent.click(fold);
+
+    expect(screen.getByText('I should read the file first.')).toBeDefined();
+    expect(fold.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  test('thinking never becomes part of the answer', () => {
+    const reasonings: Reasoning[] = [
+      { id: 'r1', content: 'deliberating out loud', createdAt: 1700000000400 },
+    ];
+
+    const { container } = render(
+      <MessageList
+        messages={messages}
+        activities={[]}
+        reasonings={reasonings}
+        streaming={undefined}
+      />,
+    );
+
+    const answer = [...container.querySelectorAll('.message-text-block')].map(
+      (node) => node.textContent ?? '',
+    );
+
+    // The answer is what the agent decided to say. Reading the working out as
+    // though it had been said to them is exactly what the fold prevents.
+    expect(answer).toEqual(['a bridge']);
+  });
+
+  test('thinking still arriving says so', () => {
+    render(
+      <MessageList
+        messages={messages}
+        activities={[]}
+        streaming=""
+        reasoningStream="halfway through a thought"
+      />,
+    );
+
+    // Said in words rather than left to the animation, so the state survives
+    // without colour or motion.
+    expect(screen.getByRole('button', { name: /Thinking…/ })).toBeDefined();
+  });
+
+  test('thinking is placed by time, before the answer it led to', () => {
+    const reasonings: Reasoning[] = [
+      { id: 'r1', content: 'working it out', createdAt: 1700000000400 },
+    ];
+    const activities: Activity[] = [
+      { id: 'a1', tool: 'Read', target: 'a.ts', createdAt: 1700000000500 },
+    ];
+
+    const { container } = render(
+      <MessageList
+        messages={messages}
+        activities={activities}
+        reasonings={reasonings}
+        streaming={undefined}
+      />,
+    );
+
+    const order = [...container.querySelectorAll('.message p, .reasoning-summary')].map((node) =>
+      (node.textContent ?? '').trim(),
+    );
+
+    // A model thinks before it acts, and acts before it reports. The transcript has
+    // to read in that order. See ADR-024.
+    expect(order).toEqual(['what is this', 'Thought', 'Reada.ts', 'a bridge']);
   });
 
   test('activities alone are enough to show a transcript', () => {
