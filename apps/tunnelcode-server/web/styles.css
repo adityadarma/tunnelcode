@@ -608,7 +608,20 @@
 
 /* Device Panel */
 .device-wrapper {
-  @apply p-3 shrink-0 bg-[var(--surface)];
+  @apply p-3 shrink-0 bg-[var(--surface)] flex flex-col gap-2;
+}
+
+/* Notifications */
+.btn-notify {
+  @apply w-full text-xs font-medium py-1.5 px-3 rounded-lg text-[var(--muted)] bg-[var(--surface-2)] border border-[var(--border)] hover:text-[var(--text)] hover:bg-[var(--surface-hover)] transition-all inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-default;
+}
+
+.btn-notify.on {
+  @apply text-[var(--accent)] bg-[var(--accent-glow)] border-[var(--accent)]/40;
+}
+
+.notify-blocked {
+  @apply m-0 text-[11px] leading-snug text-[var(--muted)] bg-[var(--surface-2)] border border-[var(--border)] rounded-lg p-2;
 }
 
 .device-panel {

@@ -247,3 +247,36 @@ export async function deleteConversation(conversationId: string): Promise<void> 
     method: 'DELETE',
   });
 }
+
+/**
+ * The key a browser subscribes to notifications with.
+ *
+ * Fetched rather than baked in: it belongs to the deployment, and a subscription
+ * made against a different one is refused by the push service. See ADR-045.
+ */
+export async function readPushKey(): Promise<string> {
+  const body = await request<{ publicKey: string }>('/push/key');
+  return body.publicKey;
+}
+
+/** A subscription in the shape the server stores it. */
+export interface PushSubscriptionPayload {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}
+
+/** Tells the server where to reach this browser while it is closed. */
+export async function savePushSubscription(subscription: PushSubscriptionPayload): Promise<void> {
+  await request<Record<string, never>>('/push/subscribe', {
+    method: 'POST',
+    body: JSON.stringify(subscription),
+  });
+}
+
+/** Tells the server to stop, which it does whether or not it knew the endpoint. */
+export async function deletePushSubscription(endpoint: string): Promise<void> {
+  await request<Record<string, never>>('/push/unsubscribe', {
+    method: 'POST',
+    body: JSON.stringify({ endpoint }),
+  });
+}

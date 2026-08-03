@@ -27,8 +27,19 @@ interface BrowserSocketOptions {
   conversationRepository: ConversationRepository;
   permissions: PermissionService;
   relay: TurnRelay;
+  /**
+   * Told when a session is retired, so it stops holding an endpoint nothing will
+   * ever send to. Optional, since a server without notifications has nothing to
+   * forget. See ADR-045.
+   */
+  push?: PushForget;
   /** Shortened by tests, which cannot wait out the real one. */
   authTimeoutMs?: number;
+}
+
+/** The part of the push service this socket uses, kept narrow on purpose. */
+export interface PushForget {
+  forgetSession(sessionId: string): void;
 }
 
 /**
@@ -52,6 +63,7 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
     conversationRepository,
     permissions,
     relay,
+    push,
   } = options;
 
   app.get('/ws/browser', { websocket: true }, (socket: WebSocket, request: FastifyRequest) => {
@@ -224,6 +236,9 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
       }
 
       sessionRepository.markEnded(sessionId);
+      // Nothing can happen on this session again, so there is nothing left to
+      // notify anybody about. See ADR-045.
+      push?.forgetSession(sessionId);
       registry.send(deviceId, { type: 'stop', reason: 'The browser disconnected.' });
     };
 

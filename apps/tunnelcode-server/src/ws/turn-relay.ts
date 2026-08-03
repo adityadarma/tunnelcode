@@ -3,6 +3,7 @@ import type { PermissionDecision, ServerToCliMessage } from '@tunnelcode/protoco
 import type { ConversationRepository, Interruption } from '../db/conversation-repository.js';
 import type { SessionRepository } from '../db/session-repository.js';
 import type { PendingPermission, PermissionService } from '../services/permission.js';
+import type { Notification } from '../services/push.js';
 import type { Turn, TurnService } from '../services/turn.js';
 import type { BrowserRegistry } from './browser-registry.js';
 import type { CliRegistry } from './registry.js';
@@ -26,6 +27,19 @@ export interface TurnRelayOptions {
   permissions: PermissionService;
   /** Needed because an answer has to travel back to the waiting engine. */
   registry: CliRegistry;
+  /**
+   * Reaches a browser that is not connected.
+   *
+   * Optional because the relay's job is the turn, not the notification: a server
+   * built without one simply tells nobody. It decides for itself whether anybody
+   * needs telling. See ADR-045.
+   */
+  push?: PushNotifier;
+}
+
+/** The part of the push service the relay uses, kept narrow on purpose. */
+export interface PushNotifier {
+  notify(sessionId: string, notification: Notification): void;
 }
 
 /**
@@ -271,6 +285,26 @@ export class TurnRelay {
     );
 
     this.options.browsers.broadcast(turn.sessionId, this.askMessage(pending));
+
+    // The one event in a turn that cannot proceed without the user, and it expires.
+    // A browser that is closed would otherwise leave the agent stopped until the ask
+    // timed out, with nothing anywhere to say it was waiting. See ADR-045.
+    this.notify(turn.sessionId, {
+      kind: 'permission',
+      title: 'Approval needed',
+      body: ask.target === undefined ? ask.title : `${ask.title}: ${ask.target}`,
+      conversationId: turn.conversationId,
+    });
+  }
+
+  /**
+   * Tells a browser that is not connected, if anything is set up to.
+   *
+   * The push service decides whether anybody needs telling, since it is what knows
+   * about subscriptions; the relay only says what happened.
+   */
+  private notify(sessionId: string, notification: Notification): void {
+    this.options.push?.notify(sessionId, notification);
   }
 
   /**
@@ -464,6 +498,15 @@ export class TurnRelay {
       conversationId: turn.conversationId,
       turnId,
     });
+
+    // A turn is the long wait: the user asked for something and went away. The answer
+    // itself is the body, since that is what they came back for.
+    this.notify(turn.sessionId, {
+      kind: 'done',
+      title: 'The answer is ready',
+      body: text === '' ? 'The agent finished working.' : text,
+      conversationId: turn.conversationId,
+    });
   }
 
   /**
@@ -581,6 +624,15 @@ export class TurnRelay {
       type: 'turn_done',
       conversationId: turn.conversationId,
       turnId,
+    });
+
+    // Told as well as a finished answer, because the wait ended either way and coming
+    // back to nothing is what a silent failure looks like from the outside.
+    this.notify(turn.sessionId, {
+      kind: 'failed',
+      title: 'The answer stopped',
+      body: message,
+      conversationId: turn.conversationId,
     });
   }
 

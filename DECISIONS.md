@@ -1926,3 +1926,85 @@ The idle clock is the same mistake in a third place. It measures how long nobody
 used the agent, and it was created per connection and restarted on every registration,
 so a reconnect handed an unused session another hour. A registration is not somebody
 using the agent, exactly as a browser attaching is not.
+
+---
+
+# ADR-045
+
+## Installable App, And A Notification Only When Nobody Is Watching
+
+Decision
+
+The web app ships a manifest, icons and a service worker, so a browser can install it.
+
+The service worker caches the document and the built assets, and never an API
+response.
+
+Two events raise a notification: a permission ask, and a turn ending. Nothing else.
+
+A notification is raised in one of two places, decided by where the user is not. A
+page that is open but hidden raises it itself. When no browser holds the session
+socket, the server sends a web push and the service worker shows it. A visible page
+raises nothing.
+
+Web push is implemented in this repository against RFC 8291 and RFC 8292, using
+node:crypto.
+
+A subscription is filed against the pairing session, is scoped to it on every read,
+and is dropped when the session is retired.
+
+The signing key pair is generated once on first use and stored in the database, so
+subscriptions stay valid across restarts without any configuration.
+
+Reason
+
+The agent stops and waits. An ask expires on its own, and the answer to it is the one
+thing in a turn that nobody but the user can give, so a browser that is closed turns a
+question into a refusal five minutes later with nothing anywhere to say it was asked.
+That is the case this exists for. A finished answer is the other half: the reason to
+leave is that the work takes a while.
+
+Which of the two places raises it follows from what the server already knows. The
+browser registry says whether anybody is attached, so the server does not have to
+guess whether a notification is wanted: nothing attached is nobody watching. A page
+that is merely hidden is still attached and still receiving events, so it raises its
+own notification and the server stays out of it. Nothing has to be coordinated between
+the two, because the two conditions cannot both hold.
+
+Installing is what makes the second case reachable at all on iOS, where Safari refuses
+notifications to a tab. It also happens to be what the product is: a phone driving an
+agent on a machine somewhere else is a thing to open, not a page to find.
+
+Implementing push here rather than taking a dependency is the same trade this project
+makes elsewhere. Everything the specifications ask for is in node:crypto: ECDH on
+P-256, HKDF over HMAC-SHA-256, AES-128-GCM, and ECDSA. What made it worth doing is
+that RFC 8291 publishes a worked example, so the derivation is pinned by reproducing a
+record byte for byte rather than by trusting that it looks right. A receiver cannot be
+run here, so a test that only round-trips its own output would pass with a wrong info
+string.
+
+The payload is encrypted for the subscriber's key, which the server holds no half of,
+so what a push service carries is something it cannot read. That matters because the
+body says what the agent wants to do, which names files and commands on the user's
+machine.
+
+The subscription is session scoped for the same reason the transcript is. It is
+permission to be told what an agent is doing, so it ends when permission to reach that
+agent does, and an endpoint can only be given up by the session that filed it: an
+endpoint travels in a request body, and without the scope any paired browser could
+silence any other by naming it.
+
+The signing key is not generated per process because a subscription is made against one
+public key. A pair regenerated on restart would leave every phone holding a subscription
+the push service refuses to deliver on, and nothing on the phone would say so. Storing
+it in the database is what makes that work with no configuration: it survives a restart
+the same way a conversation does, and there is nothing to configure.
+
+Nothing from the API is cached. A transcript is state, and a cached one served as
+current is a lie the page cannot detect. The document is fetched network first so a
+deploy is picked up at once, and the built assets are cached by name, which already
+identifies their contents.
+
+A notification is not a channel. Sending is fire and forget and its failures are
+logged, never raised: the turn is the work, and a push service that is slow must not be
+able to hold up an answer.

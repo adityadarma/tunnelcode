@@ -10,6 +10,27 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+### Added
+
+- The web app can be installed. Chrome and Edge offer an install button in the address
+  bar, and on iOS it goes on the home screen through Share, Add to Home Screen.
+  Installed it opens in its own window with no browser chrome, and a service worker
+  keeps the app itself cached so it opens without waiting on the network. Nothing from
+  the API is cached: a transcript is state, and a stale one shown as current would be a
+  lie the page cannot detect. Installing needs `https` or `localhost`, since a browser
+  refuses to install a page it does not consider secure. See ADR-045.
+
+- Notifications, for the two moments worth interrupting somebody over: an approval the
+  agent has stopped and is waiting for, and a turn ending. Press Notify me in the
+  sidebar to turn them on. With the browser closed the server sends a push, so an
+  approval reaches you rather than expiring unseen five minutes later with nothing
+  anywhere to say it was asked. A tab in the background raises its own instead, and a
+  tab you are looking at raises none, because the card is already on screen. The body
+  is encrypted for your browser alone, so the push service in between carries something
+  it cannot read, which matters because it names files and commands on the paired
+  machine. Notifications stop when the pairing does. On iOS this needs the app on the
+  home screen first: Safari does not offer notifications to a tab. See ADR-045.
+
 ## [0.3.7] - 2026-08-03
 
 ### Added

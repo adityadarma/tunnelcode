@@ -20,6 +20,16 @@
     />
     <!-- The pairing code travels in the query string, so keep it out of referers. -->
     <meta name="referrer" content="no-referrer" />
+    <!-- What makes this installable, and what a launcher reads the name and icons from. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- iOS ignores the manifest for the home screen icon and reads this instead. -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <meta name="theme-color" content="#12151e" />
+    <!-- Keeps the installed app out of Safari's chrome, matching display: standalone. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="TunnelCode" />
     <title>TunnelCode</title>
   </head>
   <body>

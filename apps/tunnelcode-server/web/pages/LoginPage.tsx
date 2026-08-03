@@ -98,20 +98,7 @@ export function LoginPage({ initialCode, onPaired }: LoginPageProps): React.JSX.
         <div className="login-bg-glow" />
         <section className="card login-card text-center">
           <div className="brand-badge animate-pulse">
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect x="2" y="4" width="20" height="16" rx="4" />
-              <path d="M7 10l4 4-4 4" />
-              <path d="M13 18h4" />
-            </svg>
+            <img src="/icon-192.png" alt="TunnelCode" width="24" height="24" />
           </div>
           <h1>Confirm on your device</h1>
           <p className="muted">This number must match the one in your terminal.</p>
@@ -188,20 +175,7 @@ export function LoginPage({ initialCode, onPaired }: LoginPageProps): React.JSX.
       <section className="card login-card">
         <div className="login-header">
           <div className="brand-badge">
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect x="2" y="4" width="20" height="16" rx="4" />
-              <path d="M7 10l4 4-4 4" />
-              <path d="M13 18h4" />
-            </svg>
+            <img src="/icon-192.png" alt="TunnelCode" width="24" height="24" />
           </div>
           <div className="brand-title-group">
             <h1>TunnelCode</h1>

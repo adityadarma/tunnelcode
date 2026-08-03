@@ -8,6 +8,7 @@ import type { RunApprovals } from '../services/run-approvals.js';
 import type { SessionService } from '../services/session.js';
 import type { SessionRepository } from '../db/session-repository.js';
 import type { BrowserRegistry } from './browser-registry.js';
+import type { PushForget } from './browser.js';
 import type { CliRegistry } from './registry.js';
 import type { TurnRelay } from './turn-relay.js';
 import { startAuthTimeout } from './auth-timeout.js';
@@ -24,6 +25,12 @@ interface CliSocketOptions {
   sessionRepository: SessionRepository;
   relay: TurnRelay;
   lifecycle: Lifecycle;
+  /**
+   * Told when a session is retired in the terminal, so a browser that asked to be
+   * notified about this machine stops being. Optional, since a server without
+   * notifications has nothing to forget. See ADR-045.
+   */
+  push?: PushForget;
   /** Shortened by tests, which cannot wait out the real one. */
   authTimeoutMs?: number;
 }
@@ -36,7 +43,7 @@ interface CliSocketOptions {
  * pairing request belonging to another. See ADR-014.
  */
 export function registerCliSocket(app: FastifyInstance, options: CliSocketOptions): void {
-  const { devices, sessions, registry, browsers, runs, sessionRepository, relay, lifecycle } =
+  const { devices, sessions, registry, browsers, runs, sessionRepository, relay, lifecycle, push } =
     options;
 
   app.get('/ws/cli', { websocket: true }, (socket: WebSocket) => {
@@ -219,6 +226,9 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
           // connection. The stored conversations are kept; the session is not.
           if (refused.sessionId !== undefined) {
             sessionRepository.markEnded(refused.sessionId);
+            // Refused for good, so a browser that had asked to be notified about this
+            // machine stops being. See ADR-045.
+            push?.forgetSession(refused.sessionId);
             browsers.broadcast(refused.sessionId, {
               type: 'resume_rejected',
               message: 'The terminal did not allow this browser to continue.',

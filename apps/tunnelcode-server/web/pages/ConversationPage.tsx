@@ -13,11 +13,12 @@ import { ConversationList } from '../components/ConversationList.js';
 import { DevicePanel } from '../components/DevicePanel.js';
 import { MessageList } from '../components/MessageList.js';
 import { ModelPicker } from '../components/ModelPicker.js';
+import { NotificationToggle } from '../components/NotificationToggle.js';
 import { PermissionPrompt } from '../components/PermissionPrompt.js';
 import type { PermissionAsk, PermissionDecision } from '../components/PermissionPrompt.js';
 import { ResumeApproval } from '../components/ResumeApproval.js';
 import { ThemeToggle } from '../components/ThemeToggle.js';
-import { APP_VERSION } from '../version.js';
+import { notifyPermission, notifyTurnDone, refreshSubscription } from '../notifications.js';
 import {
   readStoredActiveConversationId,
   readStoredTheme,
@@ -242,6 +243,21 @@ export function ConversationPage({
    */
   const streamedRef = useRef('');
 
+  /**
+   * The last answer stored in this session, used as the body of the notification
+   * raised when a turn ends. Cleared with the turn, so a later one cannot be
+   * described with an older answer.
+   */
+  const lastAnswerRef = useRef('');
+
+  /**
+   * Asks already notified about, keyed by turn and permission.
+   *
+   * An ask is replayed every time the socket attaches, and a reconnect that raised
+   * the same notification again would be indistinguishable from a second ask.
+   */
+  const notifiedAsksRef = useRef<Set<string>>(new Set());
+
   const selectActiveId = useCallback((id: string | undefined): void => {
     setActiveId(id);
     if (id !== undefined) {
@@ -311,6 +327,13 @@ export function ConversationPage({
       }
 
       case 'message': {
+        // Kept whichever conversation it belongs to, and before the guard below, so
+        // the notification raised when the turn ends can say what the agent
+        // answered rather than only that it finished.
+        if (event.role === 'assistant' && typeof event.content === 'string') {
+          lastAnswerRef.current = event.content;
+        }
+
         if (event.conversationId !== activeIdRef.current) {
           return;
         }
@@ -453,6 +476,18 @@ export function ConversationPage({
           return;
         }
 
+        // Only when this tab is not what the user is looking at, which the
+        // notification itself decides: the card is on screen otherwise, and telling
+        // somebody about something in front of them is noise. Tracked separately
+        // from the cards because an ask is replayed on every attach, so a reconnect
+        // must not notify a second time.
+        const askKey = `${ask.turnId}:${ask.permissionId}`;
+
+        if (!notifiedAsksRef.current.has(askKey)) {
+          notifiedAsksRef.current.add(askKey);
+          notifyPermission(ask.title, ask.target, ask.conversationId !== activeIdRef.current);
+        }
+
         // Replayed on every attach, so the same ask can arrive more than once.
         setAsks((current) =>
           current.some(
@@ -480,6 +515,14 @@ export function ConversationPage({
       // conversations this browser is not watching. Clearing here is what frees
       // the composer again.
       case 'turn_done':
+        // The end of the wait, which is what somebody who left the tab is waiting
+        // for. The answer stands as the body when one arrived in this turn.
+        notifyTurnDone(
+          lastAnswerRef.current === '' ? 'The agent finished working.' : lastAnswerRef.current,
+          event.conversationId !== activeIdRef.current,
+        );
+        lastAnswerRef.current = '';
+
         setRunningTurn(undefined);
         setStreaming(undefined);
         streamedRef.current = '';
@@ -522,6 +565,13 @@ export function ConversationPage({
   useEffect(() => {
     void refreshSession();
   }, [refreshSession]);
+
+  // A subscription is filed against the session that made it, so a browser that
+  // already agreed to notifications has to say so again for a new pairing. Silent:
+  // nothing is asked of a browser that never agreed. See ADR-045.
+  useEffect(() => {
+    void refreshSubscription();
+  }, [sessionId]);
 
   // The socket reports device status, so the summary follows it without polling.
   useEffect(() => {
@@ -834,6 +884,9 @@ export function ConversationPage({
 
         {session !== undefined && (
           <div className="device-wrapper">
+            {/* Beside the device it notifies about, since that is what a
+                notification is from: this machine's agent asking for something. */}
+            <NotificationToggle />
             <DevicePanel
               session={{ ...session, online: socket.online }}
               onDisconnect={disconnect}
@@ -886,9 +939,6 @@ export function ConversationPage({
             <h1>{active?.title ?? 'TunnelCode'}</h1>
           </div>
           <div className="main-head-controls">
-            <span className="app-version-badge" title="Server Version">
-              {APP_VERSION}
-            </span>
             <ThemeToggle theme={theme} onToggle={toggleTheme} />
           </div>
         </header>

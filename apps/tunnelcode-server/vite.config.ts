@@ -34,7 +34,7 @@ export default defineConfig(() => {
     root: 'web',
     plugins: [tailwindcss(), react()],
     define: {
-      __APP_VERSION__: JSON.stringify(`v${pkg.version}`),
+      __APP_VERSION__: JSON.stringify(pkg.version),
     },
     build: {
       outDir: '../dist/web',

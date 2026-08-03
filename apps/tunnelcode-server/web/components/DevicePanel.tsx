@@ -1,4 +1,5 @@
 import type { SessionDetail } from '../api.js';
+import { APP_VERSION } from '../version.js';
 
 interface DevicePanelProps {
   session: SessionDetail;
@@ -39,6 +40,10 @@ export function DevicePanel({ session, onDisconnect }: DevicePanelProps): React.
           <dd className="mono" title={session.workspace}>
             {session.workspace}
           </dd>
+        </div>
+        <div>
+          <dt>Version</dt>
+          <dd>{APP_VERSION}</dd>
         </div>
       </dl>
 

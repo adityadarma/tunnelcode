@@ -6,8 +6,10 @@ import { ENGINE_TEXT_MAX_LENGTH } from '@tunnelcode/protocol';
 import { openDb } from './db/client.js';
 import { runMigrations } from './db/migrate.js';
 import { ConversationRepository } from './db/conversation-repository.js';
+import { PushRepository } from './db/push-repository.js';
 import { SessionRepository } from './db/session-repository.js';
 import { DeviceService } from './services/device.js';
+import { PushService } from './services/push.js';
 import { RunApprovals } from './services/run-approvals.js';
 import { SessionService } from './services/session.js';
 import { TurnService } from './services/turn.js';
@@ -20,6 +22,7 @@ import { registerBrowserSocket } from './ws/browser.js';
 import { isAllowedOrigin } from './ws/origin.js';
 import { registerPairRoutes } from './routes/pair.js';
 import { registerConversationRoutes } from './routes/conversations.js';
+import { registerPushRoutes } from './routes/push.js';
 import { registerSessionRoutes } from './routes/sessions.js';
 import { registerWeb, webRoot } from './web.js';
 import { registerErrorHandler } from './errors.js';
@@ -102,6 +105,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
 
   const sessionRepository = new SessionRepository(handle.db);
   const conversationRepository = new ConversationRepository(handle.db);
+  const pushRepository = new PushRepository(handle.db);
 
   const registry = new CliRegistry();
   // A pairing code is only valid while its CLI session runs, so the device
@@ -117,6 +121,15 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   // Waiting asks live here rather than in SQLite: one cannot outlive the turn it
   // belongs to, and a turn cannot outlive its CLI connection. See ADR-022.
   const permissions = new PermissionService();
+  // Only reaches a browser that is not connected, which is why it is given the
+  // registry: a page that is open shows an ask on the page. See ADR-045.
+  const push = new PushService({
+    repository: pushRepository,
+    browsers,
+    log: (message, error) => {
+      app.log.warn({ err: error }, message);
+    },
+  });
   const relay = new TurnRelay({
     turns,
     browsers,
@@ -124,6 +137,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     sessionRepository,
     permissions,
     registry,
+    push,
   });
   const lifecycle = createLifecycle();
 
@@ -210,6 +224,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     sessionRepository,
     relay,
     lifecycle,
+    push,
     ...authTimeout,
   });
   registerBrowserSocket(app, {
@@ -223,10 +238,12 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     conversationRepository,
     permissions,
     relay,
+    push,
     ...authTimeout,
   });
   registerPairRoutes(app, { devices, sessions, registry });
   registerSessionRoutes(app, { sessionRepository, devices });
+  registerPushRoutes(app, { push, sessionRepository });
   await registerWeb(app);
   registerConversationRoutes(app, { conversationRepository, sessionRepository, devices });
 

@@ -26,6 +26,8 @@ export { pairPendingSchema, pairRequestSchema, pairResultSchema } from './pair.j
 export type { PairPending, PairRequest, PairResult } from './pair.js';
 export { createConversationSchema, updateConversationSchema } from './conversation.js';
 export type { CreateConversationRequest, UpdateConversationRequest } from './conversation.js';
+export { pushSubscriptionSchema, pushUnsubscribeSchema } from './push.js';
+export type { PushSubscriptionRequest, PushUnsubscribeRequest } from './push.js';
 export {
   browserMessageSchema,
   cliMessageSchema,

@@ -8,7 +8,7 @@ import type { FastifyInstance } from 'fastify';
  * 404 rather than falling back to the app shell, so a broken request is not
  * mistaken for a working page.
  */
-const API_PREFIXES = ['/pair', '/sessions', '/conversations', '/health', '/ws'];
+const API_PREFIXES = ['/pair', '/sessions', '/conversations', '/health', '/push', '/ws'];
 
 /**
  * Where the built web app lives.

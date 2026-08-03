@@ -206,6 +206,37 @@ That is why it is a menu item you choose rather than something done for you. Not
 else in that file is touched, and settings that cannot be parsed are refused rather
 than overwritten. See ADR-031.
 
+## Install it as an app
+
+The web app is installable. Chrome and Edge offer an install button in the address
+bar; on iOS use Share, then Add to Home Screen. Installed, it opens in its own window
+without browser chrome and starts from the conversation it was last on.
+
+Installing needs a secure context, which means `https` or `localhost`. Reached over
+plain `http` on a LAN address the app still works, but the browser will not install it
+and will not allow notifications.
+
+## Notifications
+
+Press **Notify me** in the sidebar to be told when the agent needs you. Two things are
+worth an interruption, and those are the only two that raise one:
+
+- **An approval is waiting.** The agent has stopped and will not go on until it is
+  allowed to, and the ask expires on its own.
+- **The answer is ready**, including when the turn failed.
+
+Notifications are only raised when you are not already looking. A tab in the
+background gets one from the page. With nothing open at all, the server sends a push
+and the service worker shows it, so an approval reaches you with the browser closed.
+A visible tab gets none: the card is already on screen.
+
+The payload is encrypted for your browser alone, so the push service in between
+carries something it cannot read. Notifications stop when the pairing ends, and the
+subscription is dropped with it.
+
+On iOS this only works once the app has been added to the home screen: Safari does not
+offer notifications to a tab. See ADR-045.
+
 ## Configuration
 
 Configuration is per user. There is one file:
