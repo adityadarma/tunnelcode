@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, test, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MessageList } from './MessageList.js';
 import type { Activity, Message, Reasoning } from '../api.js';
@@ -419,5 +419,178 @@ describe('MessageList', () => {
     // A turn can touch files before saying anything, so the empty state would be
     // wrong here.
     expect(screen.queryByText(/No messages yet/)).toBeNull();
+  });
+});
+
+/**
+ * Watches where the transcript is scrolled to.
+ *
+ * jsdom has no layout, so the height has to be stated and the position has to be
+ * recorded as it is set rather than read back afterwards.
+ */
+function watchScroll(height: number): { readonly positions: number[] } {
+  const positions: number[] = [];
+
+  vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(height);
+  vi.spyOn(Element.prototype, 'scrollTop', 'set').mockImplementation((value: number) => {
+    positions.push(value);
+  });
+
+  return { positions };
+}
+
+/**
+ * States where the row of a live turn sits, which jsdom cannot work out on its own.
+ *
+ * That row is the end of the transcript while an answer arrives, so whether it is on
+ * screen is what decides if the view follows the answer.
+ */
+function placeLiveRow(where: 'on screen' | 'out of view'): void {
+  const view = { top: 0, bottom: 600 } as DOMRect;
+  const row = (
+    where === 'on screen' ? { top: 520, bottom: 548 } : { top: 900, bottom: 928 }
+  ) as DOMRect;
+
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: Element,
+  ): DOMRect {
+    return this.classList.contains('typing-indicator-row') ? row : view;
+  });
+}
+
+/** The reader moving the transcript, which is the only thing that changes the rule. */
+function readerScrolls(): void {
+  fireEvent.scroll(screen.getByRole('log'));
+}
+
+describe('MessageList scroll position', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test('an opened conversation starts at the end', () => {
+    const scroll = watchScroll(4000);
+
+    render(
+      <MessageList messages={messages} activities={[]} streaming={undefined} conversationId="c1" />,
+    );
+
+    // The last answer is what a reload came back for, so the reader should not have
+    // to scroll past the whole history to reach it.
+    expect(scroll.positions).toContain(4000);
+  });
+
+  test('an answer being watched is followed as it arrives', () => {
+    const scroll = watchScroll(4000);
+    placeLiveRow('on screen');
+
+    const view = render(
+      <MessageList
+        messages={messages}
+        activities={[]}
+        streaming="half an ans"
+        conversationId="c1"
+      />,
+    );
+
+    readerScrolls();
+    scroll.positions.length = 0;
+
+    view.rerender(
+      <MessageList
+        messages={messages}
+        activities={[]}
+        streaming="half an answer and then some"
+        conversationId="c1"
+      />,
+    );
+
+    // The row saying what the turn is doing is on screen, so the reader is watching
+    // the answer and each new fragment would otherwise push it below the fold.
+    expect(scroll.positions).toContain(4000);
+  });
+
+  test('an answer scrolled away from is left alone', () => {
+    const scroll = watchScroll(4000);
+    placeLiveRow('out of view');
+
+    const view = render(
+      <MessageList
+        messages={messages}
+        activities={[]}
+        streaming="half an ans"
+        conversationId="c1"
+      />,
+    );
+
+    readerScrolls();
+    scroll.positions.length = 0;
+
+    view.rerender(
+      <MessageList
+        messages={messages}
+        activities={[]}
+        streaming="half an answer and then some"
+        conversationId="c1"
+      />,
+    );
+
+    // Reading back through an answer while it runs used to be interrupted by every
+    // new paragraph dragging the view down.
+    expect(scroll.positions).toEqual([]);
+  });
+
+  test('scrolling back to the end takes the answer up again', () => {
+    const scroll = watchScroll(4000);
+    placeLiveRow('out of view');
+
+    const view = render(
+      <MessageList
+        messages={messages}
+        activities={[]}
+        streaming="half an ans"
+        conversationId="c1"
+      />,
+    );
+
+    readerScrolls();
+    placeLiveRow('on screen');
+    readerScrolls();
+    scroll.positions.length = 0;
+
+    view.rerender(
+      <MessageList
+        messages={messages}
+        activities={[]}
+        streaming="half an answer and then some"
+        conversationId="c1"
+      />,
+    );
+
+    // Coming back to the bottom is asking to be with the answer again, so following
+    // has to resume rather than stay off for the rest of the turn.
+    expect(scroll.positions).toContain(4000);
+  });
+
+  test('switching conversations starts at the end of the new one', () => {
+    const scroll = watchScroll(4000);
+
+    const view = render(
+      <MessageList messages={messages} activities={[]} streaming={undefined} conversationId="c1" />,
+    );
+
+    scroll.positions.length = 0;
+
+    view.rerender(
+      <MessageList
+        messages={[{ id: 'm9', role: 'user', content: 'over here', createdAt: 1700000003000 }]}
+        activities={[]}
+        streaming={undefined}
+        conversationId="c2"
+      />,
+    );
+
+    // Another conversation is another transcript, and it is read from its end too.
+    expect(scroll.positions).toContain(4000);
   });
 });

@@ -570,10 +570,16 @@ export function ConversationPage({
     // switching away drops it rather than carrying it into another transcript.
     setReasoningStream(undefined);
 
+    // Emptied before the fetch rather than left until it answers. The transcript on
+    // screen belongs to the conversation that was open, and holding it there under
+    // the new title showed one conversation's history as another's for as long as
+    // the request took. It is also what tells the transcript that what arrives next
+    // is a conversation being opened, which is read from its end.
+    setMessages([]);
+    setActivities([]);
+    setReasonings([]);
+
     if (activeId === undefined) {
-      setMessages([]);
-      setActivities([]);
-      setReasonings([]);
       return;
     }
 
@@ -900,6 +906,7 @@ export function ConversationPage({
           streaming={streaming}
           reasoningStream={reasoningStream}
           workspace={session?.workspace}
+          conversationId={activeId}
         />
 
         <div className="permissions" aria-live="polite">

@@ -126,10 +126,18 @@ to the version it ships as and leaves an empty one behind.
   already full of both. The number stays and the separator becomes a space, with the
   line's own indentation untouched. Only lines that count up one at a time are read as
   numbering, so a dated log keeps its dates.
-- The transcript no longer jumps to the bottom every time something arrives. Reading
+- The transcript now follows an answer only while the reader is watching it. The row
+  saying what the turn is doing sits at the end, so an answer being watched stays in
+  view as it arrives instead of the reader having to scroll after every paragraph, and
+  once that row has been scrolled away from, nothing drags the view back down: reading
   back through an answer, or through the output of a call, used to be interrupted by
-  each new paragraph or tool result dragging the view down. The view now stays where it
-  was put and scrolling is left to the reader.
+  every new fragment. Scrolling to the end again picks the answer back up.
+- Opening a conversation now starts at its end. A reload used to land at the top of the
+  transcript, so the last answer, which is what a reader came back for, was a scroll
+  past everything that ever happened in that conversation. The view is placed at the end
+  before the page is painted, so nothing travels down the screen. Switching
+  conversations also clears the transcript on screen straight away instead of showing
+  the previous one under the new title while the history loads.
 - An answered menu clears itself from the screen, so choosing Setup no longer leaves
   the main menu above it and a few choices no longer fill the terminal. What an action
   printed stays.

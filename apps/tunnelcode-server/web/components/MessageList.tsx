@@ -1,8 +1,10 @@
+import { useRef } from 'react';
 import type { Activity, Message, Reasoning } from '../api.js';
 import { ActivityItem } from './ActivityItem.js';
 import { EmptyConversation } from './EmptyConversation.js';
 import { ReasoningBlock } from './ReasoningBlock.js';
 import { renderFormattedContent } from './markdown.js';
+import { useTranscriptScroll } from './transcript-scroll.js';
 import { describeTurn } from './turn-status.js';
 import { buildTurns, lastOf } from './turns.js';
 
@@ -25,6 +27,14 @@ interface MessageListProps {
   reasoningStream?: string | undefined;
   /** The workspace path of the current session, used to shorten paths. */
   workspace?: string | undefined;
+  /**
+   * The conversation being shown.
+   *
+   * Opening one is what places the view at its end, so a change here is the signal
+   * to do it again. Optional because a caller with a single transcript and no id for
+   * it still wants the end of it.
+   */
+  conversationId?: string | undefined;
 }
 
 function formatTime(value: number): string {
@@ -42,7 +52,15 @@ export function MessageList({
   streaming,
   reasoningStream,
   workspace,
+  conversationId,
 }: MessageListProps): React.JSX.Element {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const liveRef = useRef<HTMLDivElement>(null);
+  const stored = messages.length > 0 || activities.length > 0 || reasonings.length > 0;
+  const loaded = stored || streaming !== undefined;
+
+  useTranscriptScroll(containerRef, liveRef, { conversationId, loaded, stored });
+
   if (
     messages.length === 0 &&
     activities.length === 0 &&
@@ -55,7 +73,13 @@ export function MessageList({
   const turns = buildTurns(messages, activities, reasonings, streaming, reasoningStream);
 
   return (
-    <div className="messages" role="log" aria-live="polite" aria-label="Conversation">
+    <div
+      ref={containerRef}
+      className="messages"
+      role="log"
+      aria-live="polite"
+      aria-label="Conversation"
+    >
       {turns.map((turn) =>
         turn.kind === 'user' ? (
           <article key={turn.id} className="message message-user">
@@ -107,7 +131,10 @@ export function MessageList({
                 ),
               )}
               {turn.isStreaming && (
-                <div className="typing-indicator-row">
+                // The end of the transcript while an answer is arriving, and so the
+                // thing whose visibility decides whether the view follows it. Only
+                // the last turn is ever streaming, so there is only ever one.
+                <div className="typing-indicator-row" ref={liveRef}>
                   <span className="typing-dot" />
                   <span className="typing-dot" />
                   <span className="typing-dot" />
