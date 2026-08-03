@@ -10,6 +10,8 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+## [0.3.7] - 2026-08-03
+
 ### Added
 
 - Choosing Scan QR now shows an animated `Generating...` line while the CLI looks for
@@ -799,6 +801,7 @@ between the browser, a server, and a local agent.
   visible prompt rather than something the surrounding shell or a cloned repository
   can decide.
 
+[0.3.7]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.7
 [0.3.6]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.6
 [0.3.5]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.5
 [0.3.4]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.4
