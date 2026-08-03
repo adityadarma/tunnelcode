@@ -1,5 +1,10 @@
 # TunnelCode
 
+[![npm](https://img.shields.io/npm/v/tunnelcode)](https://www.npmjs.com/package/tunnelcode)
+[![CI](https://github.com/adityadarma/tunnelcode/actions/workflows/ci.yml/badge.svg)](https://github.com/adityadarma/tunnelcode/actions/workflows/ci.yml)
+[![Socket Badge](https://badge.socket.dev/npm/package/tunnelcode/0.3.8)](https://badge.socket.dev/npm/package/tunnelcode/0.3.8)
+[![license](https://img.shields.io/github/license/adityadarma/tunnelcode)](./LICENSE)
+
 Run an AI coding agent on your own machine and drive it from a browser.
 
 TunnelCode is a bridge between the browser, a server, and a local AI agent. It is
