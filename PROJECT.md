@@ -338,10 +338,29 @@ Session ends
 
 The code cannot be used again
 
-The session id stops being accepted, enforced by the server and not only by the CLI
+The session stops being accepted, enforced by the server and not only by the CLI
 exiting. See ADR-026.
 
 A new pairing requires a new code.
+
+Maximum Session Lifetime
+
+12 hours from approval, whichever activity happens in between.
+
+A session ends at the idle timeout or the ceiling, whichever comes first. Reaching
+the ceiling means pairing again; the stored conversations are kept. See ADR-039.
+
+Restarting The CLI
+
+A session survives it, on purpose: the device id is derived from the machine and the
+workspace, so the next run answers to the same address.
+
+Surviving is not being allowed. A run that finds a browser holding a session from an
+earlier run asks in the terminal, with a number both sides show, before that browser
+can prompt or answer a permission ask. Reading the transcript is not gated on it.
+
+Refusing ends that session. A reconnect after a dropped connection is not a restart
+and asks nothing. See ADR-040.
 
 ---
 
@@ -354,6 +373,10 @@ The browser never touches the filesystem.
 The browser never runs AI.
 
 All requests are sent over WebSocket.
+
+The browser never holds the session credential. It is a token in an `HttpOnly`
+cookie, which the browser attaches on its own and the page cannot read. What the page
+remembers is the session id, which is an address rather than a claim. See ADR-041.
 
 ---
 
@@ -505,8 +528,17 @@ waiting for it, and a request that outlived a restart would have nothing left to
 answer. See ADR-022.
 
 A session records when its conversation last moved, because that is what bounds how
-long its id is worth anything. The idle timeout is enforced on the server as well as
-in the CLI: the CLI timer only ends the process, and the id outlives it. See ADR-026.
+long it is worth anything. The idle timeout is enforced on the server as well as in
+the CLI: the CLI timer only ends the process, and the session outlives it. See
+ADR-026.
+
+A session also records when it was approved, which is its ceiling: twelve hours,
+whatever has happened since. The idle window slides for whoever is using the session,
+so without a ceiling a credential that has been copied renews its own lifetime. See
+ADR-039.
+
+A session stores the SHA-256 of the token its browser proves it with, never the token
+itself. See ADR-041.
 
 ---
 

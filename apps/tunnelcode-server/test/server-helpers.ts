@@ -61,12 +61,62 @@ export async function withServer<T>(
   const address = app.server.address();
   const port = typeof address === 'object' && address !== null ? address.port : 0;
 
+  const baseUrl = `http://127.0.0.1:${String(port)}`;
+
   try {
-    return await run({ baseUrl: `http://127.0.0.1:${String(port)}`, app, databaseFile });
+    return await run({ baseUrl, app, databaseFile });
   } finally {
+    // A port is reused by the OS, so a cookie left behind could be sent to the next
+    // server, which would be a session it never approved.
+    jar.delete(baseUrl);
     await app.close();
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * The session cookie each test server has handed out, per base URL.
+ *
+ * The credential is a cookie now, so the helpers have to behave like a browser:
+ * keep what the server sets and send it back. Holding it here rather than threading
+ * it through every call keeps a test about streaming from being a test about
+ * authentication. A test that needs two identities uses the functions below to say
+ * which one it means.
+ */
+const jar = new Map<string, string>();
+
+function keepCookie(baseUrl: string, response: Response): void {
+  const header = response.headers.get('set-cookie');
+
+  if (header === null) {
+    return;
+  }
+
+  const pair = header.split(';')[0];
+
+  if (pair !== undefined && pair !== '') {
+    jar.set(baseUrl, pair);
+  }
+}
+
+function cookieHeader(baseUrl: string): Record<string, string> {
+  const cookie = jar.get(baseUrl);
+  return cookie === undefined ? {} : { cookie };
+}
+
+/** The cookie collected so far, for a test that has to hold on to one. */
+export function currentCookie(baseUrl: string): string | undefined {
+  return jar.get(baseUrl);
+}
+
+/** Puts a particular cookie back in play, so a test can act as an earlier session. */
+export function useCookie(baseUrl: string, cookie: string | undefined): void {
+  if (cookie === undefined) {
+    jar.delete(baseUrl);
+    return;
+  }
+
+  jar.set(baseUrl, cookie);
 }
 
 export const wait = async (ms: number): Promise<void> => {
@@ -114,7 +164,11 @@ export async function connect<T>(
   /** Headers to send with the handshake, for the checks that read them. */
   headers: Record<string, string> = {},
 ): Promise<Recorder<T>> {
-  const socket = new WebSocket(`${baseUrl.replace('http://', 'ws://')}${path}`, { headers });
+  const socket = new WebSocket(`${baseUrl.replace('http://', 'ws://')}${path}`, {
+    // The browser socket authenticates with the cookie sent on the handshake, so
+    // the collected one travels unless a test says otherwise.
+    headers: { ...cookieHeader(baseUrl), ...headers },
+  });
   const events: T[] = [];
 
   socket.on('message', (raw: Buffer) => {
@@ -161,9 +215,11 @@ export async function postJson(
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const response = await fetch(`${baseUrl}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...headers },
+    headers: { 'content-type': 'application/json', ...cookieHeader(baseUrl), ...headers },
     body: JSON.stringify(body),
   });
+
+  keepCookie(baseUrl, response);
 
   const text = await response.text();
   return {
@@ -172,26 +228,18 @@ export async function postJson(
   };
 }
 
-/**
- * Header a browser proves its session with on the routes that name only a
- * conversation. A conversation id is not a credential.
- */
-export const SESSION_HEADER = 'x-tunnelcode-session';
-
 export async function patchJson(
   baseUrl: string,
   path: string,
   body: unknown,
-  sessionId?: string,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const response = await fetch(`${baseUrl}${path}`, {
     method: 'PATCH',
-    headers: {
-      'content-type': 'application/json',
-      ...(sessionId === undefined ? {} : { [SESSION_HEADER]: sessionId }),
-    },
+    headers: { 'content-type': 'application/json', ...cookieHeader(baseUrl) },
     body: JSON.stringify(body),
   });
+
+  keepCookie(baseUrl, response);
 
   const text = await response.text();
   return {
@@ -211,7 +259,13 @@ export async function postEmpty(
   baseUrl: string,
   path: string,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
-  const response = await fetch(`${baseUrl}${path}`, { method: 'POST' });
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: 'POST',
+    headers: cookieHeader(baseUrl),
+  });
+
+  keepCookie(baseUrl, response);
+
   const text = await response.text();
 
   return {
@@ -223,12 +277,13 @@ export async function postEmpty(
 export async function deleteJson(
   baseUrl: string,
   path: string,
-  sessionId?: string,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const response = await fetch(`${baseUrl}${path}`, {
     method: 'DELETE',
-    ...(sessionId === undefined ? {} : { headers: { [SESSION_HEADER]: sessionId } }),
+    headers: cookieHeader(baseUrl),
   });
+
+  keepCookie(baseUrl, response);
 
   const text = await response.text();
   return {
@@ -240,11 +295,11 @@ export async function deleteJson(
 export async function getJson(
   baseUrl: string,
   path: string,
-  sessionId?: string,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...(sessionId === undefined ? {} : { headers: { [SESSION_HEADER]: sessionId } }),
-  });
+  const response = await fetch(`${baseUrl}${path}`, { headers: cookieHeader(baseUrl) });
+
+  keepCookie(baseUrl, response);
+
   const text = await response.text();
 
   return {

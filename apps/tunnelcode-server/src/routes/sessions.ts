@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { authenticate } from '../session-auth.js';
 import type { SessionRepository } from '../db/session-repository.js';
 import type { DeviceService } from '../services/device.js';
 
@@ -25,20 +26,29 @@ export function registerSessionRoutes(app: FastifyInstance, options: SessionRout
       return reply.code(400).send({ error: 'Missing session id.' });
     }
 
-    const detail = sessionRepository.findSessionDetail(sessionId);
+    // The cookie decides, and the path only says which session is being asked
+    // about. See ADR-041.
+    const caller = authenticate(sessionRepository, request.headers.cookie);
 
-    if (detail === undefined) {
+    if (caller === undefined) {
+      return reply.code(401).send({ error: 'Not signed in.' });
+    }
+
+    // A caller asking about a session other than its own is answered exactly as one
+    // asking about a session that does not exist, so the reply never confirms which
+    // ids are real.
+    if (caller.id !== sessionId) {
       return reply.code(404).send({ error: 'Unknown session.' });
     }
 
-    const device = devices.findById(detail.deviceId);
+    const device = devices.findById(caller.deviceId);
 
     return reply.send({
-      id: detail.id,
-      deviceName: detail.deviceName,
-      workspace: detail.workspace,
+      id: caller.id,
+      deviceName: caller.deviceName,
+      workspace: caller.workspace,
       // The engine a new conversation starts on, which is the one Setup named.
-      engine: detail.engine,
+      engine: caller.engine,
       online: device !== undefined,
       // Every engine installed on the machine, each with its own models. A
       // conversation picks one of these when it is created.

@@ -31,6 +31,18 @@ export const sessions = sqliteTable('sessions', {
    * own, and this is only the starting point. See ADR-020.
    */
   engine: text('engine').notNull(),
+  /**
+   * SHA-256 of the token the browser proves this session with.
+   *
+   * The token itself is never stored: it exists in the cookie and, for as long as
+   * the pairing request is being polled, in memory. Hashing it means a copy of the
+   * database is history rather than a set of working credentials. See ADR-041.
+   *
+   * Nullable, because a row written before this existed has none. Such a row
+   * cannot be authenticated at all, which is the safe reading: the browser that
+   * holds it has nothing to present, so it pairs again.
+   */
+  tokenHash: text('token_hash'),
   createdAt: integer('created_at').notNull(),
   /**
    * When the conversation last moved: a prompt sent, or an answer stored.

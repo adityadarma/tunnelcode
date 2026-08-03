@@ -217,6 +217,15 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
       return approved;
     },
 
+    // A browser that paired before this process started. Approving it does not
+    // spend the code on screen: that code is still what a new browser would use.
+    // See ADR-040.
+    onResumeRequest: async (approvalNumber) => {
+      const approved = await askApproval(approvalNumber, 'resume');
+      writeOut(approved ? 'Approved.' : 'Rejected. That browser has to pair again.');
+      return approved;
+    },
+
     onStop: (reason) => {
       writeOut('');
       writeOut(reason);

@@ -76,10 +76,18 @@ The approval number never travels in a URL, so a leaked link is not enough to
 pair. The pairing code is single use and only valid while the CLI is running.
 
 A session ends after one hour without conversation, enforced by the server as well as
-by the CLI exiting, so a session id that leaked stops working rather than waiting for
+by the CLI exiting, so a credential that leaked stops working rather than waiting for
 the next time the CLI runs in that directory. A prompt, an answer, work the engine
 did, or a permission answered all count as conversation; a browser being open does
-not.
+not. A session also ends twelve hours after it was approved however busy it has been,
+because the idle hour slides for whoever is using it.
+
+Closing the terminal and starting it again keeps your conversation: the browser
+reconnects on its own. It asks first. The terminal shows a number, the browser shows
+the same one, and until you approve it that browser can read what was said but cannot
+prompt or approve anything. Press `n` and its session is over, with the conversations
+kept. A dropped connection that comes back does not ask, because that is the same
+session, not a new one.
 
 ## CLI
 
@@ -284,21 +292,29 @@ What the server does enforce, so it is clear what is and is not being relied on:
 
 - Pairing needs the 4 digit number approved in the terminal. The number never
   travels in a URL, the code is single use, and the pair endpoint is rate limited.
-- A session id stops working an hour after the conversation went quiet, and a
-  restart does not give it another hour. Ending a session from the browser retires
-  it immediately while keeping the stored history.
+- A session stops working an hour after the conversation went quiet, and twelve hours
+  after it was approved whatever has happened since. A restart gives it neither
+  another hour nor another twelve. Ending a session from the browser retires it
+  immediately while keeping the stored history.
+- The credential is a token in an `HttpOnly`, `SameSite=Strict` cookie, and only its
+  SHA-256 is stored. The page cannot read it, so a script that reaches the page
+  cannot copy it and use it from somewhere else. The session id, which the page does
+  keep and which travels in paths, opens nothing on its own.
+- A session from before the CLI was restarted has to be approved in the terminal
+  again before it can prompt or answer a permission ask. Refusing ends it. Reading
+  the transcript is not gated on it, since reading does nothing to the machine.
 - A conversation id is not a credential. Reading, changing, or deleting a
-  conversation over HTTP needs the session in an `x-tunnelcode-session` header, and
-  the conversation has to belong to the same workspace.
+  conversation over HTTP needs a session cookie the server can resolve, and the
+  conversation has to belong to the same workspace.
 - A WebSocket handshake from a page that is not this server's own is refused before
   the upgrade, because WebSocket is not subject to CORS.
 - No page may put this app in a frame. Every response says so, because the origin
   check above cannot help there: inside a frame the page is this server's own
   origin, so a handshake from it looks exactly as it should, and a click laid over
   the approval card would be answered by the paired machine.
-- Neither a pairing code nor a session id is written to the log. The shape of the
-  route is kept and the values are not, since a log outlives the session it
-  describes and can end up somewhere the user does not control.
+- Neither a pairing code nor a session id nor a session token is written to the log.
+  The shape of the route is kept and the values are not, since a log outlives the
+  session it describes and can end up somewhere the user does not control.
 - Messages have a maximum length, and oversized frames are refused by the transport
   rather than parsed.
 - The config, the granted permissions, and the machine id are written `0600` in a

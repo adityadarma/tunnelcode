@@ -230,6 +230,20 @@ export const serverToCliMessageSchema = z.discriminatedUnion('type', [
     requestId: requestIdSchema,
     approvalNumber: approvalNumberSchema,
   }),
+  /**
+   * A browser holding a session from an earlier run wants to use it on this one.
+   *
+   * Separate from pair_request because it is a different question: no code was
+   * presented, the browser already paired once, and what it is asking for is the
+   * agent on a machine this process has not agreed to hand over yet. Answered with
+   * the same approve and reject messages, so only the terminal can decide.
+   * See ADR-040.
+   */
+  z.object({
+    type: z.literal('resume_request'),
+    requestId: requestIdSchema,
+    approvalNumber: approvalNumberSchema,
+  }),
   z.object({
     type: z.literal('paired'),
     deviceId: deviceIdSchema,
@@ -370,6 +384,37 @@ export const serverToBrowserMessageSchema = z.discriminatedUnion('type', [
         pendingText: z.string().max(ENGINE_TEXT_MAX_LENGTH).optional(),
       })
       .optional(),
+  }),
+  /**
+   * The session is real but this CLI run has not agreed to it yet.
+   *
+   * Sent instead of `attached`, so a browser that survived a restart of the CLI
+   * cannot act on the machine before the terminal says so. The number is shown so
+   * the person at the keyboard can check it against what the terminal is asking.
+   * See ADR-040.
+   */
+  z.object({
+    type: z.literal('resume_pending'),
+    sessionId: sessionIdSchema,
+    approvalNumber: approvalNumberSchema,
+  }),
+  /**
+   * The terminal agreed. The browser attaches again rather than being handed an
+   * `attached` here, because attaching is what reports a running turn and replays
+   * a waiting ask, and one path for that is easier to trust than two.
+   */
+  z.object({
+    type: z.literal('resume_approved'),
+    sessionId: sessionIdSchema,
+  }),
+  /**
+   * The terminal refused, which retires the session rather than merely declining
+   * this connection: a refusal is the answer to "should this browser still have my
+   * machine", and it has to mean no from now on.
+   */
+  z.object({
+    type: z.literal('resume_rejected'),
+    message: z.string().min(1),
   }),
   z.object({
     type: z.literal('device_status'),

@@ -2,10 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   connect,
+  currentCookie,
   getJson,
   patchJson,
   postEmpty,
   postJson,
+  useCookie,
   waitUntil,
   withServer,
 } from './server-helpers.ts';
@@ -130,7 +132,7 @@ test('a prompt reaches the CLI and its answer is stored once', async () => {
     assert.equal(deltas.map((event) => event.text).join(''), 'Pairing works.');
 
     // Deltas are relayed but never stored; only the assembled answer is.
-    const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+    const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
     const messages = stored.body['messages'] as { role: string; content: string }[];
 
     assert.deepEqual(messages, [
@@ -201,7 +203,7 @@ test('a prompt refused while the agent is busy is not stored', async () => {
     answer(cli, turnId, ['done']);
     await browser.waitFor((events) => events.some((event) => event.type === 'turn_done'));
 
-    const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+    const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
     const messages = stored.body['messages'] as { role: string; content: string }[];
 
     // A refused prompt must not leave a question with no answer in the history.
@@ -230,7 +232,7 @@ test('an empty answer is not stored', async () => {
     cli.send({ type: 'turn_done', turnId, text: '' });
     await browser.waitFor((events) => events.some((event) => event.type === 'turn_done'));
 
-    const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+    const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
     const messages = stored.body['messages'] as { role: string }[];
 
     assert.deepEqual(
@@ -262,7 +264,7 @@ test('a failure that produced nothing is still recorded as an answer that stoppe
 
     await browser.waitFor((events) => events.some((event) => event.type === 'error'));
 
-    const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+    const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
     const messages = stored.body['messages'] as {
       role: string;
       content: string;
@@ -309,7 +311,7 @@ test('a partial answer survives the failure that cut it short', async () => {
     assert.equal(relayed?.content, 'I got this far');
     assert.equal(relayed?.partial, true);
 
-    const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+    const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
     const messages = stored.body['messages'] as {
       role: string;
       content: string;
@@ -355,11 +357,11 @@ test('a device that goes offline mid-answer leaves what it said in the transcrip
     cli.close();
 
     await waitUntil(async () => {
-      const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+      const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
       return (stored.body['messages'] as unknown[]).length === 2;
     }, 'the abandoned turn to be recorded');
 
-    const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+    const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
     const messages = stored.body['messages'] as {
       role: string;
       content: string;
@@ -389,11 +391,11 @@ test('a turn cut off before it said anything still leaves a record', async () =>
     cli.close();
 
     await waitUntil(async () => {
-      const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+      const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
       return (stored.body['messages'] as unknown[]).length === 2;
     }, 'the cut off turn to be recorded');
 
-    const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+    const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
     const messages = stored.body['messages'] as {
       role: string;
       content: string;
@@ -500,14 +502,9 @@ test('the model of a conversation can be changed', async () => {
     });
     const conversationId = String(created.body['id']);
 
-    const patched = await patchJson(
-      baseUrl,
-      `/conversations/${conversationId}`,
-      {
-        model: 'opencode/slow',
-      },
-      sessionId,
-    );
+    const patched = await patchJson(baseUrl, `/conversations/${conversationId}`, {
+      model: 'opencode/slow',
+    });
 
     assert.equal(patched.status, 200);
     assert.equal(patched.body['model'], 'opencode/slow');
@@ -541,15 +538,10 @@ test('the engine of a conversation cannot be changed', async () => {
     // Sent the way a client that assumed engines were switchable would send it.
     // The field is ignored rather than honoured, and the model is validated against
     // the engine the conversation already has.
-    const patched = await patchJson(
-      baseUrl,
-      `/conversations/${conversationId}`,
-      {
-        engine: 'claude',
-        model: 'sonnet',
-      },
-      sessionId,
-    );
+    const patched = await patchJson(baseUrl, `/conversations/${conversationId}`, {
+      engine: 'claude',
+      model: 'sonnet',
+    });
 
     assert.equal(patched.status, 400);
     assert.match(String(patched.body['error']), /not available/);
@@ -676,7 +668,7 @@ test('history is reloaded after the browser reconnects', async () => {
     second.send({ type: 'attach', sessionId });
     await second.waitFor((events) => events.some((event) => event.type === 'attached'));
 
-    const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+    const stored = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
     const messages = stored.body['messages'] as { role: string; content: string }[];
 
     assert.deepEqual(
@@ -872,7 +864,7 @@ test('thinking is relayed and stored apart from the answer', async () => {
     assert.equal(relayed?.content, 'I should look at the file.');
     assert.equal(relayed?.conversationId, conversationId);
 
-    const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+    const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
     const reasonings = reloaded.body['reasonings'] as { content: string }[];
     const messages = reloaded.body['messages'] as { role: string; content: string }[];
 
@@ -918,7 +910,7 @@ test('a thought is not stored for another device', async () => {
     // thinking into its transcript.
     other.send({ type: 'turn_reasoning', turnId, text: 'not mine to say' });
 
-    const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+    const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
     assert.deepEqual(reloaded.body['reasonings'], []);
 
     other.close();
@@ -968,7 +960,7 @@ test('an activity is stored for a later refresh', async () => {
     cli.send({ type: 'turn_activity', turnId, id: 'act1', tool: 'Bash', target: 'pnpm test' });
     await browser.waitFor((events) => events.some((event) => event.type === 'activity'));
 
-    const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+    const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
     const activities = reloaded.body['activities'] as { tool: string; target?: string }[];
 
     // A refresh reloads the transcript, so the tool call has to come back with it.
@@ -1001,7 +993,7 @@ test('an activity is kept when the turn fails', async () => {
     cli.send({ type: 'turn_error', turnId, message: 'the engine gave up' });
     await browser.waitFor((events) => events.some((event) => event.type === 'error'));
 
-    const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+    const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
     const activities = reloaded.body['activities'] as unknown[];
 
     // The file was already changed, so hiding that because the answer failed
@@ -1032,7 +1024,7 @@ test('an activity for another device is ignored', async () => {
     await other.waitFor((events) => events.some((event) => event.type === 'registered'));
     other.send({ type: 'turn_activity', turnId, id: 'act1', tool: 'Write', target: '/etc/passwd' });
 
-    const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+    const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
 
     // Writing into another device's turn would let one machine fake activity in
     // somebody else's conversation.
@@ -1063,8 +1055,9 @@ test('a conversation is not created for an unknown session', async () => {
   await withServer(async ({ baseUrl }) => {
     const created = await postEmpty(baseUrl, '/sessions/does-not-exist/conversations');
 
-    // A guessed session id must not get a conversation to write into.
-    assert.equal(created.status, 404);
+    // Nobody is signed in, so there is nothing to weigh the path against. A guessed
+    // session id must not get a conversation to write into.
+    assert.equal(created.status, 401);
   });
 });
 
@@ -1156,11 +1149,7 @@ test('a conversation from an earlier session can still be continued', async () =
     // Read with the new pairing's session, against a conversation created under the
     // old one. Entitlement is the workspace, not the session row, or history would
     // vanish every time the user paired again.
-    const stored = await getJson(
-      baseUrl,
-      `/conversations/${first.conversationId}/messages`,
-      second.sessionId,
-    );
+    const stored = await getJson(baseUrl, `/conversations/${first.conversationId}/messages`);
     const messages = stored.body['messages'] as { content: string }[];
 
     // One transcript across both pairings, not two disjoint halves.
@@ -1177,6 +1166,9 @@ test('a conversation from an earlier session can still be continued', async () =
 test('another workspace on the same machine keeps its own list', async () => {
   await withServer(async ({ baseUrl }) => {
     const mine = await pair(baseUrl);
+    // Kept so this browser can be itself again after the second one has paired: a
+    // cookie belongs to one session, and pairing another sets another cookie.
+    const myCookie = currentCookie(baseUrl);
 
     // A different directory is a different device id, so its history must stay
     // separate even though the same person is on the same machine.
@@ -1197,6 +1189,7 @@ test('another workspace on the same machine keeps its own list', async () => {
     assert.deepEqual(listed.body['conversations'], []);
 
     // And the original list is untouched by the second workspace existing.
+    useCookie(baseUrl, myCookie);
     const original = await getJson(baseUrl, `/sessions/${mine.sessionId}/conversations`);
     const conversations = original.body['conversations'] as { id: string }[];
     assert.deepEqual(
@@ -1214,7 +1207,7 @@ test('conversations are not listed for an unknown session', async () => {
     const listed = await getJson(baseUrl, '/sessions/does-not-exist/conversations');
 
     // Widening the list to a workspace must not widen who can read it.
-    assert.equal(listed.status, 404);
+    assert.equal(listed.status, 401);
   });
 });
 
@@ -1433,7 +1426,7 @@ test('a refused tool call is stored and marked as blocked', async () => {
     assert.equal(relayed?.tool, 'Write');
     assert.match(relayed?.reason ?? '', /requested permissions/);
 
-    const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+    const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
     const activities = reloaded.body['activities'] as { tool: string; blocked: boolean }[];
 
     // A refusal is part of what the turn attempted, so a refresh has to show it
@@ -1461,7 +1454,7 @@ test('a tool call that ran is not marked as blocked', async () => {
     cli.send({ type: 'turn_activity', turnId, id: 'act1', tool: 'Bash', target: 'pnpm test' });
     await browser.waitFor((events) => events.some((event) => event.type === 'activity'));
 
-    const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+    const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
     const activities = reloaded.body['activities'] as { blocked: boolean }[];
 
     assert.equal(activities[0]?.blocked, false);
@@ -1489,7 +1482,7 @@ test('a refusal reported for another device is ignored', async () => {
     await other.waitFor((events) => events.some((event) => event.type === 'registered'));
     other.send({ type: 'turn_blocked', turnId, tool: 'Write', reason: 'rejected permission' });
 
-    const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`, sessionId);
+    const reloaded = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
 
     // Writing into another device's turn would let one machine fake a refusal in
     // somebody else's conversation.

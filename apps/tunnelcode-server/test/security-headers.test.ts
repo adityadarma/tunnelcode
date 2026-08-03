@@ -68,10 +68,11 @@ test('every response carries the headers, and HSTS is not claimed over plain htt
 
 test('a refused request carries the headers too', async () => {
   await withServer(async ({ baseUrl }) => {
-    // A 404 is a response a browser renders, so it needs the same policy as a page.
+    // A refusal is a response a browser renders, so it needs the same policy as a
+    // page.
     const missing = await fetch(`${baseUrl}/conversations/nope/messages`);
 
-    assert.equal(missing.status, 400);
+    assert.equal(missing.status, 401);
     assert.match(missing.headers.get('content-security-policy') ?? '', /frame-ancestors 'none'/);
     assert.equal(missing.headers.get('x-frame-options'), 'DENY');
   });

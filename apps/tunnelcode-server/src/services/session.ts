@@ -1,11 +1,11 @@
-import { generateApprovalNumber, generateId } from './ids.js';
+import { generateApprovalNumber, generateId, generateSessionToken } from './ids.js';
 
 /** How long a browser has to be approved before its request expires. */
 const PENDING_TTL_MS = 2 * 60 * 1000;
 
 /**
- * A pairing request waiting for the user to approve in the terminal. Holding
- * this in memory is deliberate: an unapproved request has no value to persist.
+ * A request waiting for the user to approve in the terminal. Holding this in
+ * memory is deliberate: an unapproved request has no value to persist.
  * See ADR-006.
  */
 export interface PendingRequest {
@@ -13,6 +13,12 @@ export interface PendingRequest {
   deviceId: string;
   approvalNumber: string;
   createdAt: number;
+  /**
+   * The session this would revive, on a request from a browser that paired in an
+   * earlier run of the CLI. Absent on a first pairing, which has no session yet.
+   * See ADR-040.
+   */
+  sessionId?: string;
 }
 
 /**
@@ -26,11 +32,21 @@ export interface PendingRequest {
 export interface Session {
   id: string;
   deviceId: string;
+  /**
+   * The secret the browser will prove this session with, in the clear.
+   *
+   * Only here, and only until the browser has collected it: the database keeps a
+   * hash. Living in memory is what stops the token from being readable anywhere
+   * except the one response that sets the cookie. See ADR-041.
+   */
+  token: string;
   createdAt: number;
 }
 
 export type ApprovalOutcome =
   | { status: 'approved'; session: Session }
+  /** An existing session the terminal has agreed to serve again. See ADR-040. */
+  | { status: 'resumed'; sessionId: string }
   | { status: 'rejected' }
   | { status: 'expired' }
   | { status: 'pending' }
@@ -40,6 +56,8 @@ export class SessionService {
   private readonly pending = new Map<string, PendingRequest>();
   private readonly sessions = new Map<string, Session>();
   private readonly resolved = new Map<string, ApprovalOutcome>();
+  /** The resume request in flight for a session, so one ask is not raised twice. */
+  private readonly resuming = new Map<string, string>();
 
   /**
    * Creates a pending request for a device. The approval number is generated
@@ -55,6 +73,41 @@ export class SessionService {
 
     this.pending.set(request.id, request);
     return request;
+  }
+
+  /**
+   * Creates, or reuses, the request that asks the terminal to serve an existing
+   * session again.
+   *
+   * Reused rather than replaced while one is still waiting, because the browser
+   * re-attaches whenever its socket reconnects and every new request would be
+   * another keypress asked of somebody who is already looking at one.
+   */
+  createPendingResume(
+    deviceId: string,
+    sessionId: string,
+  ): { request: PendingRequest; asked: boolean } {
+    const inFlight = this.resuming.get(sessionId);
+    const existing = inFlight === undefined ? undefined : this.getPending(inFlight);
+
+    // asked says whether the terminal has already been given this question, so a
+    // second browser arriving does not put the same number in front of the user
+    // twice.
+    if (existing !== undefined && existing.deviceId === deviceId) {
+      return { request: existing, asked: true };
+    }
+
+    const request: PendingRequest = {
+      id: generateId(),
+      deviceId,
+      approvalNumber: generateApprovalNumber(),
+      createdAt: Date.now(),
+      sessionId,
+    };
+
+    this.pending.set(request.id, request);
+    this.resuming.set(sessionId, request.id);
+    return { request, asked: false };
   }
 
   getPending(requestId: string): PendingRequest | undefined {
@@ -87,9 +140,19 @@ export class SessionService {
       return { status: 'unknown' };
     }
 
+    // A resume approves a session that already exists, so there is nothing to
+    // create and nothing to record for a browser to poll: the browser is on a
+    // socket, and it hears about this there. See ADR-040.
+    if (request.sessionId !== undefined) {
+      this.pending.delete(requestId);
+      this.resuming.delete(request.sessionId);
+      return { status: 'resumed', sessionId: request.sessionId };
+    }
+
     const session: Session = {
       id: generateId(),
       deviceId,
+      token: generateSessionToken(),
       createdAt: Date.now(),
     };
 
@@ -100,21 +163,32 @@ export class SessionService {
     return outcome;
   }
 
-  reject(requestId: string, deviceId: string): ApprovalOutcome {
+  /**
+   * Refuses a request. Returns which kind was refused, so a refused resume can
+   * retire the session it named rather than only declining this connection.
+   */
+  reject(requestId: string, deviceId: string): { outcome: ApprovalOutcome; sessionId?: string } {
     const request = this.getPending(requestId);
 
     if (request === undefined) {
-      return this.resolved.get(requestId) ?? { status: 'unknown' };
+      return { outcome: this.resolved.get(requestId) ?? { status: 'unknown' } };
     }
 
     if (request.deviceId !== deviceId) {
-      return { status: 'unknown' };
+      return { outcome: { status: 'unknown' } };
     }
 
     this.pending.delete(requestId);
     const outcome: ApprovalOutcome = { status: 'rejected' };
+
+    if (request.sessionId !== undefined) {
+      this.resuming.delete(request.sessionId);
+      return { outcome, sessionId: request.sessionId };
+    }
+
+    // Recorded only for a pairing request, which is the one a browser polls for.
     this.resolved.set(requestId, outcome);
-    return outcome;
+    return { outcome };
   }
 
   /**
@@ -138,6 +212,13 @@ export class SessionService {
     for (const [id, request] of this.pending) {
       if (request.deviceId === deviceId) {
         this.pending.delete(id);
+
+        // A resume nobody answered before the terminal went away is not waiting on
+        // anything any more, and leaving it here would have the next attach shown a
+        // number the terminal is no longer asking about.
+        if (request.sessionId !== undefined) {
+          this.resuming.delete(request.sessionId);
+        }
       }
     }
     for (const [id, session] of this.sessions) {

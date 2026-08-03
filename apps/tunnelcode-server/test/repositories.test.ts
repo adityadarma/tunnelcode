@@ -10,6 +10,9 @@ const session = {
   deviceName: 'Test Mac',
   workspace: '/work',
   engine: 'opencode',
+  // Stands in for the hash of a real token: the browser is not in this test, so
+  // nothing has to be able to present it.
+  tokenHash: 'token-hash-1',
 };
 
 test('an approved pairing is persisted', async () => {

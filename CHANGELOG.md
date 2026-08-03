@@ -10,6 +10,33 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+### Security
+
+- A session now also expires twelve hours after it was approved, however busy it has
+  been. The hour of idleness stays, and a session ends at whichever comes first. The
+  idle hour slides forward on every prompt and every answer, including ones sent by
+  somebody the session does not belong to, so a credential that had been copied only
+  had to be used once an hour to last forever. Reaching the ceiling means scanning the
+  QR again; the conversations are kept. See ADR-039.
+- Restarting the terminal now asks before handing the machine back. A browser paired
+  before the restart reconnects as it did, but the terminal shows a number, the
+  browser shows the same one, and until it is approved that browser can read the
+  transcript and cannot prompt or answer a permission ask. Pressing `n` ends its
+  session and keeps the conversations. Stopping the agent is the one thing a user
+  would call "closing it", and it used to revoke nothing: the session outlives the
+  process on purpose, so the first browser to come back got the agent, whoever was
+  holding it. A dropped connection that comes back is not a restart and asks nothing,
+  so a flaky network still costs no keypresses. See ADR-040.
+- The session credential is now a token in an `HttpOnly`, `SameSite=Strict` cookie,
+  and the server stores only its SHA-256. It used to be the session id, kept in local
+  storage and sent in paths and in a header, which meant a script that reached the
+  page could copy it and drive the agent from anywhere, and a proxy in front of the
+  server could log it. The id is still what the page remembers and what paths carry,
+  and it now opens nothing on its own. `Secure` is set when the request arrived over
+  TLS, and left off otherwise so a plain address on a home network still works. Pair
+  again after upgrading: a session approved by the previous version has no token.
+  See ADR-041.
+
 ### Added
 
 - The line under a running turn now says what it is doing: reading, writing, editing,

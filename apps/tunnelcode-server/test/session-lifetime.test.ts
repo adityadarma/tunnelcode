@@ -12,10 +12,16 @@ const session = {
   deviceName: 'Test Mac',
   workspace: '/work',
   engine: 'opencode',
+  // Stands in for the hash of a real token: the browser is not in this test, so
+  // nothing has to be able to present it.
+  tokenHash: 'token-hash-1',
 };
 
 /** Short enough to test, standing in for the hour the app uses. */
 const IDLE_MS = 60;
+
+/** Stands in for the twelve hours a session may live however busy it is. */
+const MAX_MS = 150;
 
 const wait = async (ms: number): Promise<void> => {
   await new Promise<void>((resolve) => {
@@ -71,6 +77,35 @@ test('a session written before activity was recorded falls back to its creation'
     // Read as idle since 1970, this would lock the user out of their own history
     // on the first start after an upgrade.
     assert.notEqual(sessions.findSessionDetail('session-1'), undefined);
+  });
+});
+
+test('a busy session still expires at its ceiling', async () => {
+  await withTempDb(async (handle) => {
+    // The ceiling is deliberately shorter than three idle windows, so the session
+    // below is being used the whole time it is alive.
+    const sessions = new SessionRepository(handle.db, { idleMs: IDLE_MS, maxLifetimeMs: MAX_MS });
+    sessions.persistApproved(session);
+
+    const started = Date.now();
+
+    for (let i = 0; i < 4; i += 1) {
+      await wait(IDLE_MS / 2);
+      sessions.touch('session-1');
+
+      // Alive while it is inside the ceiling, so this test is not passing by having
+      // watched a session that was never valid to begin with.
+      if (Date.now() - started < MAX_MS) {
+        assert.notEqual(sessions.findSessionDetail('session-1'), undefined);
+      }
+    }
+
+    await wait(MAX_MS);
+
+    // Activity moves the idle deadline forward, and activity is exactly what
+    // somebody who should not have the credential would produce: one message an
+    // hour would otherwise keep a stolen session alive forever. See ADR-039.
+    assert.equal(sessions.findSessionDetail('session-1'), undefined);
   });
 });
 

@@ -8,6 +8,7 @@ import { runMigrations } from './db/migrate.js';
 import { ConversationRepository } from './db/conversation-repository.js';
 import { SessionRepository } from './db/session-repository.js';
 import { DeviceService } from './services/device.js';
+import { RunApprovals } from './services/run-approvals.js';
 import { SessionService } from './services/session.js';
 import { TurnService } from './services/turn.js';
 import { PermissionService } from './services/permission.js';
@@ -108,6 +109,9 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   // it before refusing a new one.
   const devices = new DeviceService({ isConnected: (id) => registry.isConnected(id) });
   const sessions = new SessionService();
+  // What the CLI run in front of the user has agreed to serve. Memory only: a run
+  // cannot outlive its process, so neither can its consent. See ADR-040.
+  const runs = new RunApprovals();
   const turns = new TurnService();
   const browsers = new BrowserRegistry();
   // Waiting asks live here rather than in SQLite: one cannot outlive the turn it
@@ -201,6 +205,8 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     devices,
     sessions,
     registry,
+    browsers,
+    runs,
     sessionRepository,
     relay,
     lifecycle,
@@ -211,6 +217,8 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     turns,
     registry,
     browsers,
+    sessions,
+    runs,
     sessionRepository,
     conversationRepository,
     permissions,

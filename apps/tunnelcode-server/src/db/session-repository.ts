@@ -11,12 +11,28 @@ import { conversations, devices, sessions } from './schema.js';
  */
 const SESSION_IDLE_MS = 60 * 60 * 1000;
 
+/**
+ * How long a session may live at all, however busy it is.
+ *
+ * The idle window slides: every prompt pushes it forward, so a session in use
+ * never expires, and neither does one being used by somebody it does not belong
+ * to. Whoever holds the credential only has to send something once an hour to keep
+ * it alive forever, which is a lifetime that renews itself rather than a lifetime.
+ * This is the ceiling the sliding window cannot move. See ADR-039.
+ */
+const SESSION_MAX_LIFETIME_MS = 12 * 60 * 60 * 1000;
+
 export interface PersistSessionInput {
   sessionId: string;
   deviceId: string;
   deviceName: string;
   workspace: string;
   engine: string;
+  /**
+   * SHA-256 of the token the browser will present. The token itself never reaches
+   * this layer. See ADR-041.
+   */
+  tokenHash: string;
 }
 
 export interface SessionDetail {
@@ -36,16 +52,18 @@ export interface SessionDetail {
  */
 export class SessionRepository {
   private readonly idleMs: number;
+  private readonly maxLifetimeMs: number;
 
   /**
-   * The idle window is injectable so it can be tested without waiting an hour.
-   * Nothing in the app passes it.
+   * Both windows are injectable so they can be tested without waiting out an hour
+   * or half a day. Nothing in the app passes either.
    */
   constructor(
     private readonly db: Db,
-    options: { idleMs?: number } = {},
+    options: { idleMs?: number; maxLifetimeMs?: number } = {},
   ) {
     this.idleMs = options.idleMs ?? SESSION_IDLE_MS;
+    this.maxLifetimeMs = options.maxLifetimeMs ?? SESSION_MAX_LIFETIME_MS;
   }
 
   /**
@@ -76,6 +94,7 @@ export class SessionRepository {
         deviceId: input.deviceId,
         workspace: input.workspace,
         engine: input.engine,
+        tokenHash: input.tokenHash,
         createdAt: now,
       })
       .onConflictDoNothing()
@@ -114,8 +133,46 @@ export class SessionRepository {
   }
 
   /**
+   * What every read of a live session agrees on.
+   *
+   * A session the user ended is gone, not merely marked. Read without this, endedAt
+   * was a record of an intention that bound nothing: the same id could be attached
+   * again afterwards, and a browser holding it could still answer a permission ask
+   * on the machine. Every caller wants an ended session to be absent, so it is
+   * filtered here rather than at each of them.
+   *
+   * An idle session is gone for the same reason and in the same place. A session is
+   * what lets a browser drive an agent on someone's machine, and one that nothing
+   * has used for an hour has no business still doing that: the device id is derived
+   * from the machine and the workspace, so a leaked credential would keep matching
+   * every time the CLI is started there again.
+   *
+   * The age check is the one the idle window cannot slide. Activity moves the idle
+   * deadline forward, including activity from whoever should not have the
+   * credential, so without a ceiling a session that is being used is a session that
+   * never expires. See ADR-039.
+   *
+   * The fallback to createdAt covers a row written before the activity column
+   * existed, which would otherwise read as idle since 1970 and lock the user out of
+   * their own history.
+   */
+  private live(): ReturnType<typeof and> {
+    const now = Date.now();
+
+    return and(
+      isNull(sessions.endedAt),
+      sql`coalesce(${sessions.lastActivityAt}, ${sessions.createdAt}) > ${now - this.idleMs}`,
+      sql`${sessions.createdAt} > ${now - this.maxLifetimeMs}`,
+    );
+  }
+
+  /**
    * Session with the device it belongs to, which is what the browser needs to
    * show where a conversation runs.
+   *
+   * Takes the id rather than the credential, because the id is what a path carries.
+   * Holding it is not a claim on anything: the routes resolve the caller from its
+   * cookie first and only then look a session up by id. See ADR-041.
    */
   findSessionDetail(sessionId: string): SessionDetail | undefined {
     const rows = this.db
@@ -128,28 +185,32 @@ export class SessionRepository {
       })
       .from(sessions)
       .innerJoin(devices, eq(devices.id, sessions.deviceId))
-      // A session the user ended is gone, not merely marked. Read without this,
-      // endedAt was a record of an intention that bound nothing: the same id could
-      // be attached again afterwards, and a browser holding it could still answer a
-      // permission ask on the machine. Every caller of this wants an ended session
-      // to be absent, so it is filtered here rather than at each of them.
-      //
-      // An idle session is gone for the same reason and in the same place. A
-      // session id is what lets a browser drive an agent on someone's machine, and
-      // one that nothing has used for an hour has no business still doing that: the
-      // device id is derived from the machine and the workspace, so a leaked id
-      // would keep matching every time the CLI is started there again.
-      //
-      // The fallback to createdAt covers a row written before this column existed,
-      // which would otherwise read as idle since 1970 and lock the user out of
-      // their own history.
-      .where(
-        and(
-          eq(sessions.id, sessionId),
-          isNull(sessions.endedAt),
-          sql`coalesce(${sessions.lastActivityAt}, ${sessions.createdAt}) > ${Date.now() - this.idleMs}`,
-        ),
-      )
+      .where(and(eq(sessions.id, sessionId), this.live()))
+      .limit(1)
+      .all();
+
+    return rows[0];
+  }
+
+  /**
+   * The session a token belongs to, or undefined when it belongs to none.
+   *
+   * The only way a browser is identified. A row with no hash cannot match, which is
+   * how a session written before tokens existed ends up asking to pair again rather
+   * than being trusted on its id alone.
+   */
+  findSessionByToken(tokenHash: string): SessionDetail | undefined {
+    const rows = this.db
+      .select({
+        id: sessions.id,
+        deviceId: sessions.deviceId,
+        deviceName: devices.name,
+        workspace: sessions.workspace,
+        engine: sessions.engine,
+      })
+      .from(sessions)
+      .innerJoin(devices, eq(devices.id, sessions.deviceId))
+      .where(and(eq(sessions.tokenHash, tokenHash), this.live()))
       .limit(1)
       .all();
 

@@ -117,13 +117,11 @@ export class ApiError extends Error {
 }
 
 /**
- * Header the session travels in on requests that name only a conversation.
- *
- * A conversation id is not a credential: the server checks that the session
- * sending this is entitled to the conversation before answering.
+ * Every request is authenticated by the session cookie, which the browser attaches
+ * on its own and this code cannot read. Nothing here carries a credential: the ids
+ * in these paths say which session or conversation is meant, and the server decides
+ * whether the caller is entitled to it. See ADR-041.
  */
-const SESSION_HEADER = 'x-tunnelcode-session';
-
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
 
@@ -207,13 +205,11 @@ export async function createConversation(
  * still understands the engine session, so the context survives.
  */
 export async function updateConversationModel(
-  sessionId: string,
   conversationId: string,
   model: string | undefined,
 ): Promise<Conversation> {
   return request<Conversation>(`/conversations/${encodeURIComponent(conversationId)}`, {
     method: 'PATCH',
-    headers: { [SESSION_HEADER]: sessionId },
     body: JSON.stringify({ model: model ?? null }),
   });
 }
@@ -225,17 +221,12 @@ export async function updateConversationModel(
  * Activities and thinking may be absent when talking to a server that predates
  * them, so each list falls back to empty rather than being left undefined.
  */
-export async function readTranscript(
-  sessionId: string,
-  conversationId: string,
-): Promise<Transcript> {
+export async function readTranscript(conversationId: string): Promise<Transcript> {
   const body = await request<{
     messages: Message[];
     activities?: Activity[];
     reasonings?: Reasoning[];
-  }>(`/conversations/${encodeURIComponent(conversationId)}/messages`, {
-    headers: { [SESSION_HEADER]: sessionId },
-  });
+  }>(`/conversations/${encodeURIComponent(conversationId)}/messages`);
 
   return {
     messages: body.messages,
@@ -244,9 +235,8 @@ export async function readTranscript(
   };
 }
 
-export async function deleteConversation(sessionId: string, conversationId: string): Promise<void> {
+export async function deleteConversation(conversationId: string): Promise<void> {
   await request<{ success: boolean }>(`/conversations/${encodeURIComponent(conversationId)}`, {
     method: 'DELETE',
-    headers: { [SESSION_HEADER]: sessionId },
   });
 }

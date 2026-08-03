@@ -1,8 +1,12 @@
 const SESSION_KEY = 'tunnelcode.sessionId';
 
 /**
- * Remembers the paired session in the browser, so a refresh returns to the
+ * Remembers which session this browser was looking at, so a refresh returns to the
  * conversation instead of asking for a new pairing.
+ *
+ * An address, not a credential. Proving the session is the cookie's job, and the
+ * cookie is not readable here on purpose: nothing kept in this file opens anything.
+ * See ADR-041.
  */
 export function readStoredSession(): string | undefined {
   const value = window.localStorage.getItem(SESSION_KEY);

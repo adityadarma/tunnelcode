@@ -1,15 +1,35 @@
 import { writeOut } from '../output.js';
 
 /**
- * Reads a single keypress without waiting for Enter, so approving a pairing
- * request costs one key. Falls back to a line read when stdin is not a TTY,
- * which keeps the CLI usable from scripts and tests.
+ * What is being asked for.
+ *
+ * A resume is worded differently on purpose: nobody typed a code and nobody
+ * scanned anything, so presenting it as a pairing request would describe an action
+ * the user did not just take. See ADR-040.
  */
-export async function askApproval(approvalNumber: string): Promise<boolean> {
+export type ApprovalPurpose = 'pair' | 'resume';
+
+/**
+ * Reads a single keypress without waiting for Enter, so approving a request costs
+ * one key. Falls back to a line read when stdin is not a TTY, which keeps the CLI
+ * usable from scripts and tests.
+ */
+export async function askApproval(
+  approvalNumber: string,
+  purpose: ApprovalPurpose = 'pair',
+): Promise<boolean> {
   writeOut('');
-  writeOut(`Pairing request  ${approvalNumber}`);
-  writeOut('Approve only if the browser shows this same number.');
-  writeOut('Press y to approve, n to reject.');
+
+  if (purpose === 'resume') {
+    writeOut(`Reconnect request  ${approvalNumber}`);
+    writeOut('A browser paired earlier wants to keep using this workspace.');
+    writeOut('Approve only if that browser shows this same number.');
+    writeOut('Press y to approve, n to end its session.');
+  } else {
+    writeOut(`Pairing request  ${approvalNumber}`);
+    writeOut('Approve only if the browser shows this same number.');
+    writeOut('Press y to approve, n to reject.');
+  }
 
   const stdin = process.stdin;
 

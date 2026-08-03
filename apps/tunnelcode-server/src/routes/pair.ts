@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { pairRequestSchema } from '@tunnelcode/protocol';
+import { sessionCookie } from '../cookies.js';
 import type { DeviceService } from '../services/device.js';
 import type { SessionService } from '../services/session.js';
 import type { CliRegistry } from '../ws/registry.js';
@@ -84,6 +85,19 @@ export function registerPairRoutes(app: FastifyInstance, options: PairRoutesOpti
     }
 
     if (outcome.status === 'approved') {
+      // The one response that carries the token, and it carries it where the page
+      // cannot read it. The id is still returned, because the browser addresses its
+      // session by id and remembers which one it was looking at; on its own the id
+      // proves nothing. See ADR-041.
+      //
+      // Secure is set only on a request that already arrived over TLS: the usual
+      // deployment is a plain address on a home network, and a Secure cookie sent
+      // there is one the browser discards.
+      reply.header(
+        'set-cookie',
+        sessionCookie(outcome.session.token, request.protocol === 'https'),
+      );
+
       return reply.send({ status: 'approved', sessionId: outcome.session.id });
     }
 

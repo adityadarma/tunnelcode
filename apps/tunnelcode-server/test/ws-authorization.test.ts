@@ -1,6 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { connect, getJson, postEmpty, postJson, withServer } from './server-helpers.ts';
+import {
+  connect,
+  currentCookie,
+  getJson,
+  postEmpty,
+  postJson,
+  useCookie,
+  withServer,
+} from './server-helpers.ts';
 import type { Recorder } from './server-helpers.ts';
 
 /**
@@ -69,6 +77,11 @@ interface Paired {
   cli: Recorder<CliEvent>;
   sessionId: string;
   conversationId: string;
+  /**
+   * The cookie this pairing handed out. Kept per pairing because a test with two
+   * machines in it has two browsers, and the credential belongs to one of them.
+   */
+  cookie: string | undefined;
 }
 
 /** Pairs one machine and opens a conversation on it. */
@@ -93,13 +106,23 @@ async function pair(
 
   const conversation = await postEmpty(baseUrl, `/sessions/${sessionId}/conversations`);
 
-  return { cli, sessionId, conversationId: String(conversation.body['id']) };
+  return {
+    cli,
+    sessionId,
+    conversationId: String(conversation.body['id']),
+    cookie: currentCookie(baseUrl),
+  };
 }
 
 test('a prompt into another machine\u2019s conversation is refused', async () => {
   await withServer(async ({ baseUrl }) => {
     const mine = await pair(baseUrl, 'AAAAAAAA', 'device-1', '/work/one');
     const theirs = await pair(baseUrl, 'BBBBBBBB', 'device-2', '/work/two');
+
+    // As the first machine's browser, holding a session that is perfectly valid.
+    // That is what makes this the case worth testing: the refusal has to be about
+    // entitlement rather than about the credential looking wrong.
+    useCookie(baseUrl, mine.cookie);
 
     const browser = await connect<BrowserEvent>(baseUrl, '/ws/browser');
     browser.send({ type: 'attach', sessionId: mine.sessionId });

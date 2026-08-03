@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { createConversationSchema, updateConversationSchema } from '@tunnelcode/protocol';
+import { authenticate } from '../session-auth.js';
 import type { ConversationRepository } from '../db/conversation-repository.js';
-import type { SessionRepository } from '../db/session-repository.js';
+import type { SessionDetail, SessionRepository } from '../db/session-repository.js';
 import type { DeviceService } from '../services/device.js';
 
 interface ConversationRoutesOptions {
@@ -10,25 +11,16 @@ interface ConversationRoutesOptions {
   devices: DeviceService;
 }
 
-/**
- * Header a browser proves its session with on the routes that name a conversation
- * rather than a session.
- *
- * A conversation id is not a credential. Without this, knowing one was enough to
- * read a whole transcript, which includes the output of every tool the agent ran:
- * file contents and command results from the user's machine.
- */
-const SESSION_HEADER = 'x-tunnelcode-session';
-
-type Authorized = { ok: true; sessionId: string } | { ok: false; status: number; error: string };
+type Authorized =
+  { ok: true; caller: SessionDetail } | { ok: false; status: number; error: string };
 
 /**
  * Conversation history routes.
  *
- * The routes that name a session take it from the path, where holding the id is
- * the claim, exactly as the WebSocket treats it. The routes that name only a
- * conversation take the session from a header and check the conversation belongs
- * to it.
+ * Every one of them works out who is calling from the session cookie. A path
+ * carries an id, and an id is an address: knowing one used to be enough to read a
+ * whole transcript, which includes the output of every tool the agent ran, meaning
+ * file contents and command results from the user's machine. See ADR-041.
  */
 export function registerConversationRoutes(
   app: FastifyInstance,
@@ -46,23 +38,13 @@ export function registerConversationRoutes(
    * A conversation that exists but belongs elsewhere answers exactly like one that
    * does not exist, so the reply never confirms that an id is real.
    */
-  const authorize = (
-    request: { headers: Record<string, unknown> },
-    conversationId: string,
-  ): Authorized => {
-    const header = request.headers[SESSION_HEADER];
-    const sessionId = typeof header === 'string' ? header : '';
-
-    if (sessionId === '') {
-      return { ok: false, status: 400, error: 'Missing session id.' };
-    }
-
-    // Rejects an ended session, since findSessionDetail leaves those out. A
-    // retired pairing cannot be used to read anything.
-    const caller = sessionRepository.findSessionDetail(sessionId);
+  const authorize = (cookie: string | undefined, conversationId: string): Authorized => {
+    // Rejects an ended, idle or expired session as well as an unknown one: all of
+    // them fail to resolve, which is the reading a retired pairing deserves.
+    const caller = authenticate(sessionRepository, cookie);
 
     if (caller === undefined) {
-      return { ok: false, status: 404, error: 'Unknown session.' };
+      return { ok: false, status: 401, error: 'Not signed in.' };
     }
 
     const owner = sessionRepository.findSessionForConversation(conversationId);
@@ -75,7 +57,28 @@ export function registerConversationRoutes(
       return { ok: false, status: 404, error: 'Unknown conversation.' };
     }
 
-    return { ok: true, sessionId };
+    return { ok: true, caller };
+  };
+
+  /**
+   * Resolves the caller for a route that names a session in its path.
+   *
+   * The path is checked against the cookie rather than trusted, so a request that
+   * names somebody else's session is refused instead of being served because the
+   * caller happens to hold a valid session of its own.
+   */
+  const authorizeSession = (cookie: string | undefined, sessionId: string): Authorized => {
+    const caller = authenticate(sessionRepository, cookie);
+
+    if (caller === undefined) {
+      return { ok: false, status: 401, error: 'Not signed in.' };
+    }
+
+    if (caller.id !== sessionId) {
+      return { ok: false, status: 404, error: 'Unknown session.' };
+    }
+
+    return { ok: true, caller };
   };
 
   app.get('/sessions/:sessionId/conversations', (request, reply) => {
@@ -86,11 +89,13 @@ export function registerConversationRoutes(
       return reply.code(400).send({ error: 'Missing session id.' });
     }
 
-    const detail = sessionRepository.findSessionDetail(sessionId);
+    const allowed = authorizeSession(request.headers.cookie, sessionId);
 
-    if (detail === undefined) {
-      return reply.code(404).send({ error: 'Unknown session.' });
+    if (!allowed.ok) {
+      return reply.code(allowed.status).send({ error: allowed.error });
     }
+
+    const detail = allowed.caller;
 
     // Scoped to the workspace rather than the session, so pairing again reopens
     // the same list instead of an empty one. Still only reachable through a
@@ -116,12 +121,13 @@ export function registerConversationRoutes(
       return reply.code(400).send({ error: 'Missing session id.' });
     }
 
-    const detail = sessionRepository.findSessionDetail(sessionId);
+    const allowed = authorizeSession(request.headers.cookie, sessionId);
 
-    if (detail === undefined) {
-      return reply.code(404).send({ error: 'Unknown session.' });
+    if (!allowed.ok) {
+      return reply.code(allowed.status).send({ error: allowed.error });
     }
 
+    const detail = allowed.caller;
     const parsed = createConversationSchema.safeParse(request.body ?? {});
 
     if (!parsed.success) {
@@ -171,7 +177,7 @@ export function registerConversationRoutes(
       return reply.code(400).send({ error: 'Missing conversation id.' });
     }
 
-    const allowed = authorize(request, conversationId);
+    const allowed = authorize(request.headers.cookie, conversationId);
 
     if (!allowed.ok) {
       return reply.code(allowed.status).send({ error: allowed.error });
@@ -223,7 +229,7 @@ export function registerConversationRoutes(
       return reply.code(400).send({ error: 'Missing conversation id.' });
     }
 
-    const allowed = authorize(request, conversationId);
+    const allowed = authorize(request.headers.cookie, conversationId);
 
     if (!allowed.ok) {
       return reply.code(allowed.status).send({ error: allowed.error });
@@ -253,7 +259,7 @@ export function registerConversationRoutes(
 
     // Checked before the delete rather than after, so a conversation belonging to
     // someone else is never destroyed on the way to being refused.
-    const allowed = authorize(request, conversationId);
+    const allowed = authorize(request.headers.cookie, conversationId);
 
     if (!allowed.ok) {
       return reply.code(allowed.status).send({ error: allowed.error });

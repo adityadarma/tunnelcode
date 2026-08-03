@@ -2,19 +2,25 @@ import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
 import { parseCliMessage } from '@tunnelcode/protocol';
 import type { CliMessage, ServerToCliMessage } from '@tunnelcode/protocol';
+import { hashSessionToken } from '../services/ids.js';
 import type { DeviceService } from '../services/device.js';
+import type { RunApprovals } from '../services/run-approvals.js';
 import type { SessionService } from '../services/session.js';
 import type { SessionRepository } from '../db/session-repository.js';
+import type { BrowserRegistry } from './browser-registry.js';
 import type { CliRegistry } from './registry.js';
 import type { TurnRelay } from './turn-relay.js';
 import { startAuthTimeout } from './auth-timeout.js';
 import { startHeartbeat } from './heartbeat.js';
+import { requestResume } from './resume.js';
 import type { Lifecycle } from '../lifecycle.js';
 
 interface CliSocketOptions {
   devices: DeviceService;
   sessions: SessionService;
   registry: CliRegistry;
+  browsers: BrowserRegistry;
+  runs: RunApprovals;
   sessionRepository: SessionRepository;
   relay: TurnRelay;
   lifecycle: Lifecycle;
@@ -30,7 +36,8 @@ interface CliSocketOptions {
  * pairing request belonging to another. See ADR-014.
  */
 export function registerCliSocket(app: FastifyInstance, options: CliSocketOptions): void {
-  const { devices, sessions, registry, sessionRepository, relay, lifecycle } = options;
+  const { devices, sessions, registry, browsers, runs, sessionRepository, relay, lifecycle } =
+    options;
 
   app.get('/ws/cli', { websocket: true }, (socket: WebSocket) => {
     let deviceId: string | undefined;
@@ -89,9 +96,26 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
           deviceId = device.id;
           registry.add(device.id, socket);
 
+          // The code is what tells a restart from a reconnect: it is generated once
+          // per CLI session and reused for every reconnect inside it. A new one means
+          // a new process, which has agreed to nothing yet. See ADR-040.
+          runs.start(device.id, device.code);
+
+          const known = sessionRepository.listSessionIdsByDevice(device.id);
+
           // A device that paired before keeps its id, so browsers watching an
           // earlier session learn it is reachable again after a reconnect.
-          relay.status(sessionRepository.listSessionIdsByDevice(device.id), true);
+          relay.status(known, true);
+
+          // A browser is already sitting on one of these sessions, and after a
+          // restart nobody has said it may still drive this machine. Asking here
+          // rather than waiting for its next prompt means the phone shows the number
+          // as soon as the terminal does, instead of refusing a prompt later.
+          for (const id of known) {
+            if (browsers.has(id) && !runs.isAllowed(device.id, id)) {
+              requestResume({ deviceId: device.id, sessionId: id, sessions, registry, browsers });
+            }
+          }
 
           reply({ type: 'registered', deviceId: device.id });
           return;
@@ -105,12 +129,33 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
 
           const outcome = sessions.approve(message.requestId, deviceId);
 
+          // A browser from an earlier run may carry on. Nothing is created and the
+          // pairing code is left claimable: this run did not spend it, and the code
+          // on screen is still what a new browser would use. See ADR-040.
+          if (outcome.status === 'resumed') {
+            runs.allow(deviceId, outcome.sessionId);
+
+            // The browser attaches again rather than being handed the attach payload
+            // from here, so a resumed session and a fresh one arrive the same way.
+            browsers.broadcast(outcome.sessionId, {
+              type: 'resume_approved',
+              sessionId: outcome.sessionId,
+            });
+            relay.status([outcome.sessionId], true);
+            reply({ type: 'paired', deviceId });
+            return;
+          }
+
           if (outcome.status !== 'approved') {
             reply({ type: 'error', message: `Cannot approve: ${outcome.status}.` });
             return;
           }
 
           devices.markPaired(deviceId);
+
+          // The run that paired a session has agreed to it by definition, so the
+          // browser about to collect this session is not asked again.
+          runs.allow(deviceId, outcome.session.id);
 
           // Persisted only after approval, so an unapproved request leaves no
           // trace in the database.
@@ -121,6 +166,9 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
               deviceId,
               deviceName: device.name,
               workspace: device.workspace,
+              // Only the hash is written down. The token itself stays in memory until
+              // the browser collects it as a cookie. See ADR-041.
+              tokenHash: hashSessionToken(outcome.session.token),
               // The leading engine, which is what a conversation created in this
               // session starts on. Registration requires at least one, so the
               // fallback is only here to satisfy the type.
@@ -139,7 +187,19 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
             return;
           }
 
-          sessions.reject(message.requestId, deviceId);
+          const refused = sessions.reject(message.requestId, deviceId);
+
+          // Refusing a resume answers "should this browser still have my machine",
+          // and the answer has to hold from now on rather than only for this
+          // connection. The stored conversations are kept; the session is not.
+          if (refused.sessionId !== undefined) {
+            sessionRepository.markEnded(refused.sessionId);
+            browsers.broadcast(refused.sessionId, {
+              type: 'resume_rejected',
+              message: 'The terminal did not allow this browser to continue.',
+            });
+          }
+
           return;
         }
 

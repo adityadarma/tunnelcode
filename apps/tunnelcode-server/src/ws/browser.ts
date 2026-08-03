@@ -1,22 +1,28 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
 import { parseBrowserMessage } from '@tunnelcode/protocol';
 import type { BrowserMessage, ServerToBrowserMessage } from '@tunnelcode/protocol';
+import { authenticate } from '../session-auth.js';
 import type { ConversationRepository } from '../db/conversation-repository.js';
 import type { SessionRepository } from '../db/session-repository.js';
 import type { DeviceService } from '../services/device.js';
 import type { PermissionService } from '../services/permission.js';
+import type { RunApprovals } from '../services/run-approvals.js';
+import type { SessionService } from '../services/session.js';
 import type { TurnService } from '../services/turn.js';
 import type { BrowserRegistry } from './browser-registry.js';
 import type { CliRegistry } from './registry.js';
 import type { TurnRelay } from './turn-relay.js';
 import { startAuthTimeout } from './auth-timeout.js';
+import { requestResume } from './resume.js';
 
 interface BrowserSocketOptions {
   devices: DeviceService;
   turns: TurnService;
   registry: CliRegistry;
   browsers: BrowserRegistry;
+  sessions: SessionService;
+  runs: RunApprovals;
   sessionRepository: SessionRepository;
   conversationRepository: ConversationRepository;
   permissions: PermissionService;
@@ -28,10 +34,11 @@ interface BrowserSocketOptions {
 /**
  * WebSocket endpoint the browser connects to.
  *
- * A connection has to attach to a session before anything else, and the session
+ * A connection has to attach to a session before anything else, and it is the
+ * cookie sent with the handshake that decides which session that is. The session
  * must exist in the database, which only happens after the user approved the
- * pairing in the terminal. That is what stops a guessed session id from
- * reaching a device. See ADR-014.
+ * pairing in the terminal, and the CLI run now connected must have agreed to serve
+ * it. See ADR-014, ADR-040 and ADR-041.
  */
 export function registerBrowserSocket(app: FastifyInstance, options: BrowserSocketOptions): void {
   const {
@@ -39,13 +46,15 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
     turns,
     registry,
     browsers,
+    sessions,
+    runs,
     sessionRepository,
     conversationRepository,
     permissions,
     relay,
   } = options;
 
-  app.get('/ws/browser', { websocket: true }, (socket: WebSocket) => {
+  app.get('/ws/browser', { websocket: true }, (socket: WebSocket, request: FastifyRequest) => {
     let sessionId: string | undefined;
     let deviceId: string | undefined;
 
@@ -62,9 +71,12 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
     );
 
     const attach = (id: string): void => {
-      const detail = sessionRepository.findSessionDetail(id);
+      // The cookie is the claim; the message only names which session it means. A
+      // caller naming somebody else's session is answered exactly like one naming a
+      // session that does not exist. See ADR-041.
+      const detail = authenticate(sessionRepository, request.headers.cookie);
 
-      if (detail === undefined) {
+      if (detail === undefined || detail.id !== id) {
         reply({ type: 'error', message: 'Unknown session.' });
         return;
       }
@@ -74,6 +86,26 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
       sessionId = detail.id;
       deviceId = detail.deviceId;
       browsers.add(detail.id, socket);
+
+      // The session is real, but the CLI in front of the user is a run that has not
+      // agreed to serve it: a restart is exactly the moment a session from before
+      // should have to be allowed again. Registered above first, so the number
+      // reaches this socket. An offline machine cannot be asked, and then attaching
+      // is allowed as far as reading history goes: nothing can be done to the
+      // machine while it is away, and the ask is raised the moment it registers.
+      // See ADR-040.
+      if (
+        !runs.isAllowed(detail.deviceId, detail.id) &&
+        requestResume({
+          deviceId: detail.deviceId,
+          sessionId: detail.id,
+          sessions,
+          registry,
+          browsers,
+        }) !== undefined
+      ) {
+        return;
+      }
 
       // A turn outlives the socket that started it, so a browser that refreshed
       // mid-answer is told what is still running. Otherwise it would show an
@@ -120,8 +152,16 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
     const decidePermission = (
       message: Extract<BrowserMessage, { type: 'permission_response' }>,
     ): void => {
-      if (sessionId === undefined) {
+      if (sessionId === undefined || deviceId === undefined) {
         reply({ type: 'error', message: 'Not attached to a session.' });
+        return;
+      }
+
+      // An approval is the message a stolen session would most want to send, so the
+      // run has to have agreed to this session before it can answer for the machine.
+      // See ADR-040.
+      if (!runs.isAllowed(deviceId, sessionId)) {
+        reply({ type: 'error', message: 'Waiting for approval in the terminal.' });
         return;
       }
 
@@ -174,6 +214,14 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
 
       if (caller === undefined) {
         reply({ type: 'error', message: 'Unknown session.' });
+        return;
+      }
+
+      // Checked here as well as on attach, because a machine can come back while
+      // this socket is attached: it registered under the same id, and until the
+      // terminal says so it is not this browser's agent to use. See ADR-040.
+      if (!runs.isAllowed(deviceId, sessionId)) {
+        reply({ type: 'error', message: 'Waiting for approval in the terminal.' });
         return;
       }
 

@@ -15,6 +15,7 @@ import { MessageList } from '../components/MessageList.js';
 import { ModelPicker } from '../components/ModelPicker.js';
 import { PermissionPrompt } from '../components/PermissionPrompt.js';
 import type { PermissionAsk, PermissionDecision } from '../components/PermissionPrompt.js';
+import { ResumeApproval } from '../components/ResumeApproval.js';
 import { ThemeToggle } from '../components/ThemeToggle.js';
 import { APP_VERSION } from '../version.js';
 import {
@@ -217,6 +218,12 @@ export function ConversationPage({
 
   const activeIdRef = useRef<string | undefined>(undefined);
   activeIdRef.current = activeId;
+
+  // Held in a ref because the socket handler is built once: an event that has to
+  // leave the page must not depend on the identity of a callback from the render it
+  // happened to arrive in.
+  const lostRef = useRef(onSessionLost);
+  lostRef.current = onSessionLost;
 
   // Read when switching conversations, which must not refetch the transcript just
   // because a turn started or ended.
@@ -459,6 +466,13 @@ export function ConversationPage({
         setAsks((current) => current.filter((item) => item.turnId !== String(event.turnId)));
         return;
 
+      // The terminal refused to serve this session again, which retires it. There is
+      // nothing to wait for and nothing to retry, so the only honest place to be is
+      // the pairing screen. See ADR-040.
+      case 'resume_rejected':
+        lostRef.current();
+        return;
+
       case 'error':
         setError(String(event.message));
         return;
@@ -540,7 +554,7 @@ export function ConversationPage({
 
     void (async () => {
       try {
-        const transcript = await readTranscript(sessionId, activeId);
+        const transcript = await readTranscript(activeId);
         setMessages(transcript.messages);
         setActivities(transcript.activities);
         setReasonings(transcript.reasonings);
@@ -571,7 +585,7 @@ export function ConversationPage({
   const removeConversation = (id: string): void => {
     void (async () => {
       try {
-        await deleteConversation(sessionId, id);
+        await deleteConversation(id);
         setConversations((current) => {
           const updated = current.filter((item) => item.id !== id);
           if (activeIdRef.current === id) {
@@ -674,7 +688,7 @@ export function ConversationPage({
 
     void (async () => {
       try {
-        await updateConversationModel(sessionId, activeId, newModel);
+        await updateConversationModel(activeId, newModel);
       } catch (cause) {
         setConversations((current) =>
           current.map((item) => (item.id === activeId ? { ...item, model: previous } : item)),
@@ -701,6 +715,19 @@ export function ConversationPage({
   const asksElsewhere = asks.filter((ask) => ask.conversationId !== activeId);
   const sendDisabled =
     activeId === undefined || offline || streaming !== undefined || busyElsewhere;
+
+  // Nothing on the conversation screen can be used until the terminal answers, so
+  // it is replaced rather than covered. Every hook above still runs, which is what
+  // keeps the socket open and the answer coming. See ADR-040.
+  if (socket.resumeApprovalNumber !== undefined) {
+    return (
+      <ResumeApproval
+        approvalNumber={socket.resumeApprovalNumber}
+        workspace={session?.workspace}
+        onPairAgain={onSessionLost}
+      />
+    );
+  }
 
   const disabledReason = offline
     ? 'The device is offline.'

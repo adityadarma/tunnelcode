@@ -15,6 +15,13 @@ export interface PairingClientOptions {
   engines: { name: string; models: string[] }[];
   /** Asked when the server forwards a pairing request. */
   onPairRequest: (approvalNumber: string) => Promise<boolean>;
+  /**
+   * Asked when a browser that paired in an earlier run wants to carry on here.
+   *
+   * A separate question from pairing: no code was presented, and refusing ends that
+   * browser's session rather than declining a new one. See ADR-040.
+   */
+  onResumeRequest: (approvalNumber: string) => Promise<boolean>;
   onRegistered: (deviceId: string) => void;
   onPaired: (deviceId: string) => void;
   /** Called when the server ends the session, so the CLI can stop. */
@@ -141,6 +148,17 @@ export class PairingClient {
 
       case 'pair_request': {
         const approved = await this.options.onPairRequest(message.approvalNumber);
+        this.send({
+          type: approved ? 'approve' : 'reject',
+          requestId: message.requestId,
+        });
+        return;
+      }
+
+      // Answered with the same two messages as a pairing request: the server knows
+      // which one it asked, and only this connection can answer for the machine.
+      case 'resume_request': {
+        const approved = await this.options.onResumeRequest(message.approvalNumber);
         this.send({
           type: approved ? 'approve' : 'reject',
           requestId: message.requestId,

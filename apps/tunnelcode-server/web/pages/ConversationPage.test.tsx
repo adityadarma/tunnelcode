@@ -443,3 +443,74 @@ describe('ConversationPage permission asks', () => {
     });
   });
 });
+
+describe('ConversationPage reconnect approval', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    stubFetch();
+    vi.stubGlobal('WebSocket', FakeSocket);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    FakeSocket.latest = undefined;
+  });
+
+  test('a session waiting on the terminal shows the number instead of the conversation', async () => {
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    await loadPage();
+
+    FakeSocket.latest?.deliver({
+      type: 'resume_pending',
+      sessionId: 'session-1',
+      approvalNumber: '4271',
+    });
+
+    // Nothing on the conversation screen can be used until the terminal answers, so
+    // it is replaced rather than covered.
+    await screen.findByText('4271');
+    expect(screen.queryByLabelText('Message')).toBeNull();
+  });
+
+  test('an approved reconnect attaches again and brings the conversation back', async () => {
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    await loadPage();
+
+    FakeSocket.latest?.deliver({
+      type: 'resume_pending',
+      sessionId: 'session-1',
+      approvalNumber: '4271',
+    });
+    await screen.findByText('4271');
+
+    FakeSocket.latest?.deliver({ type: 'resume_approved', sessionId: 'session-1' });
+
+    // Attaching again is what reports a running turn and replays a waiting ask, so
+    // the resumed session lands where a fresh one does.
+    await waitFor(() => {
+      expect(
+        FakeSocket.latest?.sent.filter((raw) => raw.includes('"attach"')).length,
+      ).toBeGreaterThan(1);
+    });
+
+    FakeSocket.latest?.deliver({ type: 'attached', sessionId: 'session-1', online: true });
+    await screen.findByLabelText('Message');
+  });
+
+  test('a refused reconnect gives up the session', async () => {
+    const lost = vi.fn();
+    render(<ConversationPage sessionId="session-1" onSessionLost={lost} />);
+    await loadPage();
+
+    FakeSocket.latest?.deliver({
+      type: 'resume_rejected',
+      message: 'The terminal did not allow this browser to continue.',
+    });
+
+    // The session is retired on the server, so staying on this screen would be
+    // waiting for something that is never coming.
+    await waitFor(() => {
+      expect(lost).toHaveBeenCalled();
+    });
+  });
+});

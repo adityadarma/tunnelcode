@@ -39,6 +39,17 @@ export class BrowserRegistry {
     }
   }
 
+  /**
+   * Whether any browser is watching a session.
+   *
+   * Read when a CLI registers, to decide which sessions have somebody waiting who
+   * has to be asked about again. Nobody watching means nobody to interrupt the
+   * terminal for. See ADR-040.
+   */
+  has(sessionId: string): boolean {
+    return this.bySession.has(sessionId);
+  }
+
   /** Sends to every browser watching a session. */
   broadcast(sessionId: string, message: ServerToBrowserMessage): void {
     const connections = this.bySession.get(sessionId);

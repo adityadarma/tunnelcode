@@ -8,6 +8,15 @@ export interface SessionSocket {
   online: boolean;
   connected: boolean;
   /**
+   * The number the terminal has to approve before this session can be used again,
+   * or undefined when nothing is waiting.
+   *
+   * Set when the CLI has restarted since this session was approved: the machine is
+   * reachable, the session is real, and the person at the keyboard has not yet said
+   * this browser may carry on. See ADR-040.
+   */
+  resumeApprovalNumber: string | undefined;
+  /**
    * Sends a prompt. The engine and the model are not passed: they belong to the
    * conversation and the server reads them from it. See ADR-020.
    */
@@ -46,6 +55,7 @@ export function useSessionSocket({ sessionId, onMessage }: UseSessionSocketOptio
   const socketRef = useRef<WebSocket | undefined>(undefined);
   const [connected, setConnected] = useState(false);
   const [online, setOnline] = useState(false);
+  const [resumeApprovalNumber, setResumeApprovalNumber] = useState<string | undefined>(undefined);
   const handlerRef = useRef(onMessage);
 
   handlerRef.current = onMessage;
@@ -81,6 +91,25 @@ export function useSessionSocket({ sessionId, onMessage }: UseSessionSocketOptio
           if ((type === 'attached' || type === 'device_status') && 'online' in parsed) {
             setOnline(parsed.online === true);
           }
+
+          // Nothing was attached, so the session is on hold until the terminal
+          // answers. Held here rather than passed on as an event, because it decides
+          // what the whole screen shows.
+          if (type === 'resume_pending' && 'approvalNumber' in parsed) {
+            setResumeApprovalNumber(String(parsed.approvalNumber));
+          }
+
+          // Approved. Attaching again is what reports a running turn and replays a
+          // waiting ask, so the resumed session lands in exactly the state a fresh
+          // one does.
+          if (type === 'resume_approved') {
+            setResumeApprovalNumber(undefined);
+            socket.send(JSON.stringify({ type: 'attach', sessionId }));
+          }
+
+          if (type === 'attached') {
+            setResumeApprovalNumber(undefined);
+          }
         }
 
         handlerRef.current(parsed);
@@ -89,6 +118,9 @@ export function useSessionSocket({ sessionId, onMessage }: UseSessionSocketOptio
       socket.addEventListener('close', () => {
         setConnected(false);
         setOnline(false);
+        // The number belonged to a request on that connection. Keeping it would show
+        // a number the terminal is no longer asking about; the reconnect asks again.
+        setResumeApprovalNumber(undefined);
 
         if (pingTimer !== undefined) {
           window.clearInterval(pingTimer);
@@ -163,5 +195,12 @@ export function useSessionSocket({ sessionId, onMessage }: UseSessionSocketOptio
     socket.send(JSON.stringify({ type: 'disconnect' }));
   }, []);
 
-  return { online, connected, sendPrompt, sendPermissionResponse, disconnect };
+  return {
+    online,
+    connected,
+    resumeApprovalNumber,
+    sendPrompt,
+    sendPermissionResponse,
+    disconnect,
+  };
 }

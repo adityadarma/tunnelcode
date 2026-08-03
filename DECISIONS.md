@@ -1626,3 +1626,147 @@ what comes next, which is what thinking means here.
 Said in words rather than shown, because the three dots are the same three dots
 whatever is happening, and a reader who cannot see them would otherwise be told
 nothing at all.
+
+---
+
+# ADR-039
+
+## A Session Has A Ceiling As Well As An Idle Window
+
+Amends ADR-026.
+
+Decision
+
+A session stops being valid twelve hours after it was approved, whatever has
+happened in the meantime.
+
+The hour of idleness still applies. A session ends at whichever of the two comes
+first.
+
+Reason
+
+ADR-026 gave a session an hour without conversation, measured from the last thing
+that happened. That window slides, and it slides for whoever is using the session,
+not only for the person it belongs to. One message every fifty-nine minutes keeps it
+open, so a credential that has been copied has a lifetime it renews itself, which is
+not a lifetime.
+
+Twelve hours is chosen against the day the tool is used in rather than against a
+round number: a session covers a working stretch and does not need to cover the
+night. Reaching the ceiling costs one scan of a QR code, and the conversations are
+kept, so the cost of being wrong in this direction is small and obvious, while the
+cost of being wrong in the other direction is an agent on somebody's machine.
+
+Measured from approval rather than from anything renewable, because a ceiling that
+any activity could push forward is the same sliding window again under a longer name.
+
+Enforced in the same function as the idle check and the ended check, for the reason
+given there: a check each caller has to remember is a check one of them will forget.
+The cookie carries the same twelve hours as its `Max-Age`, so a browser stops
+presenting a credential the server would refuse anyway.
+
+---
+
+# ADR-040
+
+## A New Run Of The CLI Approves Its Browsers Again
+
+Decision
+
+A session may only be used on a run of the CLI that has agreed to serve it.
+
+Pairing is that agreement for the run that paired. A run that finds a browser
+holding a session from an earlier run asks the terminal about it, with a number both
+sides show, exactly as pairing does.
+
+Refusing ends that session. The stored conversations are kept.
+
+A reconnect is not a new run: the pairing code is generated once per CLI session, so
+a dropped connection that comes back under the same code keeps what was approved.
+
+The record of what a run has approved is held in memory and is never written down.
+
+Reading history is not gated on this. Prompting, and answering a permission ask, are.
+
+Reason
+
+A session deliberately outlives the process that approved it. The row is in the
+database and the device id is derived from the machine and the workspace, so the next
+`tunnelcode` in that directory answers to the same address. That is what makes
+closing the terminal and opening it again resumable, and it is what made one approval
+enough for every run that followed, indefinitely, as long as somebody kept the
+session from going idle.
+
+The gap that leaves is not theoretical. Stopping the agent is the one action a user
+would describe as "closing it", and it revoked nothing: the browser that came back
+first got the machine, whoever was holding it. Asking again costs a keypress at the
+moment the user is already looking at the terminal, having just started it.
+
+Keyed on the pairing code because that is the only thing that separates a restart
+from a reconnect, and the CLI reconnects on its own after every network blip. Asking
+on each of those would train the user to press y without reading it, which is the
+same as not asking.
+
+In memory, because consent belongs to the run that gave it. A stored record would
+have to be invalidated by something, and there is nothing honest to invalidate it
+with: the process that gave it is gone and nothing it left behind proves it was the
+same process. A server restart therefore also asks again, which is the same rule
+rather than an exception to it.
+
+Refusing ends the session rather than declining the connection, because the question
+is not "should this connection continue" but "should this browser still have my
+machine". An answer of no that leaves the session usable is not an answer.
+
+History is left readable because reading a transcript does nothing to the machine,
+and a phone that can still show what was said while the agent is stopped is worth
+more than the difference. The two messages that reach the machine are gated, and the
+ask is raised again the moment a stopped machine comes back.
+
+---
+
+# ADR-041
+
+## The Session Credential Is An HttpOnly Cookie
+
+Decision
+
+A session is proved by a token in an `HttpOnly`, `SameSite=Strict` cookie. `Secure`
+is added when the request arrived over TLS.
+
+Only the SHA-256 of the token is stored. A session row without one cannot be
+authenticated.
+
+The session id is an address, not a claim. It still travels in paths and is still
+remembered by the page, and every route resolves the caller from the cookie before
+looking at it.
+
+The `X-Tunnelcode-Session` header is gone.
+
+Reason
+
+The session id was the credential, and it was kept in local storage and sent in
+paths and in a header. Every one of those is a place it can be read from or written
+down: a script that reached the page could copy it and use it from anywhere, and a
+proxy in front of the server logged it as part of a URL even though this server does
+not. What it buys whoever copies it is not a session on a website but a browser that
+can prompt an agent with access to the user's files and approve the tool calls it
+asks about.
+
+A cookie the page cannot read separates the two things the id was doing at once.
+Addressing needs to be readable by the page; proving does not, and the credential is
+now only ever in a header the browser attaches itself.
+
+`SameSite=Strict` because an authenticated request here can allow a command to run,
+so no other site gets to make one in the background. `Secure` conditionally, because
+the usual deployment is a plain address on a home network and a Secure cookie sent
+there is one the browser discards, which would lock the user out rather than protect
+them.
+
+The hash rather than the token, so a copy of the database is a history of what was
+said and not a set of working credentials. No salt and no stretching: this is 32
+random bytes, so there is nothing to guess and nothing a precomputed table could
+cover.
+
+A row with no hash cannot authenticate, which is how a session written before this
+existed asks to pair again instead of being trusted on its id. An hour of idleness
+means almost nothing is in that state by the time the server is upgraded.
