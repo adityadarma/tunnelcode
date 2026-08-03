@@ -624,6 +624,31 @@
   @apply m-0 text-[11px] leading-snug text-[var(--muted)] bg-[var(--surface-2)] border border-[var(--border)] rounded-lg p-2;
 }
 
+/* Install banner */
+.install-banner {
+  @apply mx-4 md:mx-6 mt-3 p-3 bg-[var(--accent-glow)] border border-[var(--accent)]/30 rounded-xl flex flex-col gap-2 text-xs text-[var(--text)] shrink-0;
+}
+
+.install-banner-content p {
+  @apply m-0 leading-relaxed;
+}
+
+.install-banner-content p + p {
+  @apply mt-1.5;
+}
+
+.install-banner-actions {
+  @apply flex items-center gap-2 mt-1;
+}
+
+.btn-install {
+  @apply text-xs font-medium py-1 px-3 rounded-lg bg-[var(--accent)] text-white border-none cursor-pointer hover:bg-[var(--accent-hover)] transition-colors;
+}
+
+.btn-dismiss {
+  @apply text-xs font-medium py-1 px-3 rounded-lg bg-transparent text-[var(--muted)] border border-[var(--border)] cursor-pointer hover:text-[var(--text)] hover:bg-[var(--surface-hover)] transition-colors;
+}
+
 .device-panel {
   @apply bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-3 flex flex-col gap-2 text-xs shadow-xs;
 }

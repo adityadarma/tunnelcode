@@ -68,8 +68,12 @@ export function buildContentSecurityPolicy(scriptHashes: readonly string[]): str
     "style-src 'self' 'unsafe-inline'",
     `script-src ${scriptSrc}`,
     // The session socket is same origin, which a CSP counts as 'self' for ws and
-    // wss alike.
-    "connect-src 'self'",
+    // wss alike. The push subscription endpoint lives on the browser vendor's push
+    // service (fcm.googleapis.com for Chrome, updates.push.services.mozilla.com for
+    // Firefox), so it has to be reachable from here as well.
+    "connect-src 'self' https://*.googleapis.com https://*.push.services.mozilla.com https://*.notify.windows.com",
+    // The service worker is a same-origin script served from /sw.js.
+    "worker-src 'self'",
   ].join('; ');
 }
 

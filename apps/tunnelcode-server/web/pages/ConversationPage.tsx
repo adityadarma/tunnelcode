@@ -11,6 +11,7 @@ import type { Activity, Conversation, Message, Reasoning, SessionDetail } from '
 import { Composer } from '../components/Composer.js';
 import { ConversationList } from '../components/ConversationList.js';
 import { DevicePanel } from '../components/DevicePanel.js';
+import { InstallBanner } from '../components/InstallBanner.js';
 import { MessageList } from '../components/MessageList.js';
 import { ModelPicker } from '../components/ModelPicker.js';
 import { NotificationToggle } from '../components/NotificationToggle.js';
@@ -948,6 +949,8 @@ export function ConversationPage({
             {error}
           </p>
         )}
+
+        <InstallBanner />
 
         <MessageList
           messages={messages}
