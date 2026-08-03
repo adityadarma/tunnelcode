@@ -1,4 +1,3 @@
-import { useEffect, useRef } from 'react';
 import type { Activity, Message, Reasoning } from '../api.js';
 import { ActivityItem } from './ActivityItem.js';
 import { EmptyConversation } from './EmptyConversation.js';
@@ -44,14 +43,6 @@ export function MessageList({
   reasoningStream,
   workspace,
 }: MessageListProps): React.JSX.Element {
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
-    }
-  }, [messages, activities, reasonings, streaming, reasoningStream]);
-
   if (
     messages.length === 0 &&
     activities.length === 0 &&
@@ -64,13 +55,7 @@ export function MessageList({
   const turns = buildTurns(messages, activities, reasonings, streaming, reasoningStream);
 
   return (
-    <div
-      ref={containerRef}
-      className="messages"
-      role="log"
-      aria-live="polite"
-      aria-label="Conversation"
-    >
+    <div className="messages" role="log" aria-live="polite" aria-label="Conversation">
       {turns.map((turn) =>
         turn.kind === 'user' ? (
           <article key={turn.id} className="message message-user">

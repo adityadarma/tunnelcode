@@ -57,6 +57,16 @@ to the version it ships as and leaves an empty one behind.
   after the last line. The numbered lines and the note saying where the read stopped
   are kept, and an output that does not match that shape is still shown exactly as it
   came.
+- Expanded tool output no longer glues a separator to its line numbers. A file read
+  arrived as `12: code` and a `grep -n` as `12:code` or `13-code`, so every line of
+  code carried a colon or a dash that was not in the file, in front of code that is
+  already full of both. The number stays and the separator becomes a space, with the
+  line's own indentation untouched. Only lines that count up one at a time are read as
+  numbering, so a dated log keeps its dates.
+- The transcript no longer jumps to the bottom every time something arrives. Reading
+  back through an answer, or through the output of a call, used to be interrupted by
+  each new paragraph or tool result dragging the view down. The view now stays where it
+  was put and scrolling is left to the reader.
 - An answered menu clears itself from the screen, so choosing Setup no longer leaves
   the main menu above it and a few choices no longer fill the terminal. What an action
   printed stays.

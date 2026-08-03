@@ -36,7 +36,8 @@ const TYPE_LINE = /^<type>(file|directory)<\/type>$/;
  * this output rather than in it, and it is the absolute one: three lines of
  * scrolling before the file starts, saying what the reader was just told. The line
  * numbers and the note that closes the body are kept, since those say which part of
- * the file this is and whether there is more of it.
+ * the file this is and whether there is more of it. How the numbers are shown is the
+ * browser's business, not this function's.
  *
  * Anything that does not match the recorded shape exactly is returned as it came.
  * An output shape that changed is better read raw than quietly cut in half by a

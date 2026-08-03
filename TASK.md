@@ -618,6 +618,7 @@ read as the answer. See ADR-037.
 - [x] opencode reports its reasoning parts, streamed and whole
 - [x] Claude reports its thinking blocks
 - [x] Kiro reports its thought chunks
+
 - [x] Nothing invented for Antigravity, which counts its thinking and never sends it
 - [x] Unit: a recorded Antigravity run on a thinking model reports work, not thinking
 - [x] Fragments relayed live, the stretch stored when the model stops thinking

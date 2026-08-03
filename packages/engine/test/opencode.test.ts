@@ -470,7 +470,8 @@ test('a read reports what it found, not the envelope around it', async () => {
       // The path is already the target shown above the output, and the absolute form
       // of it at that, so three lines of scrolling stood between the reader and the
       // file. The line numbers and the closing note stay: they say which part of the
-      // file this is and whether there is more.
+      // file this is and whether there is more. How the numbers are shown is the
+      // browser's business.
       assert.equal(
         output?.type === 'activity_output' ? output.output : '',
         [

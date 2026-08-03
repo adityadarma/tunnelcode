@@ -108,6 +108,30 @@ describe('MessageList', () => {
     expect(screen.getByText('thinking…')).toBeDefined();
   });
 
+  test('expanded output shows line numbers without the separator glued on', async () => {
+    const activities: Activity[] = [
+      {
+        id: 'a1',
+        tool: 'bash',
+        target: 'grep -n AgyLine antigravity.ts',
+        output: ['129-', '130:interface AgyLine {', '131-  event?: unknown;'].join('\n'),
+        createdAt: 1700000002000,
+      },
+    ];
+
+    const { container } = render(
+      <MessageList messages={messages} activities={activities} streaming={undefined} />,
+    );
+
+    await userEvent.click(screen.getByText('bash'));
+
+    // The number stays, the colon and the dash go, and the indentation on the line is
+    // the file's own.
+    expect(container.querySelector('.activity-output-content')?.textContent).toBe(
+      ['129', '130 interface AgyLine {', '131   event?: unknown;'].join('\n'),
+    );
+  });
+
   test('a finished turn shows no status line at all', () => {
     render(<MessageList messages={messages} activities={[]} streaming={undefined} />);
 

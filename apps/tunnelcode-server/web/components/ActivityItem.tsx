@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Activity } from '../api.js';
+import { withoutNumberSeparators } from './activity-output.js';
 
 interface ActivityItemProps {
   activity: Activity;
@@ -33,7 +34,11 @@ export function ActivityItem({ activity, workspace }: ActivityItemProps): React.
     displayTarget = displayTarget.split(workspace).join('.');
   }
 
-  const hasOutput = typeof activity.output === 'string' && activity.output.length > 0;
+  // Read as a string rather than compared against undefined, for the same reason the
+  // target is: a stored row's empty columns come back as null.
+  const output =
+    typeof activity.output === 'string' && activity.output.length > 0 ? activity.output : undefined;
+  const hasOutput = output !== undefined;
   const reason = typeof activity.reason === 'string' ? activity.reason : undefined;
 
   return (
@@ -100,9 +105,12 @@ export function ActivityItem({ activity, workspace }: ActivityItemProps): React.
             </span>
           )}
         </p>
-        {expanded && hasOutput && (
+        {expanded && output !== undefined && (
           <div className="activity-output-container">
-            <pre className="activity-output-content">{activity.output}</pre>
+            {/* Numbered lines are shown with the number and nothing else in front of
+                the code: the colon or dash the tool glued on says nothing the gap
+                does not, and reads as part of the line it labels. */}
+            <pre className="activity-output-content">{withoutNumberSeparators(output)}</pre>
           </div>
         )}
       </div>
