@@ -31,13 +31,30 @@ export function generateSessionToken(): string {
 }
 
 /**
- * Hashes a session token for storage.
+ * Hashes a secret for storage.
  *
  * Only the hash is written down, so a database that is read somewhere it should
- * not be does not hand over working credentials. No salt and no stretching: this
- * is 32 random bytes rather than a password, so there is nothing to guess and
+ * not be does not hand over working credentials. No salt and no stretching: these
+ * are 32 random bytes rather than passwords, so there is nothing to guess and
  * nothing a table of precomputed hashes could cover.
  */
+function hash(secret: string): string {
+  return createHash('sha256').update(secret).digest('hex');
+}
+
+/** Hashes the token a browser proves its session with. See ADR-041. */
 export function hashSessionToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex');
+  return hash(token);
+}
+
+/**
+ * Hashes the id a CLI run introduces itself with.
+ *
+ * Stored on the sessions that run approved, so a server that restarted can tell it
+ * is talking to the same run rather than asking the terminal about a machine that
+ * never went anywhere. Hashed for the same reason the token is: what is written down
+ * should not be usable. See ADR-043.
+ */
+export function hashRunId(runId: string): string {
+  return hash(runId);
 }

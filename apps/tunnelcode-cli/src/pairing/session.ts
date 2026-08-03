@@ -2,7 +2,7 @@ import { createEngine } from '@tunnelcode/engine';
 import type { AvailableEngine, Engine } from '@tunnelcode/engine';
 import { PairingClient } from './client.js';
 import { askApproval } from './approval.js';
-import { buildCliSocketUrl, buildLoginUrl, generatePairingCode } from './code.js';
+import { buildCliSocketUrl, buildLoginUrl, generatePairingCode, generateRunId } from './code.js';
 import { IdleTimer } from './idle.js';
 import { createPermissionPolicy } from './permission-policy.js';
 import { PromptRunner } from './prompt-runner.js';
@@ -41,6 +41,15 @@ interface SessionState {
   close: (() => void) | undefined;
   /** Ends an in-progress reconnect delay, so stopping is not held up by it. */
   wake: (() => void) | undefined;
+  /**
+   * The connection engine output is reported on right now, if any.
+   *
+   * Read through this rather than captured, because a turn outlives the socket it
+   * started on: the answer keeps arriving while the CLI reconnects, and it has to
+   * reach whichever connection is current when it does. Undefined while there is no
+   * connection, which drops the output rather than failing the turn. See ADR-044.
+   */
+  client: PairingClient | undefined;
 }
 
 /**
@@ -76,6 +85,9 @@ const wait = async (ms: number, state: SessionState): Promise<void> => {
  */
 export async function runPairingSession(options: PairingSessionOptions): Promise<number> {
   const code = generatePairingCode();
+  // Generated alongside the code and for the same lifetime: both belong to this run,
+  // and both are reused across every reconnect it makes. See ADR-043.
+  const runId = generateRunId();
   const loginUrl = buildLoginUrl(options.serverUrl, code);
   const socketUrl = buildCliSocketUrl(options.serverUrl);
 
@@ -93,6 +105,7 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
     fatal: undefined,
     close: undefined,
     wake: undefined,
+    client: undefined,
   };
   let delay = RECONNECT_MIN_MS;
 
@@ -127,8 +140,71 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
     });
   }
 
+  /**
+   * Ends the session after an hour with no conversation.
+   *
+   * One timer for the session rather than one per connection: it measures how long
+   * nobody has used the agent, and a connection dropping is not somebody using it.
+   * Built per connection, a reconnect handed the session a fresh hour. See ADR-044.
+   */
+  const idle = new IdleTimer({
+    onExpired: () => {
+      writeOut('');
+      writeOut('No conversation for 1 hour. Ending the session.');
+      stop();
+    },
+  });
+
+  // Built from the same list that was registered, so a prompt can only ever name an
+  // engine this machine actually has. Adapters are stateless, so one instance per
+  // engine is reused for every turn.
+  const engines = new Map<string, Engine>();
+
+  for (const available of options.engines) {
+    const engine = createEngine(available.name);
+
+    if (engine !== undefined) {
+      engines.set(available.name, engine);
+    }
+  }
+
+  /**
+   * One runner for the session, not one per connection.
+   *
+   * A turn outlives the socket it started on: the engine keeps working while the CLI
+   * reconnects. With a runner per connection, the reconnect brought a second runner
+   * that believed the machine was free, so a prompt sent after the server came back
+   * started a second engine in the same workspace while the first was still writing
+   * to it. Output produced while there is no connection is dropped; whatever comes
+   * after the reconnect reaches the server, which either still knows the turn or has
+   * forgotten it. See ADR-044.
+   */
+  const runner = new PromptRunner({
+    engines,
+    cwd: options.workspace,
+    send: (message) => {
+      state.client?.report(message);
+    },
+    // Only messages reset the idle timeout, never heartbeats.
+    onActivity: () => {
+      idle.reset();
+    },
+    // Reads this machine's ceiling and its granted rules, so an ask the machine can
+    // already answer never reaches the phone. See ADR-022.
+    policy: createPermissionPolicy(),
+  });
+
   while (!shouldStop()) {
-    const connected = await runConnection({ ...options, code, socketUrl, state, stop });
+    const connected = await runConnection({
+      ...options,
+      code,
+      runId,
+      socketUrl,
+      state,
+      stop,
+      idle,
+      runner,
+    });
 
     if (shouldStop() || state.fatal !== undefined) {
       break;
@@ -148,6 +224,17 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
     }
   }
 
+  idle.stop();
+
+  // Stopped once, when the session is over, rather than on every disconnect. An
+  // engine that runs a server of its own would otherwise have it killed by a network
+  // blip, in the middle of the turn it was answering. Leaving it up past the session
+  // is the thing to avoid: nothing would be watching an agent that can still reach
+  // the workspace. See ADR-044.
+  for (const engine of engines.values()) {
+    engine.stop?.();
+  }
+
   // The message was already written when it arrived, so printing it again here
   // would only duplicate it.
   if (state.fatal !== undefined) {
@@ -164,9 +251,14 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
 
 interface ConnectionOptions extends PairingSessionOptions {
   code: string;
+  runId: string;
   socketUrl: string;
   state: SessionState;
   stop: () => void;
+  /** Owned by the session, because it measures the session rather than the socket. */
+  idle: IdleTimer;
+  /** Owned by the session, because a turn outlives the connection. See ADR-044. */
+  runner: PromptRunner;
 }
 
 /**
@@ -174,21 +266,13 @@ interface ConnectionOptions extends PairingSessionOptions {
  * which decides how long to wait before trying again.
  */
 async function runConnection(options: ConnectionOptions): Promise<boolean> {
-  const { state } = options;
+  const { state, idle, runner } = options;
   const local = { registered: false };
-
-  const idle = new IdleTimer({
-    onExpired: () => {
-      writeOut('');
-      writeOut('No conversation for 1 hour. Ending the session.');
-      options.stop();
-      client.close();
-    },
-  });
 
   const client = new PairingClient({
     url: options.socketUrl,
     code: options.code,
+    runId: options.runId,
     deviceId: options.deviceId,
     deviceName: options.deviceName,
     workspace: options.workspace,
@@ -209,6 +293,13 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
 
     onPermissionResponse: (turnId, permissionId, decision, expired) => {
       runner.decide(turnId, permissionId, decision, expired);
+    },
+
+    // The engine is killed rather than asked to wind down: a turn worth stopping is
+    // often one that is stuck. See ADR-042.
+    onStopTurn: (turnId) => {
+      writeOut('Stopping the current answer.');
+      runner.stop(turnId);
     },
 
     onPairRequest: async (approvalNumber) => {
@@ -258,33 +349,9 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
     },
   });
 
-  // Built from the same list that was registered, so a prompt can only ever name
-  // an engine this machine actually has. Adapters are stateless, so one instance
-  // per engine is reused for every turn.
-  const engines = new Map<string, Engine>();
-
-  for (const available of options.engines) {
-    const engine = createEngine(available.name);
-
-    if (engine !== undefined) {
-      engines.set(available.name, engine);
-    }
-  }
-
-  const runner = new PromptRunner({
-    engines,
-    cwd: options.workspace,
-    send: (message) => {
-      client.report(message);
-    },
-    // Only messages reset the idle timeout, never heartbeats.
-    onActivity: () => {
-      idle.reset();
-    },
-    // Reads this machine's ceiling and its granted rules, so an ask the machine
-    // can already answer never reaches the phone. See ADR-022.
-    policy: createPermissionPolicy(),
-  });
+  // Where engine output goes from now on. Set before the wait, so a turn that was
+  // still running when the last socket dropped reports the rest of itself here.
+  state.client = client;
 
   // Registered before the wait, so Ctrl+C arriving mid-wait reaches this socket.
   // A signal that landed before this point is honoured by the check below.
@@ -298,13 +365,12 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
 
   await client.waitUntilClosed();
   state.close = undefined;
-  idle.stop();
 
-  // An engine that runs a server of its own would otherwise keep it alive while
-  // the CLI sits back at the menu, with nothing watching an agent that can still
-  // reach the workspace.
-  for (const engine of engines.values()) {
-    engine.stop?.();
+  // Cleared rather than left pointing at a closed socket. A turn still in flight keeps
+  // producing, and its output is dropped until the next connection sets this again.
+  // See ADR-044.
+  if (state.client === client) {
+    state.client = undefined;
   }
 
   return local.registered;

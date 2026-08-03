@@ -8,6 +8,13 @@ const PING_INTERVAL_MS = 30 * 1000;
 export interface PairingClientOptions {
   url: string;
   code: string;
+  /**
+   * Identifies this run of the CLI, the same value across every reconnect it makes.
+   *
+   * Sent on register so a server that restarted can reinstate what this run already
+   * approved rather than asking the terminal again. See ADR-043.
+   */
+  runId: string;
   deviceId: string;
   deviceName: string;
   workspace: string;
@@ -28,6 +35,13 @@ export interface PairingClientOptions {
   onStop: (reason: string) => void;
   /** fatal marks a failure that reconnecting cannot resolve. */
   onError: (message: string, fatal: boolean) => void;
+  /**
+   * Called when the browser asks for the running answer to stop.
+   *
+   * Not awaited: killing the engine is what this does, and the run itself is what
+   * finishes afterwards.
+   */
+  onStopTurn: (turnId: string) => void;
   /** Called when the server routes a prompt from the browser to this machine. */
   onPrompt: (
     turnId: string,
@@ -71,6 +85,7 @@ export class PairingClient {
       this.send({
         type: 'register',
         code: options.code,
+        runId: options.runId,
         deviceId: options.deviceId,
         deviceName: options.deviceName,
         workspace: options.workspace,
@@ -172,6 +187,10 @@ export class PairingClient {
 
       case 'stop':
         this.options.onStop(message.reason);
+        return;
+
+      case 'stop_turn':
+        this.options.onStopTurn(message.turnId);
         return;
 
       case 'error':

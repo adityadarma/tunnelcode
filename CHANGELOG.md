@@ -10,6 +10,42 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+### Added
+
+- A running answer can be stopped. While one is running the send button is a red Stop
+  button, and pressing it kills the engine on the paired machine and ends the turn. It
+  works on an answer that has stopped saying anything at all, which is the one worth
+  stopping: the turn is ended where the record of it lives and the machine is only
+  asked to kill the process afterwards, so the escape does not wait on whatever is
+  stuck. Until now a grey Send button was the whole of what the browser offered, and a
+  device answers one prompt at a time, so a turn that went nowhere held the session
+  until the CLI gave up on its own five minutes later. What the agent had already said
+  is kept, an approval it was waiting on is cleared, and the transcript marks the
+  answer as one you stopped rather than one that failed. See ADR-042.
+
+### Fixed
+
+- Restarting or updating the server no longer asks every paired browser to be approved
+  in the terminal again. The consent lived in server memory, so replacing the container
+  emptied it even though the CLI in front of the user had not moved, and a deploy cost
+  every phone a trip to the keyboard. A CLI run now introduces itself with an id it
+  generates per process, and the sessions it approved carry the hash of that id, so a
+  replaced server reinstates them from the database. A restarted CLI is still asked
+  about, which is the point of asking at all: a prompt that appears after every deploy
+  is one people learn to answer without reading, and that keypress is what stands
+  between a leaked session and the user's files. A browser cannot send a run id, so
+  nothing about a leaked cookie changed. See ADR-043.
+- A connection dropping mid-answer no longer risks two agents in one workspace. The
+  engine keeps working while the CLI reconnects, and the reconnect used to bring a
+  fresh runner that believed the machine was free, so a prompt sent after the server
+  came back could start a second engine writing to the same files. The runner, the
+  engines and the idle clock now belong to the session rather than to the socket, which
+  also means an answer can survive a brief outage instead of being lost, an engine that
+  runs a server of its own is no longer killed by a network blip mid-turn, and a
+  reconnect no longer hands an unused session another idle hour. See ADR-044.
+- While the browser is reconnecting it says so, instead of reporting the paired machine
+  as offline. It was never the machine that had gone.
+
 ### Security
 
 - A session now also expires twelve hours after it was approved, however busy it has

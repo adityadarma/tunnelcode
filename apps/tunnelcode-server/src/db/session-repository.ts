@@ -33,6 +33,11 @@ export interface PersistSessionInput {
    * this layer. See ADR-041.
    */
   tokenHash: string;
+  /**
+   * SHA-256 of the id of the CLI run approving this. Null when the CLI is too old to
+   * introduce itself, which reads as a run nobody can recognise. See ADR-043.
+   */
+  runIdHash: string | null;
 }
 
 export interface SessionDetail {
@@ -95,6 +100,7 @@ export class SessionRepository {
         workspace: input.workspace,
         engine: input.engine,
         tokenHash: input.tokenHash,
+        runIdHash: input.runIdHash,
         createdAt: now,
       })
       .onConflictDoNothing()
@@ -103,6 +109,35 @@ export class SessionRepository {
 
   markEnded(sessionId: string): void {
     this.db.update(sessions).set({ endedAt: Date.now() }).where(eq(sessions.id, sessionId)).run();
+  }
+
+  /**
+   * Records which CLI run a session now belongs to.
+   *
+   * Written when a session is approved again in the terminal, so the record names the
+   * run that last agreed to it rather than the one that first did. Without this a
+   * session that survived a CLI restart would be asked about again after every server
+   * restart that followed. See ADR-043.
+   */
+  setRunIdHash(sessionId: string, runIdHash: string | null): void {
+    this.db.update(sessions).set({ runIdHash }).where(eq(sessions.id, sessionId)).run();
+  }
+
+  /**
+   * Live sessions of a device that the CLI run now connected already approved.
+   *
+   * Read when a CLI registers, so a server that restarted reinstates what this run
+   * agreed to instead of interrupting the user about a machine that never went
+   * anywhere. Ended, idle and expired sessions are left out by the shared predicate:
+   * reinstating one would revive a session that is over. See ADR-043.
+   */
+  listSessionIdsForRun(deviceId: string, runIdHash: string): string[] {
+    return this.db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(and(eq(sessions.deviceId, deviceId), eq(sessions.runIdHash, runIdHash), this.live()))
+      .all()
+      .map((row) => row.id);
   }
 
   /**

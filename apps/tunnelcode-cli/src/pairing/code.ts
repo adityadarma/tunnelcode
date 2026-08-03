@@ -1,4 +1,4 @@
-import { randomInt } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const CODE_LENGTH = 8;
@@ -15,6 +15,19 @@ export function generatePairingCode(): string {
     code += ALPHABET.charAt(randomInt(0, ALPHABET.length));
   }
   return code;
+}
+
+/**
+ * Generates the id this run of the CLI introduces itself with.
+ *
+ * Not the pairing code, and deliberately not derived from it: the code is short
+ * enough to be read off a screen and is shown to whoever asks, while this is only
+ * ever sent to the server and stored there as a hash. It is what lets the sessions
+ * this run approved be reinstated after the server restarts, without letting a
+ * different run inherit them. See ADR-043.
+ */
+export function generateRunId(): string {
+  return randomBytes(32).toString('base64url');
 }
 
 /**

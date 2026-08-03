@@ -43,6 +43,18 @@ export const sessions = sqliteTable('sessions', {
    * holds it has nothing to present, so it pairs again.
    */
   tokenHash: text('token_hash'),
+  /**
+   * SHA-256 of the id of the CLI run that approved this session.
+   *
+   * What lets consent outlive the server without outliving the run that gave it: a
+   * server that restarted reinstates the sessions whose run is the one now connected,
+   * and asks the terminal about the rest. Updated when a session is approved again,
+   * so the record always names the run that last agreed to it.
+   *
+   * Null on a row from before this existed, and on one approved by a CLI too old to
+   * introduce itself, both of which read as a run nobody can recognise. See ADR-043.
+   */
+  runIdHash: text('run_id_hash'),
   createdAt: integer('created_at').notNull(),
   /**
    * When the conversation last moved: a prompt sent, or an answer stored.
@@ -126,6 +138,16 @@ export const messages = sqliteTable(
      * Defaults to false, which is what every row written before this existed is.
      */
     partial: integer('partial', { mode: 'boolean' }).notNull().default(false),
+    /**
+     * Why the answer was cut short: `stopped` when the user asked for it, `failed`
+     * for everything else.
+     *
+     * Alongside the flag rather than replacing it, because the flag has shipped and
+     * a column is never retyped. Null on a complete answer, and on a partial one
+     * written before this existed, which reads as a cause nobody recorded rather
+     * than as a failure. See ADR-042.
+     */
+    interruption: text('interruption', { enum: ['stopped', 'failed'] }),
     createdAt: integer('created_at').notNull(),
   },
   (table) => [index('messages_conversation_idx').on(table.conversationId)],

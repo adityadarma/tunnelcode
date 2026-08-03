@@ -78,6 +78,8 @@ interface PermissionAnswer {
 export class PromptRunner {
   private readonly options: PromptRunnerOptions;
   private running = false;
+  /** True once the browser asked for the running turn to stop. */
+  private stopping = false;
 
   /**
    * Asks this turn is waiting on, by the id the engine gave them.
@@ -87,6 +89,14 @@ export class PromptRunner {
    */
   private readonly waiting = new Map<string, (answer: PermissionAnswer) => void>();
   private turnId: string | undefined;
+  /**
+   * Kills the engine of the turn now running.
+   *
+   * Held on the instance because the abort has to be reachable from outside the run
+   * it belongs to: the stop arrives on the socket while the run is still awaiting the
+   * engine. Cleared when the run ends, so a stop can never reach a later turn.
+   */
+  private abortRun: (() => void) | undefined;
 
   constructor(options: PromptRunnerOptions) {
     this.options = options;
@@ -95,6 +105,17 @@ export class PromptRunner {
   /** True while an answer is still streaming. */
   isBusy(): boolean {
     return this.running;
+  }
+
+  /**
+   * Whether the running turn has been told to stop.
+   *
+   * Read through a call for the same reason the abandoned flag is: it is set from
+   * outside the run, and a direct read inside the run would be narrowed to the value
+   * it was given when the run started.
+   */
+  private isStopping(): boolean {
+    return this.stopping;
   }
 
   /**
@@ -121,6 +142,35 @@ export class PromptRunner {
 
     this.waiting.delete(permissionId);
     resolve({ decision, expired });
+  }
+
+  /**
+   * Stops the turn the browser asked to stop.
+   *
+   * The engine process is killed, which is the only thing that reliably ends a turn:
+   * an agent waiting on a command that never returns is exactly what this is for, and
+   * asking it politely is asking the thing that is stuck.
+   *
+   * Nothing is reported back. The server ended the turn before it sent this, so
+   * anything said about it now would be dropped there anyway, and saying it would
+   * only risk describing the user's own tap as a failure. See ADR-042.
+   */
+  stop(turnId: string): void {
+    if (turnId !== this.turnId) {
+      return;
+    }
+
+    this.stopping = true;
+
+    // An engine holding still for an ask produces no events, so aborting alone could
+    // leave the run parked on a promise nobody will resolve. Released as refusals,
+    // which is what the engine is told anyway when a turn ends.
+    for (const resolve of this.waiting.values()) {
+      resolve({ decision: 'reject', expired: false });
+    }
+    this.waiting.clear();
+
+    this.abortRun?.();
   }
 
   async run(
@@ -156,6 +206,7 @@ export class PromptRunner {
 
     this.running = true;
     this.turnId = turnId;
+    this.stopping = false;
     onActivity();
 
     let answer = '';
@@ -173,6 +224,12 @@ export class PromptRunner {
     const controller = new AbortController();
     const timeoutMs = this.options.silenceTimeoutMs ?? SILENCE_TIMEOUT_MS;
     let silenceTimer: NodeJS.Timeout | undefined;
+
+    // Reachable from stop(), which arrives on the socket while this run is awaiting
+    // the engine.
+    this.abortRun = () => {
+      controller.abort();
+    };
 
     // Held in an object and read through a function, because the flag is only ever
     // set from the timer callback and a direct read would be narrowed to its
@@ -352,8 +409,9 @@ export class PromptRunner {
         // Aborting makes the process report a failure of its own. Reporting that
         // as well would tell the user twice, and the second message would blame
         // the abort rather than the silence that caused it. The timer stays
-        // stopped here: the turn is already over.
-        if (wasAbandoned()) {
+        // stopped here: the turn is already over. A stop the user asked for is the
+        // same situation, and the server has already closed that turn.
+        if (wasAbandoned() || this.isStopping()) {
           continue;
         }
 
@@ -433,27 +491,36 @@ export class PromptRunner {
       // turn ending is what stores it.
       flushReasoning();
 
-      // An abandoned turn reports why rather than presenting a truncated answer as
-      // if the engine had finished.
-      if (wasAbandoned()) {
+      // A stop the user asked for says nothing at all: the server ended that turn
+      // before it told this machine, and it kept what had been said. Reporting now
+      // would either be dropped there or describe their own tap as a failure.
+      // See ADR-042.
+      if (this.isStopping()) {
+        // Nothing to report.
+      } else if (wasAbandoned()) {
+        // An abandoned turn reports why rather than presenting a truncated answer
+        // as if the engine had finished.
         send({ type: 'turn_error', turnId, message: abandonedMessage, ...partial() });
       } else if (!failed) {
         send({ type: 'turn_done', turnId, text: clamp(answer) });
       }
     } catch (error) {
       flushReasoning();
-      send({
-        type: 'turn_error',
-        turnId,
-        message: clamp(
-          wasAbandoned()
-            ? abandonedMessage
-            : error instanceof Error
-              ? error.message
-              : 'The engine failed.',
-        ),
-        ...partial(),
-      });
+
+      if (!this.isStopping()) {
+        send({
+          type: 'turn_error',
+          turnId,
+          message: clamp(
+            wasAbandoned()
+              ? abandonedMessage
+              : error instanceof Error
+                ? error.message
+                : 'The engine failed.',
+          ),
+          ...partial(),
+        });
+      }
     } finally {
       stopWaiting();
 
@@ -465,8 +532,10 @@ export class PromptRunner {
       }
       this.waiting.clear();
 
+      this.abortRun = undefined;
       this.turnId = undefined;
       this.running = false;
+      this.stopping = false;
       onActivity();
     }
   }

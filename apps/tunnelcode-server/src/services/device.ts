@@ -19,6 +19,14 @@ export interface Device {
   id: string;
   name: string;
   code: string;
+  /**
+   * SHA-256 of the id the CLI run introduced itself with, or undefined from a CLI too
+   * old to send one.
+   *
+   * Kept with the device so an approval can write it onto the session it approves,
+   * which is what lets that consent survive a restart of the server. See ADR-043.
+   */
+  runIdHash?: string;
   /** Where the CLI is running, recorded with the session when it pairs. */
   workspace: string;
   /**
@@ -49,6 +57,8 @@ export interface RegisterDeviceInput {
   name: string;
   workspace: string;
   engines: DeviceEngine[];
+  /** Hash of this run's id, absent from a CLI that does not send one. See ADR-043. */
+  runIdHash?: string;
 }
 
 export interface DeviceServiceOptions {
@@ -114,6 +124,7 @@ export class DeviceService {
       id: input.id,
       name: input.name,
       code: input.code,
+      ...(input.runIdHash === undefined ? {} : { runIdHash: input.runIdHash }),
       workspace: input.workspace,
       engines: input.engines,
       // A reconnect keeps the paired flag: the code is single use, so it must not

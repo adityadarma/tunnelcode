@@ -39,6 +39,7 @@ interface ServerEvent {
   role?: unknown;
   content?: unknown;
   partial?: unknown;
+  interruption?: unknown;
   createdAt?: unknown;
   text?: unknown;
   message?: unknown;
@@ -290,6 +291,25 @@ export function ConversationPage({
         return;
       }
 
+      // The prompt was accepted and the agent is on it. Arrives before any output,
+      // which is what lets the answer be stopped even if the engine never says
+      // anything. See ADR-042.
+      case 'turn_started': {
+        if (typeof event.conversationId !== 'string' || typeof event.turnId !== 'string') {
+          return;
+        }
+
+        setRunningTurn({ conversationId: event.conversationId, turnId: event.turnId });
+
+        // Raises the indicator for the conversation on screen, including in a second
+        // tab that did not send the prompt. Left alone when text has already arrived,
+        // so this cannot wipe what is being streamed.
+        if (event.conversationId === activeIdRef.current) {
+          setStreaming((current) => current ?? '');
+        }
+        return;
+      }
+
       case 'message': {
         if (event.conversationId !== activeIdRef.current) {
           return;
@@ -300,6 +320,11 @@ export function ConversationPage({
           role: event.role === 'assistant' ? 'assistant' : 'user',
           content: String(event.content),
           ...(event.partial === true ? { partial: true } : {}),
+          // Carried through, so an answer the user stopped says that on the timeline
+          // rather than reading as something that went wrong. See ADR-042.
+          ...(event.interruption === 'stopped' || event.interruption === 'failed'
+            ? { interruption: event.interruption }
+            : {}),
           createdAt: typeof event.createdAt === 'number' ? event.createdAt : Date.now(),
         };
 
@@ -644,6 +669,24 @@ export function ConversationPage({
   };
 
   /**
+   * Stops the answer that is running.
+   *
+   * The turn is named rather than left to the server to work out, so a tap that
+   * lands just after one answer ended cannot end the next one. Nothing is cleared
+   * here: the server ends the turn and the record it stores is what closes the
+   * composer, so a stop that did not reach it never leaves the page pretending it
+   * did. See ADR-042.
+   */
+  const stop = (): void => {
+    if (runningTurn === undefined) {
+      return;
+    }
+
+    setError(undefined);
+    socket.stopTurn(runningTurn.turnId);
+  };
+
+  /**
    * Answers an ask and takes its card away immediately.
    *
    * Removed before the answer is even sent, because the agent acts on the first
@@ -729,17 +772,22 @@ export function ConversationPage({
     );
   }
 
-  const disabledReason = offline
-    ? 'The device is offline.'
-    : activeId === undefined
-      ? 'Create a conversation to start asking.'
-      : // Named before the generic wait, because this one is waiting on the user
-        // rather than on the agent, and saying otherwise would be misleading.
-        asks.length > 0
-        ? 'The agent is waiting for your approval.'
-        : busyElsewhere
-          ? 'The agent is answering in another conversation.'
-          : 'Waiting for the answer…';
+  const disabledReason = !socket.connected
+    ? // The socket itself is down, which is what a server being replaced looks like
+      // from here. Saying the device is offline would blame the machine the agent runs
+      // on for something happening at the other end. See ADR-043.
+      'Reconnecting to the server…'
+    : offline
+      ? 'The device is offline.'
+      : activeId === undefined
+        ? 'Create a conversation to start asking.'
+        : // Named before the generic wait, because this one is waiting on the user
+          // rather than on the agent, and saying otherwise would be misleading.
+          asks.length > 0
+          ? 'The agent is waiting for your approval.'
+          : busyElsewhere
+            ? 'The agent is answering in another conversation.'
+            : 'Waiting for the answer…';
 
   return (
     <div className={`layout ${sidebarOpen ? '' : 'sidebar-closed'} ${menuOpen ? 'menu-open' : ''}`}>
@@ -893,6 +941,8 @@ export function ConversationPage({
           disabled={sendDisabled}
           disabledReason={disabledReason}
           onSend={send}
+          running={runningTurn !== undefined}
+          onStop={stop}
           modelPicker={
             <ModelPicker
               models={activeModels}

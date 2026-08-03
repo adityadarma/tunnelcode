@@ -975,6 +975,24 @@
   @apply bg-transparent border-0 p-0 m-0 resize-y min-h-[2.6rem] max-h-48 text-sm md:text-base text-[var(--text)] shadow-none outline-none focus:outline-none focus:ring-0 leading-relaxed placeholder:text-[var(--muted)];
 }
 
+/* While an answer runs the box around it stays bright, because it holds the stop
+   button, so the part that cannot be typed into has to say so on its own. Muted text
+   rather than a faded box: the colour is the only signal that survives on a phone,
+   where there is no cursor to change. Set for the value as well as the placeholder,
+   so a prompt already typed when the answer started reads as held rather than live. */
+.composer-box textarea:disabled {
+  @apply cursor-not-allowed text-[var(--muted)];
+  -webkit-text-fill-color: var(--muted);
+}
+
+/* The reason the box is unusable, said in the box itself. Italic as well as muted,
+   because muted alone is what the ordinary "Ask the agent…" placeholder already looks
+   like, and a sentence about the device reading like a prompt hint invites the user to
+   type over it. See ADR-042. */
+.composer-box textarea:disabled::placeholder {
+  @apply text-[var(--muted)] opacity-100 italic;
+}
+
 .composer-toolbar {
   @apply flex items-center justify-between gap-2 pt-2.5 -mx-3 -mb-3 md:-mx-3.5 md:-mb-3.5 px-3 md:px-3.5 pb-2.5 border-t border-[var(--border)]/60 w-[calc(100%+1.5rem)] md:w-[calc(100%+1.75rem)] min-w-0 flex-nowrap;
 }
@@ -1059,6 +1077,27 @@
 
 .btn-send {
   @apply bg-[var(--accent)] text-white font-medium text-xs md:text-sm px-3 py-1.5 rounded-lg shadow-md hover:bg-[var(--accent-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-all inline-flex items-center justify-center gap-1.5 shrink-0 min-h-[2rem];
+}
+
+/* Red, and solid rather than tinted: this is the one control on the screen while an
+   answer runs, so it has to read as pressable at a glance and be told apart from the
+   send button it replaced.
+
+   Written against both classes because the element wears both: the send button keeps
+   its shape and spacing, and only the colour changes. A single-class selector ties
+   the outcome to which rule the stylesheet happens to emit last. */
+.btn-send.btn-stop {
+  @apply border-0 bg-[var(--danger)] text-white shadow-md;
+}
+
+.btn-send.btn-stop:hover {
+  @apply bg-red-600;
+}
+
+/* The square reads as the button's meaning, so it follows the text rather than
+   keeping a colour of its own. */
+.btn-send.btn-stop svg {
+  fill: currentColor;
 }
 
 @media (max-width: 360px) {

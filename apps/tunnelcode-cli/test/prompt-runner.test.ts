@@ -872,3 +872,82 @@ test('output that fits is left exactly as it was', async () => {
   // shows up in ordinary work.
   assert.equal(output?.type === 'turn_activity_output' ? output.output : '', exact);
 });
+
+test('a stopped turn kills the engine and reports nothing', async () => {
+  const engine = new ScriptedEngine([{ type: 'delta', text: 'working on it' }], true);
+  const { sent, send } = collect();
+  const runner = new PromptRunner({
+    engines: new Map<string, Engine>([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    // Long enough that nothing here can be the silence timeout doing the work.
+    silenceTimeoutMs: 5000,
+  });
+
+  const running = runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+  await wait(30);
+
+  runner.stop('turn-1');
+  await running;
+
+  // Killing the process is the only thing that reliably ends a turn: a turn worth
+  // stopping is often one that is stuck. See ADR-042.
+  assert.equal(engine.aborted, true);
+  assert.equal(runner.isBusy(), false);
+
+  // The server ended the turn before it asked for this, and it kept what had been
+  // said. Reporting now would be dropped there, or would describe the user's own tap
+  // as a failure.
+  assert.equal(typesOf(sent).includes('turn_error'), false);
+  assert.equal(typesOf(sent).includes('turn_done'), false);
+});
+
+test('stopping releases a turn that is waiting on an ask', async () => {
+  const engine = new AskingEngine(0);
+  const { sent, send } = collect();
+  const runner = new PromptRunner({
+    engines: new Map<string, Engine>([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    silenceTimeoutMs: 5000,
+  });
+
+  const running = runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+  await wait(30);
+
+  assert.ok(sent.some((message) => message.type === 'turn_permission_request'));
+
+  // An engine holding still for an ask produces no events at all, so aborting alone
+  // could leave the run parked on a promise nobody will ever resolve.
+  runner.stop('turn-1');
+  await running;
+
+  assert.equal(runner.isBusy(), false);
+});
+
+test('a stop naming another turn is ignored', async () => {
+  const engine = new ScriptedEngine([{ type: 'delta', text: 'still here' }], true);
+  const { sent, send } = collect();
+  const runner = new PromptRunner({
+    engines: new Map<string, Engine>([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    silenceTimeoutMs: 120,
+  });
+
+  const running = runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+  await wait(30);
+
+  // A stop that arrived late, aimed at a turn that has already ended. Honouring it
+  // would kill the answer that is running now.
+  runner.stop('turn-0');
+  assert.equal(engine.aborted, false);
+
+  await running;
+
+  // Ended by the silence timeout instead, which still reports itself.
+  assert.ok(sent.some((message) => message.type === 'turn_error'));
+});

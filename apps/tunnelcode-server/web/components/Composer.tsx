@@ -5,6 +5,15 @@ interface ComposerProps {
   disabled: boolean;
   disabledReason: string | undefined;
   onSend: (text: string) => void;
+  /**
+   * Whether an answer is running, which turns the button into a stop.
+   *
+   * A disabled Send is the whole of what the user could do about a turn that has
+   * gone nowhere, which is nothing. See ADR-042.
+   */
+  running?: boolean;
+  /** Stops the running answer. Required in practice whenever running is true. */
+  onStop?: () => void;
   modelPicker?: React.ReactNode;
 }
 
@@ -81,6 +90,8 @@ export function Composer({
   disabled,
   disabledReason,
   onSend,
+  running = false,
+  onStop,
   modelPicker,
 }: ComposerProps): React.JSX.Element {
   const [text, setText] = useState('');
@@ -113,7 +124,12 @@ export function Composer({
         Message
       </label>
 
-      <div className={`composer-box ${disabled ? 'disabled' : ''}`}>
+      {/* Dimmed and inert only when there is genuinely nothing to do here. A running
+          answer is not that: the box carries the stop button, and the disabled state
+          takes pointer events away from everything inside it, which is what made the
+          stop unpressable. Each control still says whether it is disabled on its own,
+          so nothing else becomes usable. See ADR-042. */}
+      <div className={`composer-box ${disabled && !running ? 'disabled' : ''}`}>
         <textarea
           id="prompt"
           value={text}
@@ -160,27 +176,52 @@ export function Composer({
               </span>
             )}
           </div>
-          <button
-            type="submit"
-            className="btn-send"
-            disabled={disabled || trimmed === '' || tooLong}
-          >
-            <span>Send</span>
-            <svg
-              aria-hidden="true"
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+          {/* While an answer is running this is the only control that can do
+              anything, so it is a stop rather than a Send nobody can press. It is
+              not a submit: pressing Enter in the box must never stop the answer. */}
+          {running ? (
+            <button
+              type="button"
+              className="btn-send btn-stop"
+              onClick={() => {
+                onStop?.();
+              }}
             >
-              <line x1="22" y1="2" x2="11" y2="13"></line>
-              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-            </svg>
-          </button>
+              <span>Stop</span>
+              <svg
+                aria-hidden="true"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                stroke="none"
+              >
+                <rect x="6" y="6" width="12" height="12" rx="2" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              type="submit"
+              className="btn-send"
+              disabled={disabled || trimmed === '' || tooLong}
+            >
+              <span>Send</span>
+              <svg
+                aria-hidden="true"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+            </button>
+          )}
         </div>
       </div>
     </form>

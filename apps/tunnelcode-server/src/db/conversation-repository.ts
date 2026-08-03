@@ -5,12 +5,22 @@ import { activities, conversations, messages, reasonings } from './schema.js';
 
 export type MessageRole = 'user' | 'assistant';
 
+/**
+ * Why an answer stopped short: the user asked, or something went wrong.
+ *
+ * Two cases rather than one, because telling a user their own stop was a failure is
+ * a lie the transcript would keep repeating. See ADR-042.
+ */
+export type Interruption = 'stopped' | 'failed';
+
 export interface StoredMessage {
   id: string;
   role: MessageRole;
   content: string;
-  /** True when the turn failed partway and this is only what the engine said. */
+  /** True when the turn ended partway and this is only what the engine said. */
   partial: boolean;
+  /** Why it ended partway, when that was recorded. Null on a complete answer. */
+  interruption: Interruption | null;
   createdAt: number;
 }
 
@@ -134,14 +144,22 @@ export class ConversationRepository {
     conversationId: string,
     role: MessageRole,
     content: string,
-    partial = false,
+    /**
+     * Why this is not a whole answer. Absent stores a complete one.
+     *
+     * A reason rather than a flag, because the two ways an answer ends short read
+     * differently to whoever comes back to it. The flag is still written, since it is
+     * what every existing reader looks at.
+     */
+    interruption?: Interruption,
   ): StoredMessage {
     const now = Date.now();
     const message: StoredMessage = {
       id: randomUUID(),
       role,
       content,
-      partial,
+      partial: interruption !== undefined,
+      interruption: interruption ?? null,
       createdAt: now,
     };
 
@@ -152,7 +170,8 @@ export class ConversationRepository {
         conversationId,
         role,
         content,
-        partial,
+        partial: message.partial,
+        interruption: message.interruption,
         createdAt: now,
       })
       .run();
@@ -355,6 +374,7 @@ export class ConversationRepository {
         role: messages.role,
         content: messages.content,
         partial: messages.partial,
+        interruption: messages.interruption,
         createdAt: messages.createdAt,
       })
       .from(messages)

@@ -362,6 +362,16 @@ can prompt or answer a permission ask. Reading the transcript is not gated on it
 Refusing ends that session. A reconnect after a dropped connection is not a restart
 and asks nothing. See ADR-040.
 
+Restarting The Server
+
+Nothing is asked. A CLI run introduces itself with a run id, and the sessions it
+already approved carry the hash of that id, so a replaced server reinstates them from
+the database instead of interrupting a user whose terminal never moved.
+
+An approval prompt that appears after every deploy is one people learn to answer
+without reading, and that keypress is what stands between a leaked session and the
+user's files. See ADR-043.
+
 ---
 
 # Browser
@@ -402,7 +412,17 @@ Buffer the deltas, and store the answer when the turn has nothing more to add to
 
 A turn that stops to do something stores what it said so far, so one turn can hold
 several assistant messages and the transcript reads in the order it happened. An
-answer cut short by a failure is stored and marked as partial. See ADR-024.
+answer cut short is stored and marked as partial. See ADR-024.
+
+An answer that was cut short also records why: the user stopped it, or something went
+wrong. The transcript says which, because describing a stop the user asked for as a
+failure is a lie it would keep repeating. See ADR-042.
+
+An answer can be stopped from the browser while it runs. The send button is the stop
+button for as long as a turn is running, since a device answers one prompt at a time
+and a turn nobody can end is a session nobody can use. The turn ends on the server
+first and the machine is told afterwards, so a stop does not depend on an engine that
+has already stopped responding. See ADR-042.
 
 What the engine did during a turn is stored too: the tool, what it acted on, whatever
 it produced, and whether it was refused.

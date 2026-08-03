@@ -25,6 +25,13 @@ export interface ServerOptions {
    * carry.
    */
   logLines?: string[];
+  /**
+   * An existing database to open instead of a fresh one.
+   *
+   * Lets a test start a second server on the same data, which is what updating the
+   * image does: the process is replaced and the volume is not. See ADR-043.
+   */
+  databaseFile?: string;
 }
 
 /**
@@ -38,7 +45,7 @@ export async function withServer<T>(
   options: ServerOptions = {},
 ): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), 'tunnelcode-int-'));
-  const databaseFile = join(dir, 'test.sqlite');
+  const databaseFile = options.databaseFile ?? join(dir, 'test.sqlite');
   const lines = options.logLines;
   const app = await buildApp({
     logger: lines !== undefined,

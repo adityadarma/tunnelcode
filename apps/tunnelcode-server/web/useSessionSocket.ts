@@ -32,6 +32,13 @@ export interface SessionSocket {
     permissionId: string,
     decision: 'once' | 'always' | 'reject',
   ) => void;
+  /**
+   * Asks for the running answer to stop.
+   *
+   * The turn is named so a tap arriving just after one answer ended cannot end the
+   * next one. See ADR-042.
+   */
+  stopTurn: (turnId: string) => void;
   disconnect: () => void;
 }
 
@@ -179,6 +186,16 @@ export function useSessionSocket({ sessionId, onMessage }: UseSessionSocketOptio
     [],
   );
 
+  const stopTurn = useCallback((turnId: string): void => {
+    const socket = socketRef.current;
+
+    if (socket === undefined || socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    socket.send(JSON.stringify({ type: 'stop_turn', turnId }));
+  }, []);
+
   /**
    * Ends the session on the paired machine before the browser forgets it.
    *
@@ -201,6 +218,7 @@ export function useSessionSocket({ sessionId, onMessage }: UseSessionSocketOptio
     resumeApprovalNumber,
     sendPrompt,
     sendPermissionResponse,
+    stopTurn,
     disconnect,
   };
 }

@@ -24,8 +24,17 @@ export class IdleTimer {
     this.onExpired = options.onExpired;
   }
 
+  /**
+   * Starts the clock, unless it is already running.
+   *
+   * Called on every registration, and a registration is not conversation: the CLI
+   * reconnects on its own after any outage, and restarting the clock there would hand
+   * the session a fresh hour for something nobody did. See ADR-044.
+   */
   start(): void {
-    this.reset();
+    if (this.timer === undefined) {
+      this.reset();
+    }
   }
 
   /** Called on conversation activity, in either direction. */

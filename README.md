@@ -82,6 +82,11 @@ did, or a permission answered all count as conversation; a browser being open do
 not. A session also ends twelve hours after it was approved however busy it has been,
 because the idle hour slides for whoever is using it.
 
+Updating the server, or restarting it, asks nothing. Every connection drops and comes
+back on its own, and the agent you already approved stays approved: it is the same run
+of the CLI, and the sessions it approved say so. A prompt you have to answer after
+every deploy is a prompt you stop reading.
+
 Closing the terminal and starting it again keeps your conversation: the browser
 reconnects on its own. It asks first. The terminal shows a number, the browser shows
 the same one, and until you approve it that browser can read what was said but cannot
@@ -125,6 +130,18 @@ engine.
 
 The Engine entry in Setup names what a new conversation starts on. A configured
 engine that is not installed is skipped in favour of one that is. See ADR-020.
+
+## Stopping an answer
+
+While an answer is running, the send button is a **Stop** button. Pressing it kills
+the engine process on the paired machine and ends the turn, including a turn that has
+stopped saying anything at all, which is the one worth stopping. The machine is only
+told to kill the process after the turn has already been ended, so a stop never waits
+on the thing that is stuck.
+
+What the agent had already said, and the work it had already done, are kept. The
+transcript marks it as an answer you stopped rather than one that failed, so coming
+back to it later says what happened.
 
 ## Permissions
 
@@ -303,6 +320,10 @@ What the server does enforce, so it is clear what is and is not being relied on:
 - A session from before the CLI was restarted has to be approved in the terminal
   again before it can prompt or answer a permission ask. Refusing ends it. Reading
   the transcript is not gated on it, since reading does nothing to the machine.
+  Restarting the server asks nothing: the run of the CLI is identified by an id it
+  generates per process, and the sessions it approved carry the hash of that id, so a
+  new image reinstates them without a keypress. A browser cannot send that id, so a
+  leaked cookie is no closer to the agent than before.
 - A conversation id is not a credential. Reading, changing, or deleting a
   conversation over HTTP needs a session cookie the server can resolve, and the
   conversation has to belong to the same workspace.

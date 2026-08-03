@@ -1770,3 +1770,159 @@ cover.
 A row with no hash cannot authenticate, which is how a session written before this
 existed asks to pair again instead of being trusted on its id. An hour of idleness
 means almost nothing is in that state by the time the server is upgraded.
+
+---
+
+# ADR-042
+
+## An Answer Can Be Stopped, And The Server Does Not Wait To Be Told
+
+Decision
+
+While an answer is running, the send button is a stop button.
+
+Stopping ends the turn on the server first and tells the machine afterwards. The
+engine process is killed there.
+
+What the answer had already said is kept, recorded as stopped rather than as failed,
+and the transcript says which of the two happened.
+
+Anything the CLI reports for a stopped turn afterwards is dropped.
+
+A turn announces itself to every browser on the session the moment its prompt is
+accepted, before any output.
+
+Reason
+
+A device answers one prompt at a time, so a turn that goes nowhere is not one slow
+answer, it is the session. The only control the browser offered was a Send button
+that had gone grey, which is a way of saying the user has no move to make. Waiting out
+the five minutes of silence the CLI allows is not a move either.
+
+The order is what makes this work on a stuck engine rather than only on a slow one.
+Ending the turn where the record of it lives, and only then asking the machine to kill
+the process, means the escape does not depend on the part that is wedged. It also
+means the CLI has nothing useful to say about that turn afterwards, which is already
+how the server treats reports for a turn it does not know about, so nothing new had to
+be added to ignore them. The CLI stays quiet rather than reporting a failure, because
+the alternative is describing the user's own tap as something that went wrong.
+
+The cost is a moment where the server considers the device free while the CLI is
+still winding the engine down, so a prompt sent immediately can be refused by the CLI
+with "the agent is still answering". That is a visible, recoverable refusal, and the
+alternative is holding the session shut until whatever is stuck agrees to move.
+
+Killing the process rather than asking the engine to stop, because an agent waiting
+on a command that never returns is exactly the case this exists for. Asks the engine
+was holding still for are released at the same time, in the CLI and on the server: one
+would otherwise leave a card offering a decision that can no longer reach anything.
+
+The partial answer is kept for the reason ADR-033 keeps it: the user watched it
+arrive, and work the agent already did to the workspace is real whether or not the
+answer finished. It is marked with a cause rather than only as partial, so the
+timeline can say "you stopped this" instead of describing a deliberate stop as a
+failure. Said on the timeline rather than in a banner, because a banner is gone by the
+next reload and this is part of what happened.
+
+The start event exists because the browser used to learn a turn's id from its first
+fragment of output. That is no help for the turn that most needs stopping: one whose
+engine never says anything at all. Broadcasting it also gives a second tab an answer
+in progress instead of a composer whose next prompt is certain to be refused.
+
+---
+
+# ADR-043
+
+## Consent Outlives The Server, Not The Run That Gave It
+
+Amends ADR-040.
+
+Decision
+
+A CLI run introduces itself with a run id, generated once per process and reused
+across every reconnect it makes.
+
+A session records the hash of the run id that approved it, and the hash is rewritten
+whenever it is approved again.
+
+A CLI that registers has the sessions carrying its own run reinstated without anybody
+being asked. Every other session is asked about, as before.
+
+A CLI too old to send a run id is a run nobody recognises, so its sessions are asked
+about.
+
+Reason
+
+ADR-040 held consent in memory on the ground that a run cannot outlive its process, so
+neither should its consent. That was right about the run and wrong about the server:
+replacing the container also emptied the memory, and every paired browser was then
+asked to be approved again although the CLI in front of the user had not moved. The
+database is on a volume precisely so a new image does not lose anything, and this was
+losing something on every deploy.
+
+The cost is worse than the inconvenience. An approval prompt that appears after every
+update is an approval prompt people learn to answer without reading, which is the one
+thing this mechanism cannot afford: the same keypress is what stands between a stranger
+holding a leaked session and an agent on the user's files.
+
+The run id rather than the pairing code, because the code is only ever held in memory
+and must stay that way: it is eight letters, so a stored hash of one is a hash anybody
+can walk. The run id is 32 random bytes generated for this purpose, which makes it safe
+to keep a hash of and useless to guess.
+
+Stored on the session rather than in a table of runs, because the question is always
+asked about a session: is this the run that agreed to you. A row that names its run
+answers that without anything else being consulted.
+
+Rewritten on a later approval, or a session that survived a CLI restart would be asked
+about again after every server restart for the rest of its life, which is the original
+complaint in a narrower form.
+
+Nothing here makes the browser's position stronger. A browser cannot send a run id, so
+a leaked cookie is exactly as far from the agent as ADR-040 left it: a stranger still
+has to be approved in the terminal.
+
+The reconnect the browser does while the server is away now says so, rather than
+reporting the paired machine as offline. It was never the machine that had gone.
+
+---
+
+# ADR-044
+
+## One Runner Per Session, Not Per Connection
+
+Decision
+
+The engines, the prompt runner and the idle timer belong to the pairing session, not
+to the socket.
+
+Engine output goes to whichever connection is current, and is dropped while there is
+none.
+
+Engines are stopped when the session ends, not when a connection drops.
+
+Registering again starts the idle clock only if it is not already running.
+
+Reason
+
+A turn outlives the socket it started on. The engine is a process on this machine and
+it keeps working whatever happens to the network, so a connection dropping mid-answer
+left a runner that was still driving an engine while the reconnect built a second
+runner that believed the machine was free. A prompt sent after the server came back
+then started a second engine in the same workspace, with both writing to the same
+files. The rule that a device answers one prompt at a time was enforced by an object
+whose lifetime was shorter than the thing it was guarding.
+
+One runner also means an answer can survive a brief outage: what it produces while
+nothing is connected is dropped, and what comes after the reconnect reaches the server,
+which either still knows that turn or has forgotten it. Neither case runs two engines.
+
+Engines were stopped per connection to keep an engine that runs a server of its own
+from outliving the session. The session is the right boundary for that: stopping on
+disconnect killed that server during a network blip, in the middle of the turn it was
+answering.
+
+The idle clock is the same mistake in a third place. It measures how long nobody has
+used the agent, and it was created per connection and restarted on every registration,
+so a reconnect handed an unused session another hour. A registration is not somebody
+using the agent, exactly as a browser attaching is not.

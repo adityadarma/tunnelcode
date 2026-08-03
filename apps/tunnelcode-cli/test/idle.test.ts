@@ -109,3 +109,29 @@ test('repeated activity never lets the timer fire', (t) => {
 
   timer.stop();
 });
+
+test('starting a clock that is already running changes nothing', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+
+  let fired = 0;
+  const timer = new IdleTimer({
+    onExpired: () => {
+      fired += 1;
+    },
+    timeoutMs: 1000,
+  });
+
+  timer.start();
+  t.mock.timers.tick(900);
+
+  // What a reconnect does: the CLI registers again, having been away. Registering is
+  // not conversation, so it must not hand the session another hour. Restarting the
+  // clock here is what let a dropped connection keep an unused session alive forever.
+  // See ADR-044.
+  timer.start();
+  t.mock.timers.tick(100);
+
+  assert.equal(fired, 1);
+
+  timer.stop();
+});

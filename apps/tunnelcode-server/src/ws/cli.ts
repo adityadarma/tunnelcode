@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
 import { parseCliMessage } from '@tunnelcode/protocol';
 import type { CliMessage, ServerToCliMessage } from '@tunnelcode/protocol';
-import { hashSessionToken } from '../services/ids.js';
+import { hashRunId, hashSessionToken } from '../services/ids.js';
 import type { DeviceService } from '../services/device.js';
 import type { RunApprovals } from '../services/run-approvals.js';
 import type { SessionService } from '../services/session.js';
@@ -74,6 +74,9 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
             name: message.deviceName,
             workspace: message.workspace,
             engines: message.engines,
+            // Hashed on arrival, so the plain id is never held anywhere but this
+            // frame. See ADR-043.
+            ...(message.runId === undefined ? {} : { runIdHash: hashRunId(message.runId) }),
           });
 
           if (!result.ok) {
@@ -100,6 +103,17 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
           // per CLI session and reused for every reconnect inside it. A new one means
           // a new process, which has agreed to nothing yet. See ADR-040.
           runs.start(device.id, device.code);
+
+          // Sessions this very run already approved. A server that restarted has
+          // forgotten them while the CLI in front of the user has not moved, so they
+          // are reinstated from the row rather than asked about again: updating the
+          // image should not cost every paired browser a trip to the terminal.
+          // See ADR-043.
+          if (device.runIdHash !== undefined) {
+            for (const id of sessionRepository.listSessionIdsForRun(device.id, device.runIdHash)) {
+              runs.allow(device.id, id);
+            }
+          }
 
           const known = sessionRepository.listSessionIdsByDevice(device.id);
 
@@ -135,6 +149,14 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
           if (outcome.status === 'resumed') {
             runs.allow(deviceId, outcome.sessionId);
 
+            // The session belongs to this run now. Without moving it, a session that
+            // survived a CLI restart would be asked about again after every server
+            // restart that followed. See ADR-043.
+            sessionRepository.setRunIdHash(
+              outcome.sessionId,
+              devices.findById(deviceId)?.runIdHash ?? null,
+            );
+
             // The browser attaches again rather than being handed the attach payload
             // from here, so a resumed session and a fresh one arrive the same way.
             browsers.broadcast(outcome.sessionId, {
@@ -169,6 +191,9 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
               // Only the hash is written down. The token itself stays in memory until
               // the browser collects it as a cookie. See ADR-041.
               tokenHash: hashSessionToken(outcome.session.token),
+              // Which run agreed to this, so the agreement survives a restart of the
+              // server without surviving the run. See ADR-043.
+              runIdHash: device.runIdHash ?? null,
               // The leading engine, which is what a conversation created in this
               // session starts on. Registration requires at least one, so the
               // fallback is only here to satisfy the type.

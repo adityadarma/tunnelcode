@@ -85,7 +85,15 @@ export function MessageList({
                         whole point of the record. */}
                     {item.content !== '' && renderFormattedContent(item.content)}
                     {item.partial === true && (
-                      <p className="partial-notice muted">Answer stopped before it finished.</p>
+                      <p className="partial-notice muted" role="note">
+                        {/* Which of the two happened matters to whoever comes back
+                            to this: describing a stop the user asked for as
+                            something that went wrong is a lie the transcript would
+                            keep repeating. See ADR-042. */}
+                        {item.interruption === 'stopped'
+                          ? 'You stopped this answer. Anything the agent had already done is above.'
+                          : 'Answer stopped before it finished.'}
+                      </p>
                     )}
                   </div>
                 ) : item.kind === 'reasoning' ? (

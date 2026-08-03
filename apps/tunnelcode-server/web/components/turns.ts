@@ -6,7 +6,16 @@ import type { RunningItem } from './turn-status.js';
  * tool call.
  */
 export type AssistantItem =
-  | { kind: 'text'; id: string; content: string; at: number; partial?: boolean; live?: boolean }
+  | {
+      kind: 'text';
+      id: string;
+      content: string;
+      at: number;
+      partial?: boolean;
+      /** Why it stopped short, when the record says. See ADR-042. */
+      interruption?: 'stopped' | 'failed';
+      live?: boolean;
+    }
   | { kind: 'activity'; id: string; activity: Activity; at: number }
   | { kind: 'reasoning'; id: string; content: string; at: number; live?: boolean };
 
@@ -92,6 +101,9 @@ export function buildTurns(
             content: entry.message.content,
             at: entry.at,
             ...(entry.message.partial === true ? { partial: true } : {}),
+            ...(entry.message.interruption === 'stopped' || entry.message.interruption === 'failed'
+              ? { interruption: entry.message.interruption }
+              : {}),
           }
         : entry.kind === 'reasoning'
           ? {

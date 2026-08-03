@@ -180,6 +180,37 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
     };
 
     /**
+     * Stops the answer that is running.
+     *
+     * Gated exactly as a prompt is: stopping reaches into the machine and kills a
+     * process there, so a session that may not prompt may not stop either.
+     * See ADR-042.
+     */
+    const stopTurn = (message: Extract<BrowserMessage, { type: 'stop_turn' }>): void => {
+      if (sessionId === undefined || deviceId === undefined) {
+        reply({ type: 'error', message: 'Not attached to a session.' });
+        return;
+      }
+
+      if (!runs.isAllowed(deviceId, sessionId)) {
+        reply({ type: 'error', message: 'Waiting for approval in the terminal.' });
+        return;
+      }
+
+      // Stopping is the user working, and the turn it ends may have been the only
+      // thing keeping the session from going idle.
+      sessionRepository.touch(sessionId);
+
+      // The turn has to belong to this session's device, which is the same claim a
+      // prompt has to make. Reported plainly rather than as an error: a tap that
+      // lands just after the answer finished is the ordinary way this happens, and
+      // the browser has already been told the turn is over.
+      if (!relay.stop(deviceId, message.turnId)) {
+        reply({ type: 'error', message: 'That answer is no longer running.' });
+      }
+    };
+
+    /**
      * Ends the session on the paired machine.
      *
      * The agent runs there, so clearing the browser alone would leave a terminal
@@ -322,6 +353,16 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
         engine: engine.name,
       });
 
+      // Announced before the prompt is even sent, so the browser holds the turn id
+      // from the start. An engine that says nothing at all is the case a stop button
+      // is for, and until this the id only arrived with the first fragment of output.
+      // See ADR-042.
+      browsers.broadcast(sessionId, {
+        type: 'turn_started',
+        conversationId: message.conversationId,
+        turnId: turn.id,
+      });
+
       // Continuing the engine conversation is what gives the agent memory of
       // what was already said here. Only resumed when the same engine issued the
       // id, since an id means nothing to a different engine.
@@ -355,6 +396,9 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
           return;
         case 'prompt':
           sendPrompt(message);
+          return;
+        case 'stop_turn':
+          stopTurn(message);
           return;
         case 'permission_response':
           decidePermission(message);

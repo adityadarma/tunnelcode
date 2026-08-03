@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { PermissionDecision, ServerToCliMessage } from '@tunnelcode/protocol';
-import type { ConversationRepository } from '../db/conversation-repository.js';
+import type { ConversationRepository, Interruption } from '../db/conversation-repository.js';
 import type { SessionRepository } from '../db/session-repository.js';
 import type { PendingPermission, PermissionService } from '../services/permission.js';
 import type { Turn, TurnService } from '../services/turn.js';
@@ -475,12 +475,21 @@ export class TurnRelay {
    * the transcript shows as an answer that stopped, and the surface already says so
    * in words. See ADR-033.
    */
-  private storeInterruption(conversationId: string, sessionId: string, text: string): void {
+  private storeInterruption(
+    conversationId: string,
+    sessionId: string,
+    text: string,
+    /**
+     * Why it ended short. Carried into the record so the transcript can say the user
+     * stopped it rather than describing their own tap as a failure. See ADR-042.
+     */
+    interruption: Interruption,
+  ): void {
     const stored = this.options.conversationRepository.appendMessage(
       conversationId,
       'assistant',
       text,
-      true,
+      interruption,
     );
 
     this.options.browsers.broadcast(sessionId, {
@@ -490,8 +499,56 @@ export class TurnRelay {
       role: 'assistant',
       content: stored.content,
       partial: true,
+      interruption,
       createdAt: stored.createdAt,
     });
+  }
+
+  /**
+   * Ends a turn because the user asked it to stop.
+   *
+   * The turn is finished here first and the CLI is only told afterwards, which is the
+   * opposite of how the rest of a turn works. It has to be: an engine that is wedged
+   * is the case this exists for, and waiting for it to confirm would be waiting on
+   * the thing that is stuck. Whatever the CLI reports for this turn afterwards is
+   * dropped, because a turn nothing knows about is already ignored everywhere.
+   *
+   * Returns false when there is no such turn on this device, which is what a second
+   * tap looks like from here. See ADR-042.
+   */
+  stop(deviceId: string, turnId: string): boolean {
+    const turn = this.options.turns.findForDevice(turnId, deviceId);
+
+    if (turn === undefined) {
+      return false;
+    }
+
+    // Sent whether or not the machine is reachable. An unreachable one is a no-op,
+    // and the turn still has to be released: a session whose device vanished mid
+    // answer would otherwise refuse every prompt that followed.
+    this.options.registry.send(deviceId, { type: 'stop_turn', turnId });
+
+    // Read before finishing, since finishing forgets the buffer.
+    const said = this.options.turns.textOf(turnId);
+
+    this.options.turns.finish(turnId);
+
+    // The engine is being killed, so an ask it was holding still for can never be
+    // answered. Cleared before the turn ends, or a card would outlive its turn.
+    this.dropPermissions(this.options.permissions.removeByTurn(turnId));
+
+    // What the model had already said is kept, marked as stopped. No error is
+    // broadcast: a stop is not a fault, and the record on the timeline is what says
+    // it happened, which is also what a browser that was away comes back to.
+    this.storeInterruption(turn.conversationId, turn.sessionId, said, 'stopped');
+
+    this.options.browsers.broadcast(turn.sessionId, {
+      type: 'turn_done',
+      conversationId: turn.conversationId,
+      turnId,
+    });
+
+    return true;
   }
 
   /**
@@ -517,7 +574,7 @@ export class TurnRelay {
     this.options.turns.finish(turnId);
     this.dropPermissions(this.options.permissions.removeByTurn(turnId));
 
-    this.storeInterruption(turn.conversationId, turn.sessionId, said);
+    this.storeInterruption(turn.conversationId, turn.sessionId, said, 'failed');
 
     this.options.browsers.broadcast(turn.sessionId, { type: 'error', message });
     this.options.browsers.broadcast(turn.sessionId, {
@@ -539,7 +596,7 @@ export class TurnRelay {
       // this turn. Written to the transcript for that reason: the error below is
       // seen only by a browser that happens to be attached, and this is the one
       // interruption nobody can ask about afterwards. See ADR-033.
-      this.storeInterruption(turn.conversationId, turn.sessionId, turn.pendingText);
+      this.storeInterruption(turn.conversationId, turn.sessionId, turn.pendingText, 'failed');
 
       this.options.browsers.broadcast(turn.sessionId, {
         type: 'error',

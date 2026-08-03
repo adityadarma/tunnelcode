@@ -80,6 +80,17 @@ export const cliMessageSchema = z.discriminatedUnion('type', [
     code: pairingCodeSchema,
     // Stable per machine, so a reconnect keeps existing sessions online.
     deviceId: deviceIdSchema,
+    /**
+     * Identifies this run of the CLI, generated once per process.
+     *
+     * Sent so the server can tell a run it has already been introduced to from a new
+     * one, without remembering anything itself: the sessions a run approved carry the
+     * hash of this, so a server that restarted reinstates them instead of asking the
+     * terminal about a machine that never went anywhere. The code cannot serve this
+     * purpose, because a code is only ever held in memory. Optional, so an older CLI
+     * still registers and is treated as a run nobody recognises. See ADR-043.
+     */
+    runId: z.string().min(16).max(200).optional(),
     deviceName: z.string().min(1),
     // Recorded with the session so stored history says where it ran.
     workspace: z.string().min(1),
@@ -254,6 +265,18 @@ export const serverToCliMessageSchema = z.discriminatedUnion('type', [
     type: z.literal('stop'),
     reason: z.string(),
   }),
+  /**
+   * Kill the engine answering this turn.
+   *
+   * The server has already ended the turn on its side when this is sent, because an
+   * engine that has stopped responding is exactly the case a stop button is for and
+   * waiting for it to confirm would be waiting on the thing that is stuck. Nothing
+   * the CLI reports for this turn afterwards is read. See ADR-042.
+   */
+  z.object({
+    type: z.literal('stop_turn'),
+    turnId: turnIdSchema,
+  }),
   z.object({
     type: z.literal('pong'),
   }),
@@ -340,6 +363,21 @@ export const browserMessageSchema = z.discriminatedUnion('type', [
     conversationId: conversationIdSchema,
     permissionId: permissionIdSchema,
     decision: permissionDecisionSchema,
+  }),
+  /**
+   * Stop the answer that is running.
+   *
+   * The turn is named rather than left implicit, so a stop that arrives just after
+   * one answer ended cannot end the next one: a device answers one prompt at a
+   * time, and without the id a late tap would land on whatever is running now.
+   *
+   * The conversation is not sent. The turn knows which one it belongs to, and the
+   * server checks the turn belongs to the device this session paired with, which is
+   * the same check a prompt goes through. See ADR-042.
+   */
+  z.object({
+    type: z.literal('stop_turn'),
+    turnId: turnIdSchema,
   }),
   // The user ended the session from the browser. The agent runs on the paired
   // machine, so ending it has to reach the CLI, not just clear the browser.
@@ -428,11 +466,33 @@ export const serverToBrowserMessageSchema = z.discriminatedUnion('type', [
     role: z.enum(['user', 'assistant']),
     content: z.string().max(ENGINE_TEXT_MAX_LENGTH),
     /**
-     * True when the answer was cut short by a failure. The browser marks it, so a
-     * truncated reply is never mistaken for a finished one. Absent means complete.
+     * True when the answer was cut short. The browser marks it, so a truncated
+     * reply is never mistaken for a finished one. Absent means complete.
      */
     partial: z.boolean().optional(),
+    /**
+     * Why it was cut short, when that is known.
+     *
+     * `stopped` is the user asking for it, `failed` is everything else. Sent so the
+     * transcript can say which of the two happened instead of describing a stop the
+     * user chose as something that went wrong. Absent on a complete answer, and on a
+     * partial one stored before this existed. See ADR-042.
+     */
+    interruption: z.enum(['stopped', 'failed']).optional(),
     createdAt: z.number(),
+  }),
+  /**
+   * A turn has begun, sent as soon as the prompt is accepted.
+   *
+   * The browser used to learn a turn's id from its first fragment of output, which
+   * is no help for the turn that most needs stopping: one whose engine says nothing
+   * at all. Every browser on the session gets it, so a second tab shows an answer on
+   * the way rather than a composer that will refuse the next prompt. See ADR-042.
+   */
+  z.object({
+    type: z.literal('turn_started'),
+    conversationId: conversationIdSchema,
+    turnId: turnIdSchema,
   }),
   z.object({
     type: z.literal('delta'),

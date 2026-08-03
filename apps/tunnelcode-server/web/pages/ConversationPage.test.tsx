@@ -514,3 +514,90 @@ describe('ConversationPage reconnect approval', () => {
     });
   });
 });
+
+describe('ConversationPage stopping an answer', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    stubFetch();
+    vi.stubGlobal('WebSocket', FakeSocket);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    FakeSocket.latest = undefined;
+  });
+
+  test('a running answer offers Stop instead of a Send nobody can press', async () => {
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    await loadPage();
+
+    FakeSocket.latest?.deliver({ type: 'attached', sessionId: 'session-1', online: true });
+    expect(await screen.findByRole('button', { name: 'Send' })).toBeTruthy();
+
+    // Arrives before any output, so even an engine that says nothing can be stopped.
+    FakeSocket.latest?.deliver({
+      type: 'turn_started',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    });
+
+    const stop = await screen.findByRole('button', { name: 'Stop' });
+    expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
+
+    // The disabled composer takes pointer events away from everything inside it, so
+    // wearing that class while holding the stop button made the button unpressable.
+    // Checked here because no test environment evaluates the stylesheet, which is
+    // exactly why clicking below kept passing while the real button did nothing.
+    const box = screen.getByLabelText('Message');
+    expect(box.closest('.composer-box')?.className).not.toContain('disabled');
+
+    // The box around it being usable is not the box itself being usable: a prompt
+    // cannot be sent until the answer ends, so the field stays shut and says so.
+    expect((box as HTMLTextAreaElement).disabled).toBe(true);
+
+    await userEvent.click(stop);
+
+    // The turn is named, so a tap landing just after one answer ended cannot end the
+    // next one.
+    const sent = FakeSocket.latest?.sent.map((raw) => JSON.parse(raw) as { type: string }) ?? [];
+    expect(sent.some((message) => message.type === 'stop_turn')).toBe(true);
+    expect(FakeSocket.latest?.sent.some((raw) => raw.includes('turn-1'))).toBe(true);
+  });
+
+  test('the composer comes back when the stopped turn ends', async () => {
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    await loadPage();
+
+    FakeSocket.latest?.deliver({
+      type: 'turn_started',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    });
+    await screen.findByRole('button', { name: 'Stop' });
+
+    // Nothing is cleared when Stop is pressed: the server ending the turn is what
+    // closes this, so a stop that never arrived cannot leave the page pretending it
+    // did.
+    FakeSocket.latest?.deliver({
+      type: 'message',
+      conversationId: 'conversation-1',
+      id: 'message-1',
+      role: 'assistant',
+      content: 'half an answer',
+      partial: true,
+      interruption: 'stopped',
+      createdAt: 3,
+    });
+    FakeSocket.latest?.deliver({
+      type: 'turn_done',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    });
+
+    await screen.findByRole('button', { name: 'Send' });
+
+    // Said in the transcript rather than in a banner, because a banner is gone by
+    // the next reload and this is part of what happened.
+    await screen.findByText(/You stopped this answer/);
+  });
+});

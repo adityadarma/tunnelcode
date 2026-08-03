@@ -56,10 +56,17 @@ export interface Message {
   role: 'user' | 'assistant';
   content: string;
   /**
-   * True when the turn failed partway and this is only what the engine managed to
+   * True when the turn ended partway and this is only what the engine managed to
    * say. Absent on a server that predates the flag, which is read as complete.
    */
   partial?: boolean;
+  /**
+   * Why it ended partway: `stopped` when the user asked, `failed` otherwise.
+   *
+   * Null or absent on a record written before this was kept, which is shown as an
+   * answer that stopped without saying who stopped it. See ADR-042.
+   */
+  interruption?: 'stopped' | 'failed' | null;
   createdAt: number;
 }
 
