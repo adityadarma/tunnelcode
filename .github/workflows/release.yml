@@ -100,7 +100,7 @@ jobs:
 
       - uses: pnpm/action-setup@v6
         with:
-          version: 11.14.0
+          version: 11.20.0
 
       - uses: actions/setup-node@v7
         with:
@@ -149,16 +149,14 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # The tag prefix is stripped so the image reads 0.2.0 rather than v0.2.0.
-      # The sha tag keeps manual runs taggable, since metadata-action needs at
-      # least one tag to build.
       - id: meta
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=match,pattern=v(.*),group=1
+            type=match,pattern=v(\d+\.\d+),group=1
             type=raw,value=latest,enable=${{ github.event_name == 'push' }}
-            type=sha
 
       # The server ships only as an image, so this is its release artifact.
       - uses: docker/build-push-action@v7
