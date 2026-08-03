@@ -176,6 +176,23 @@ async function readLine(): Promise<string | typeof CANCELLED> {
   }
 }
 
+/**
+ * Takes the given number of lines back off the screen, cursor ending where the
+ * block started.
+ *
+ * Used when a prompt is done with: an answered menu left on screen pushes the
+ * next one further down, so the terminal fills up with choices that have already
+ * been made.
+ */
+function eraseLines(count: number): void {
+  if (count <= 0) {
+    return;
+  }
+
+  // Up to the first line of the block, then clear everything from there down.
+  writeRaw(`\u001b[${String(count)}A\u001b[0J`);
+}
+
 function renderChoices<T>(choices: readonly Choice<T>[], active: number): void {
   choices.forEach((choice, index) => {
     const isActive = index === active;
@@ -210,6 +227,9 @@ export async function select<T>(
     return selectByLine(choices);
   }
 
+  // A blank line, the title, another blank line, then one line per choice.
+  const drawnLines = 3 + choices.length;
+
   return withRawStdin(async (stdin) => {
     let active = 0;
     // Hidden so the cursor does not sit in the middle of a redrawn list.
@@ -239,6 +259,10 @@ export async function select<T>(
       }
     } finally {
       writeRaw('\u001b[?25h');
+      // The list has served its purpose once it is answered. Clearing it here
+      // rather than clearing the screen before the next prompt keeps whatever the
+      // chosen action printed, which is the part worth reading.
+      eraseLines(drawnLines);
     }
   });
 }
@@ -291,6 +315,26 @@ export async function ask(options: AskOptions): Promise<string | typeof CANCELLE
   writeRaw(`  ${bold(options.label)}: `);
 
   const answer = await readLine();
+
+  // A blank line, the current value and its note when there is one, and the line
+  // the terminal echoed as the answer was typed.
+  const drawnLines = 2 + (current === undefined ? 0 : 2);
+
+  // Only a terminal echoes the answer and understands the escape codes. A piped
+  // stdin prints nothing back, so the count would be wrong and the erase would
+  // eat a line that was never part of this prompt.
+  if (process.stdin.isTTY && process.stdout.isTTY) {
+    // Ctrl+D ends the line without echoing a newline, so the cursor is still on
+    // the label. Erasing from there would take a line that belongs to whatever
+    // came before this prompt.
+    if (answer === CANCELLED) {
+      writeRaw('\n');
+    }
+
+    // Taken off the screen for the same reason the menu is: the answer shows up
+    // in the confirmation, and in the field's hint the next time the menu draws.
+    eraseLines(drawnLines);
+  }
 
   if (answer === CANCELLED) {
     return CANCELLED;

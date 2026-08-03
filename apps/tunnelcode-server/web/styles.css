@@ -359,17 +359,38 @@
 }
 
 /* Empty State / Welcome Screen */
+
+/* min-height is set to zero on purpose, and nothing here may raise it. This is the
+   message area of a flex column with the composer under it, so a floor on its height
+   is a floor on the whole screen: with the on-screen keyboard open there was no room
+   left for the composer, and the column clips, so the box being typed into was the
+   part that disappeared. An ongoing conversation never had the problem because it
+   scrolls instead. */
 .empty-state-container {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100%;
-  min-height: 320px;
+  min-height: 0;
   padding: 2.5rem 1.5rem;
   text-align: center;
   position: relative;
   overflow: hidden;
+}
+
+/* A short viewport is a keyboard being open, or a phone on its side. Either way the
+   decoration is what goes: it is there to fill an empty screen, and the screen is no
+   longer empty. Dropped rather than scrolled, because nothing here is worth reading
+   while typing, and rather than cropped, because half a heading reads as broken. */
+@media (max-height: 30rem) {
+  .empty-state-container {
+    padding: 1.25rem 1rem;
+  }
+
+  .empty-hero-glow,
+  .empty-features-grid {
+    display: none;
+  }
 }
 
 .empty-hero-glow {

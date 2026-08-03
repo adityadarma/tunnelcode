@@ -187,15 +187,45 @@ function reasoningPart(id: string, text = '', messageID = 'msg-1'): unknown {
   };
 }
 
-function toolPart(state: Record<string, unknown>): unknown {
+function toolPart(state: Record<string, unknown>, tool = 'bash'): unknown {
   return {
     type: 'message.part.updated',
     properties: {
       sessionID: SESSION,
-      part: { type: 'tool', tool: 'bash', callID: 'call-1', messageID: 'msg-1', state },
+      part: { type: 'tool', tool, callID: 'call-1', messageID: 'msg-1', state },
     },
   };
 }
+
+/**
+ * What the read tool answers with, recorded from opencode 1.18.10: an envelope
+ * naming the file, then the numbered lines, then a note saying where the read
+ * stopped. A read that pulled other files in appends a reminder for the model.
+ */
+const READ_FILE_OUTPUT = [
+  '<path>/Users/me/project/src/thing.ts</path>',
+  '<type>file</type>',
+  '<content>',
+  '1: export function thing(): void {',
+  '2:   return;',
+  '3: }',
+  '(End of file - total 3 lines)',
+  '</content>',
+  '<system-reminder>',
+  'Keep reading before you edit.',
+  '</system-reminder>',
+].join('\n');
+
+const READ_DIRECTORY_OUTPUT = [
+  '<path>/Users/me/project/src</path>',
+  '<type>directory</type>',
+  '<entries>',
+  'thing.ts',
+  'nested/',
+  '',
+  '(2 entries)',
+  '</entries>',
+].join('\n');
 
 function idleFor(sessionID: string): unknown {
   return { type: 'session.idle', properties: { sessionID } };
@@ -374,6 +404,126 @@ test('a tool call is reported once, with what it acts on', async () => {
 
       const output = events.find((event) => event.type === 'activity_output');
       assert.equal(output?.type === 'activity_output' ? output.output : '', 'hi');
+    },
+  );
+});
+
+test('a read reports what it found, not the envelope around it', async () => {
+  await withFakeOpenCode(
+    {
+      events: [
+        assistantMessage,
+        toolPart(
+          {
+            status: 'completed',
+            input: { filePath: '/Users/me/project/src/thing.ts' },
+            output: READ_FILE_OUTPUT,
+          },
+          'read',
+        ),
+        idle,
+      ],
+    },
+    async (engine) => {
+      const events = await collect(engine.prompt('hi', base));
+      const output = events.find((event) => event.type === 'activity_output');
+
+      // The path is already the target shown above the output, and the absolute form
+      // of it at that, so three lines of scrolling stood between the reader and the
+      // file. The line numbers and the closing note stay: they say which part of the
+      // file this is and whether there is more.
+      assert.equal(
+        output?.type === 'activity_output' ? output.output : '',
+        [
+          '1: export function thing(): void {',
+          '2:   return;',
+          '3: }',
+          '(End of file - total 3 lines)',
+        ].join('\n'),
+      );
+    },
+  );
+});
+
+test('a read of a directory is unwrapped the same way', async () => {
+  await withFakeOpenCode(
+    {
+      events: [
+        assistantMessage,
+        toolPart(
+          {
+            status: 'completed',
+            input: { filePath: '/Users/me/project/src' },
+            output: READ_DIRECTORY_OUTPUT,
+          },
+          'read',
+        ),
+        idle,
+      ],
+    },
+    async (engine) => {
+      const events = await collect(engine.prompt('hi', base));
+      const output = events.find((event) => event.type === 'activity_output');
+
+      assert.equal(
+        output?.type === 'activity_output' ? output.output : '',
+        ['thing.ts', 'nested/', '', '(2 entries)'].join('\n'),
+      );
+    },
+  );
+});
+
+test('an output that is not that envelope is left exactly as it came', async () => {
+  const printed = ['<path>not an envelope', '<type>file</type>'].join('\n');
+
+  await withFakeOpenCode(
+    {
+      events: [
+        assistantMessage,
+        toolPart({ status: 'completed', input: { filePath: '/x' }, output: printed }, 'read'),
+        idle,
+      ],
+    },
+    async (engine) => {
+      const events = await collect(engine.prompt('hi', base));
+      const output = events.find((event) => event.type === 'activity_output');
+
+      // A shape that changed is better read raw than cut in half by a guess at where
+      // it ends.
+      assert.equal(output?.type === 'activity_output' ? output.output : '', printed);
+    },
+  );
+});
+
+test('a file containing the closing tag keeps every line of it', async () => {
+  const output = [
+    '<path>/Users/me/project/web/page.html</path>',
+    '<type>file</type>',
+    '<content>',
+    '1: <content>',
+    '2: </content>',
+    '(End of file - total 2 lines)',
+    '</content>',
+  ].join('\n');
+
+  await withFakeOpenCode(
+    {
+      events: [
+        assistantMessage,
+        toolPart({ status: 'completed', input: { filePath: '/x' }, output }, 'read'),
+        idle,
+      ],
+    },
+    async (engine) => {
+      const events = await collect(engine.prompt('hi', base));
+      const reported = events.find((event) => event.type === 'activity_output');
+
+      // The body ends at the last closing tag, not the first: a file that contains
+      // the tag as one of its own lines would otherwise be truncated at that line.
+      assert.equal(
+        reported?.type === 'activity_output' ? reported.output : '',
+        ['1: <content>', '2: </content>', '(End of file - total 2 lines)'].join('\n'),
+      );
     },
   );
 });

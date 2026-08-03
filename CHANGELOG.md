@@ -10,6 +10,46 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+### Added
+
+- Antigravity can be allowed to run commands, from Setup under Antigravity access. It
+  is a grant of its own, separate from write access, and withdrawn from the same place.
+  Until now a build or a test it wanted to run was always refused mid-turn, where
+  nobody could answer, so it could not check what it had just written. The rule covers
+  every command, because Antigravity matches a command rule as a prefix of the whole
+  command line and the agent puts its own `cd <workspace> &&` in front of the program
+  it means to run. The menu says that, and that `Never allow` cannot hold it back,
+  before the choice is made. See ADR-035.
+
+### Fixed
+
+- The prompt box no longer disappears under the keyboard on a conversation with nothing
+  in it yet. The welcome screen held a minimum height, so the message area could not
+  give way when the keyboard opened and the composer was pushed out of the column,
+  which clips. A conversation already underway was never affected because it scrolls.
+  On a short viewport the welcome decoration is dropped rather than cropped.
+
+### Changed
+
+- On a touch screen, Enter in the prompt box adds a line and only Send sends. An
+  on-screen keyboard has no Shift+Enter, so a prompt used to be sent half-written the
+  moment it was paragraphed. With a physical keyboard Enter still sends. Enter that
+  confirms a predictive keyboard's suggestion never sends either. See ADR-036.
+- Expanding an opencode `read` now starts at the file. The tool answers inside an
+  envelope naming the absolute path and the type, which was three lines of scrolling
+  repeating the target already shown above it, and a reminder addressed to the model
+  after the last line. The numbered lines and the note saying where the read stopped
+  are kept, and an output that does not match that shape is still shown exactly as it
+  came.
+- An answered menu clears itself from the screen, so choosing Setup no longer leaves
+  the main menu above it and a few choices no longer fill the terminal. What an action
+  printed stays.
+- A refused Antigravity command now names `command(*)` and points at Setup, rather than
+  a rule shaped like the one command that happened to be refused, which would not have
+  matched the next one.
+- The Setup item is now `Antigravity access`, showing both what it may write and
+  whether it may run commands.
+
 ## [0.3.6] - 2026-08-02
 
 A fourth engine, and an answer that survives leaving the page. Kiro CLI can now answer a

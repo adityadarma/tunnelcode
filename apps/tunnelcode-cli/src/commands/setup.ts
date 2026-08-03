@@ -7,16 +7,9 @@ import {
   writeGrants,
 } from '@tunnelcode/config';
 import type { GlobalConfig } from '@tunnelcode/config';
-import {
-  AntigravitySettingsError,
-  ENGINE_NAMES,
-  allowWorkspaceWrites,
-  antigravitySettingsPath,
-  isWorkspaceWritable,
-  revokeWorkspaceWrites,
-  workspaceWriteRule,
-} from '@tunnelcode/engine';
+import { ENGINE_NAMES } from '@tunnelcode/engine';
 import type { EngineName } from '@tunnelcode/engine';
+import { antigravitySummary, runAntigravityMenu } from './antigravity.js';
 import { runDoctor } from './doctor.js';
 import { CANCELLED, ask, select } from '../prompt.js';
 import type { Choice } from '../prompt.js';
@@ -202,76 +195,6 @@ async function manageGrants(): Promise<void> {
 }
 
 /**
- * Grants or withdraws Antigravity's write access to this workspace.
- *
- * Antigravity raises no permission ask, because headless mode has no prompt, so a
- * file it wants to write is refused instead of being asked about. The only thing
- * that changes that is a rule in Antigravity's own settings. See ADR-031.
- *
- * Done from here rather than at startup, and never silently: the file belongs to
- * `agy` and is read every time it runs, so this also changes the user's own terminal
- * sessions. That is theirs to decide, which is why it is a menu item and not a side
- * effect of choosing an engine.
- */
-async function editAntigravityAccess(cwd: string): Promise<void> {
-  const rule = await workspaceWriteRule(cwd);
-  const allowed = await isWorkspaceWritable(cwd);
-
-  writeOut('');
-  writeOut(dim('  Antigravity cannot ask about a file it wants to write, so without'));
-  writeOut(dim('  this it can read this workspace but never change it.'));
-  writeOut('');
-  writeOut(`  rule  ${cyan(rule)}`);
-  writeOut(`  file  ${dim(antigravitySettingsPath())}`);
-  writeOut('');
-  writeOut(dim("  That file is Antigravity's own, and it is read every time agy runs,"));
-  writeOut(dim('  so this applies to your own terminal sessions too.'));
-  writeOut(dim('  Running commands stays refused either way.'));
-
-  const choice = await select('Antigravity write access', [
-    allowed
-      ? { value: 'revoke', label: 'Withdraw it', hint: 'back to read-only' }
-      : { value: 'allow', label: 'Allow writing in this workspace' },
-    { value: 'keep', label: 'Leave it as it is' },
-  ] satisfies Choice<'allow' | 'revoke' | 'keep'>[]);
-
-  if (choice === CANCELLED || choice === 'keep') {
-    return;
-  }
-
-  try {
-    if (choice === 'allow') {
-      const added = await allowWorkspaceWrites(cwd);
-      writeOut(
-        green(
-          added
-            ? `Antigravity may now write in ${cyan(cwd)}`
-            : 'That rule was already there. Nothing changed.',
-        ),
-      );
-      return;
-    }
-
-    const removed = await revokeWorkspaceWrites(cwd);
-    writeOut(
-      green(
-        removed
-          ? 'Withdrawn. Antigravity can read this workspace but not change it.'
-          : 'That rule was not there. Nothing changed.',
-      ),
-    );
-  } catch (error) {
-    // Refusing to write beats clobbering a file this project does not own.
-    if (error instanceof AntigravitySettingsError) {
-      writeErr(`${error.path}: ${error.message}`);
-      return;
-    }
-
-    throw error;
-  }
-}
-
-/**
  * Runs the settings menu until the user goes back.
  *
  * Every field is written as soon as it is answered, so leaving the menu at any
@@ -284,7 +207,6 @@ export async function runSetupMenu(): Promise<void> {
 
     const grants = await loadGrants();
     const cwd = process.cwd();
-    const antigravityAllowed = await isWorkspaceWritable(cwd);
 
     const choice = await select('Setup', [
       { value: 'server', label: 'Server URL', hint: draft.server.url },
@@ -305,8 +227,8 @@ export async function runSetupMenu(): Promise<void> {
       },
       {
         value: 'antigravity',
-        label: 'Antigravity write access',
-        hint: antigravityAllowed ? 'this workspace' : 'read-only',
+        label: 'Antigravity access',
+        hint: await antigravitySummary(cwd),
       },
       { value: 'doctor', label: 'Check environment' },
       { value: 'back', label: 'Back' },
@@ -333,7 +255,7 @@ export async function runSetupMenu(): Promise<void> {
         await manageGrants();
         break;
       case 'antigravity':
-        await editAntigravityAccess(cwd);
+        await runAntigravityMenu(cwd);
         break;
       case 'doctor':
         await runDoctor();

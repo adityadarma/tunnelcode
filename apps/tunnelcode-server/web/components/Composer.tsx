@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { PROMPT_MAX_LENGTH } from '@tunnelcode/protocol';
 
 interface ComposerProps {
@@ -9,8 +9,73 @@ interface ComposerProps {
 }
 
 /**
- * Prompt input. Enter sends, Shift+Enter adds a line, which matches what people
- * expect from a chat box while still allowing multi-line prompts.
+ * A touch screen, which is what a coarse pointer reports.
+ *
+ * Used to decide what Enter does, because the two keyboards disagree about it. On an
+ * on-screen keyboard Enter is the only key there is for a new line: there is no
+ * Shift+Enter to reach for, so sending on Enter leaves no way to write a second line
+ * and a prompt gets sent the moment it is paragraphed.
+ */
+const TOUCH_QUERY = '(pointer: coarse)';
+
+type QueryListener = (event: { matches: boolean }) => void;
+
+/**
+ * A media query as it can actually be relied on.
+ *
+ * The DOM types promise `matchMedia` and `addEventListener` unconditionally, and both
+ * can be absent: jsdom provides no `matchMedia`, and a browser old enough only has the
+ * deprecated `addListener`. Declared optional here so the checks below are the real
+ * ones rather than dead code the linter is right to complain about.
+ */
+interface MediaQuery {
+  matches: boolean;
+  addEventListener?: (type: 'change', listener: QueryListener) => void;
+  removeEventListener?: (type: 'change', listener: QueryListener) => void;
+}
+
+function touchQuery(): MediaQuery | undefined {
+  return (window as { matchMedia?: (query: string) => MediaQuery }).matchMedia?.(TOUCH_QUERY);
+}
+
+/**
+ * Whether this is a touch device, kept current.
+ *
+ * Watched rather than read once, because a tablet gains and loses a keyboard while
+ * the page stays open. Anything that cannot answer the question is treated as not a
+ * touch device, which keeps Enter sending where it always did.
+ */
+function useTouchInput(): boolean {
+  const [touch, setTouch] = useState(() => touchQuery()?.matches ?? false);
+
+  useEffect(() => {
+    const query = touchQuery();
+    const listen = query?.addEventListener;
+
+    if (query === undefined || listen === undefined) {
+      return;
+    }
+
+    const onChange: QueryListener = (event) => {
+      setTouch(event.matches);
+    };
+
+    listen.call(query, 'change', onChange);
+
+    return () => {
+      query.removeEventListener?.('change', onChange);
+    };
+  }, []);
+
+  return touch;
+}
+
+/**
+ * Prompt input.
+ *
+ * With a physical keyboard, Enter sends and Shift+Enter adds a line, which is what
+ * people expect of a chat box. On a touch screen Enter adds a line and only the Send
+ * button sends. See ADR-036.
  */
 export function Composer({
   disabled,
@@ -19,6 +84,7 @@ export function Composer({
   modelPicker,
 }: ComposerProps): React.JSX.Element {
   const [text, setText] = useState('');
+  const touch = useTouchInput();
 
   const trimmed = text.trim();
   const tooLong = trimmed.length > PROMPT_MAX_LENGTH;
@@ -57,11 +123,22 @@ export function Composer({
           onChange={(event) => {
             setText(event.target.value);
           }}
+          // Tells the on-screen keyboard to offer a return key rather than a Go or
+          // Send one, so the key matches what pressing it now does.
+          {...(touch ? { enterKeyHint: 'enter' as const } : {})}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault();
-              send();
+            if (event.key !== 'Enter' || event.shiftKey || touch) {
+              return;
             }
+
+            // Enter while a word is being composed confirms the suggestion the
+            // keyboard is offering, which is not a request to send anything.
+            if (event.nativeEvent.isComposing) {
+              return;
+            }
+
+            event.preventDefault();
+            send();
           }}
         />
 
@@ -72,6 +149,10 @@ export function Composer({
               <span className="composer-hint composer-hint-warning" role="alert">
                 Too long by {(trimmed.length - PROMPT_MAX_LENGTH).toLocaleString()} characters.
                 Shorten it or send it in parts.
+              </span>
+            ) : touch ? (
+              <span className="composer-hint">
+                <strong>Enter</strong> adds a line. <strong>Send</strong> sends.
               </span>
             ) : (
               <span className="composer-hint">

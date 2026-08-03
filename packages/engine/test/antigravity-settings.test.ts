@@ -5,9 +5,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   AntigravitySettingsError,
+  RUN_COMMANDS_RULE,
+  allowCommands,
   allowWorkspaceWrites,
   antigravitySettingsPath,
+  areCommandsAllowed,
   isWorkspaceWritable,
+  revokeCommands,
   revokeWorkspaceWrites,
   workspaceWriteRule,
 } from '../dist/adapters/antigravity-settings.js';
@@ -95,6 +99,32 @@ test('granting adds the rule and reports the workspace as writable', async () =>
 
     const settings = await readSettings(home);
     const permissions = settings['permissions'] as { allow: string[] };
+    assert.deepEqual(permissions.allow, [await workspaceWriteRule(workspace)]);
+  });
+});
+
+test('the command rule covers every command, because a prefix would not', async () => {
+  // Antigravity matches a command rule as a prefix of the whole command line, and
+  // the agent writes its own line: `command(flutter)` still refuses
+  // `cd <workspace> && flutter analyze`, which is the form it actually sends.
+  assert.equal(RUN_COMMANDS_RULE, 'command(*)');
+});
+
+test('running commands is granted and withdrawn on its own', async () => {
+  await withTempHome(async (home, workspace) => {
+    assert.equal(await areCommandsAllowed(), false);
+    assert.equal(await allowCommands(), true);
+    assert.equal(await areCommandsAllowed(), true);
+
+    await allowWorkspaceWrites(workspace);
+
+    // Wider than the work in front of it, so it is never implied by write access and
+    // withdrawing it leaves that grant alone.
+    assert.equal(await revokeCommands(), true);
+    assert.equal(await areCommandsAllowed(), false);
+    assert.equal(await isWorkspaceWritable(workspace), true);
+
+    const permissions = (await readSettings(home))['permissions'] as { allow: string[] };
     assert.deepEqual(permissions.allow, [await workspaceWriteRule(workspace)]);
   });
 });

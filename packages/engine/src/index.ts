@@ -1,9 +1,13 @@
 export { AntigravityEngine } from './adapters/antigravity.js';
 export {
   AntigravitySettingsError,
+  RUN_COMMANDS_RULE,
+  allowCommands,
   allowWorkspaceWrites,
   antigravitySettingsPath,
+  areCommandsAllowed,
   isWorkspaceWritable,
+  revokeCommands,
   revokeWorkspaceWrites,
   workspaceWriteRule,
 } from './adapters/antigravity-settings.js';

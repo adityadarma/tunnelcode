@@ -1378,3 +1378,110 @@ that ended. A quota problem was reported as a login problem, which sent the user
 The client capabilities are declined because the agent already reaches the workspace
 through its own tools, and those are what an ask is raised about. Granting them would
 give it a second way in, around the question.
+
+---
+
+# ADR-035
+
+## Antigravity Is Allowed To Run Commands, Or It Is Not
+
+Amends ADR-031.
+
+Decision
+
+Running commands is granted from Setup, under Antigravity access, as a single
+`command(*)` rule in Antigravity's own settings. It is added only when the user
+chooses it and withdrawn from the same place.
+
+It is a grant of its own. Asking for write access never implies it, withdrawing one
+leaves the other, and the Setup item names both states so neither is granted
+unseen.
+
+The rule covers every command. No narrower prefix is offered, and none is asked
+for.
+
+The menu states, before the choice is made, that it covers every command, that it
+is not scoped to a workspace, and that `Never allow` cannot hold it back.
+
+A refused command is reported as blocked, naming `command(*)` and where to grant
+it, as a refused write already names its own rule.
+
+`--dangerously-skip-permissions` is still never passed.
+
+Reason
+
+Antigravity matches a command rule as a prefix of the whole command line, and the
+agent writes that line. It puts its own `cd <workspace> &&` in front of the program
+it means to run, so `command(flutter)` refuses `cd <workspace> && flutter analyze`,
+which is the form it actually sends. A prefix rule therefore reads as a limit it
+does not deliver while leaving the work refused most of the time. Offering one would
+trade a real restriction for the appearance of one, which is worse than saying
+plainly how wide the grant is.
+
+There is no workspace to scope it to either. A command rule names a program, not a
+path, and this is the one grant in this project wider than the work in front of it.
+That is why it is asked for on its own, never bundled, and why the menu says so
+before the answer rather than after.
+
+`Never allow` cannot reach it. That ceiling works by refusing an ask, and Antigravity
+raises none: the policy in its own settings decides alone, before the turn starts.
+Leaving that unsaid would let a user believe a limit was still in force.
+
+The alternative was to leave commands refused, as ADR-031 left them. In practice that
+refused the work: an engine that cannot run a build or a test cannot check what it
+just wrote, and the refusal arrived in the middle of a turn where nobody could answer
+it. The choice belongs to the person at the machine, made in a terminal on it, which
+is where every other limit here is set.
+
+---
+
+# ADR-036
+
+## The Composer Stays Reachable, And Enter Belongs To The Keyboard Pressing It
+
+Decision
+
+With a physical keyboard, Enter sends and Shift+Enter adds a line. On a touch screen
+Enter adds a line and only the Send button sends.
+
+Which one applies is decided by `(pointer: coarse)`, watched rather than read once,
+and anything that cannot answer the query is treated as a physical keyboard.
+
+Enter raised while text is being composed never sends.
+
+A touch device is told to offer a return key through `enterKeyHint`, so the key
+matches what pressing it does.
+
+Nothing in the conversation column may put a floor under the height of the message
+area. It is the part that gives way when the viewport shrinks, and the composer is
+never what disappears.
+
+A viewport too short for the empty state drops the decoration rather than scrolling
+or cropping it.
+
+Reason
+
+An on-screen keyboard has one Enter and no Shift to hold with it. Sending on that key
+leaves no way to write a second line, so a prompt was sent the moment it was
+paragraphed, half-written. The Send button is already on screen and under the thumb,
+which is not true of the desktop case, where reaching for the mouse to send every
+message is the annoyance instead. The same key therefore has to mean different things,
+and the pointer is what says which.
+
+`(pointer: coarse)` is asked rather than the user agent string, because the question is
+what is being typed on, not what the device is called. It is watched because a tablet
+gains and loses a keyboard while the page stays open. Defaulting to Enter-sends where
+the query cannot be answered keeps the behaviour that was there before this.
+
+A predictive keyboard confirms its suggestion with Enter. Reading that as a send would
+fire on a word that is not finished, which is the same mistake in a smaller form.
+
+The height floor is the whole of the second bug. The empty state carried a
+`min-height`, so the message area could not shrink; the column clips what does not
+fit, and the composer was under the fold with the keyboard covering where it had gone.
+An ongoing conversation never showed it because a scrolling area shrinks to nothing
+without complaint. Stated as a rule because the next decorative screen would
+reintroduce it: a floor on that area is a floor on the screen.
+
+The decoration goes rather than scrolls because nothing in it is worth reading while
+typing, and rather than crops because half a heading reads as a broken page.

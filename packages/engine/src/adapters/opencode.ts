@@ -1,5 +1,6 @@
 import { captureOutput, isOnPath } from '../which.js';
 import { readActivityTarget } from '../activity.js';
+import { readResultBody } from './opencode-output.js';
 import { startOpenCodeServer } from './opencode-server.js';
 import type { OpenCodeServerHandle, StartOpenCodeServer } from './opencode-server.js';
 import type {
@@ -529,7 +530,14 @@ export class OpenCodeEngine implements Engine {
       const output = part.state?.output;
 
       if (status === 'completed' && typeof output === 'string' && output !== '') {
-        yield { type: 'activity_output', id, output };
+        // The read tool answers in an envelope naming the file it just read, which
+        // is already the target shown above the output. Unwrapped here rather than
+        // in the browser, because the shape belongs to this engine.
+        const readable = part.tool === 'read' ? readResultBody(output) : output;
+
+        if (readable !== '') {
+          yield { type: 'activity_output', id, output: readable };
+        }
       }
 
       const error = part.state?.error;

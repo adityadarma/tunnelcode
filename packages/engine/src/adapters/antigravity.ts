@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { RUN_COMMANDS_RULE } from './antigravity-settings.js';
 import { captureOutput, isOnPath } from '../which.js';
 import { streamProcess } from '../process.js';
 import type { Engine, EngineEvent, PromptOptions } from '../types.js';
@@ -77,14 +78,17 @@ function refusalReason(message: string, cwd: string): string {
     named !== undefined
       ? `${named}(${cwd})`
       : REFUSED_COMMAND.test(message)
-        ? 'command(<command>)'
+        ? // Every command, not the one that was refused: Antigravity matches a
+          // command rule as a prefix of the whole command line, and the agent puts
+          // its own `cd <dir> &&` in front of the program it means to run.
+          RUN_COMMANDS_RULE
         : undefined;
 
   return [
     'Refused by Antigravity policy, which headless mode cannot ask about.',
     rule === undefined
       ? 'Allow it under permissions.allow in Antigravity settings.'
-      : `Add ${rule} under permissions.allow in Antigravity settings to allow it.`,
+      : `Grant ${rule} from Setup, under Antigravity access, or add it under permissions.allow in Antigravity settings.`,
   ].join(' ');
 }
 

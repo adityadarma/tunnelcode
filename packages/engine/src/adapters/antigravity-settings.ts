@@ -59,6 +59,21 @@ export async function workspaceWriteRule(cwd: string): Promise<string> {
   return `write_file(${resolved})`;
 }
 
+/**
+ * The rule that lets Antigravity run commands.
+ *
+ * Every command, because Antigravity matches a command rule as a prefix of the
+ * whole command line. The agent writes its own command lines and puts its own
+ * prefix in front of them, so `command(flutter)` still refuses
+ * `cd <workspace> && flutter analyze`. A narrower rule would therefore read as a
+ * limit it does not deliver, while leaving the work refused most of the time.
+ *
+ * Not scoped to a workspace either, because a command rule has no path to scope
+ * to. This is the one grant in this project that is wider than the work in front
+ * of it, which is why it is asked for on its own and never implied by another.
+ */
+export const RUN_COMMANDS_RULE = 'command(*)';
+
 /** Reads the settings, or undefined when there is no file yet. */
 async function readSettings(path: string): Promise<Record<string, unknown> | undefined> {
   let raw: string;
@@ -160,14 +175,12 @@ function withAllowList(
   };
 }
 
-/** Whether Antigravity may already write in a workspace. */
-export async function isWorkspaceWritable(cwd: string): Promise<boolean> {
-  const path = antigravitySettingsPath();
-  const rule = await workspaceWriteRule(cwd);
-
+/** Whether one rule is already in the allow list. */
+async function isAllowed(rule: string): Promise<boolean> {
   let settings: Record<string, unknown> | undefined;
+
   try {
-    settings = await readSettings(path);
+    settings = await readSettings(antigravitySettingsPath());
   } catch {
     // Reported as not granted rather than thrown, so a broken file cannot stop the
     // menu from being drawn. Granting it is what surfaces the error.
@@ -178,38 +191,36 @@ export async function isWorkspaceWritable(cwd: string): Promise<boolean> {
 }
 
 /**
- * Grants Antigravity write access to one workspace.
+ * Adds one rule to the allow list.
  *
- * Returns false when the rule was already there, so the caller can say what it did
+ * Returns false when it was already there, so the caller can say what it did
  * rather than claiming a change it did not make.
  */
-export async function allowWorkspaceWrites(cwd: string): Promise<boolean> {
+async function allow(rule: string): Promise<boolean> {
   const path = antigravitySettingsPath();
-  const rule = await workspaceWriteRule(cwd);
   const settings = (await readSettings(path)) ?? {};
-  const allow = readAllowList(settings);
+  const rules = readAllowList(settings);
 
-  if (allow.includes(rule)) {
+  if (rules.includes(rule)) {
     return false;
   }
 
-  await writeSettings(path, withAllowList(settings, [...allow, rule]));
+  await writeSettings(path, withAllowList(settings, [...rules, rule]));
   return true;
 }
 
-/** Takes that grant back, leaving any rule the user added themselves alone. */
-export async function revokeWorkspaceWrites(cwd: string): Promise<boolean> {
+/** Takes one rule back out, leaving every rule the user added themselves alone. */
+async function revoke(rule: string): Promise<boolean> {
   const path = antigravitySettingsPath();
-  const rule = await workspaceWriteRule(cwd);
   const settings = await readSettings(path);
 
   if (settings === undefined) {
     return false;
   }
 
-  const allow = readAllowList(settings);
+  const rules = readAllowList(settings);
 
-  if (!allow.includes(rule)) {
+  if (!rules.includes(rule)) {
     return false;
   }
 
@@ -217,9 +228,39 @@ export async function revokeWorkspaceWrites(cwd: string): Promise<boolean> {
     path,
     withAllowList(
       settings,
-      allow.filter((entry) => entry !== rule),
+      rules.filter((entry) => entry !== rule),
     ),
   );
 
   return true;
+}
+
+/** Whether Antigravity may already write in a workspace. */
+export async function isWorkspaceWritable(cwd: string): Promise<boolean> {
+  return isAllowed(await workspaceWriteRule(cwd));
+}
+
+/** Grants Antigravity write access to one workspace. */
+export async function allowWorkspaceWrites(cwd: string): Promise<boolean> {
+  return allow(await workspaceWriteRule(cwd));
+}
+
+/** Takes that grant back. */
+export async function revokeWorkspaceWrites(cwd: string): Promise<boolean> {
+  return revoke(await workspaceWriteRule(cwd));
+}
+
+/** Whether Antigravity may already run commands. */
+export async function areCommandsAllowed(): Promise<boolean> {
+  return isAllowed(RUN_COMMANDS_RULE);
+}
+
+/** Grants Antigravity permission to run commands. */
+export async function allowCommands(): Promise<boolean> {
+  return allow(RUN_COMMANDS_RULE);
+}
+
+/** Takes that grant back. */
+export async function revokeCommands(): Promise<boolean> {
+  return revoke(RUN_COMMANDS_RULE);
 }
