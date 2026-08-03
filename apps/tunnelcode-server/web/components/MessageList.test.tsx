@@ -540,6 +540,40 @@ describe('MessageList scroll position', () => {
     expect(scroll.positions).toEqual([]);
   });
 
+  test('a transcript that arrived after the page still stops following', () => {
+    const scroll = watchScroll(4000);
+    placeLiveRow('out of view');
+
+    // What a load looks like: the page is there before the history is, so the
+    // transcript starts empty and the scrolling element arrives with the messages.
+    const view = render(
+      <MessageList messages={[]} activities={[]} streaming={undefined} conversationId="c1" />,
+    );
+
+    view.rerender(
+      <MessageList
+        messages={messages}
+        activities={[]}
+        streaming="half an ans"
+        conversationId="c1"
+      />,
+    );
+
+    readerScrolls();
+    scroll.positions.length = 0;
+
+    view.rerender(
+      <MessageList
+        messages={messages}
+        activities={[]}
+        streaming="half an answer and then some"
+        conversationId="c1"
+      />,
+    );
+
+    expect(scroll.positions).toEqual([]);
+  });
+
   test('scrolling back to the end takes the answer up again', () => {
     const scroll = watchScroll(4000);
     placeLiveRow('out of view');

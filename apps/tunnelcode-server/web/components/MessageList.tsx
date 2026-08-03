@@ -59,7 +59,7 @@ export function MessageList({
   const stored = messages.length > 0 || activities.length > 0 || reasonings.length > 0;
   const loaded = stored || streaming !== undefined;
 
-  useTranscriptScroll(containerRef, liveRef, { conversationId, loaded, stored });
+  const onScroll = useTranscriptScroll(containerRef, liveRef, { conversationId, loaded, stored });
 
   if (
     messages.length === 0 &&
@@ -79,6 +79,7 @@ export function MessageList({
       role="log"
       aria-live="polite"
       aria-label="Conversation"
+      onScroll={onScroll}
     >
       {turns.map((turn) =>
         turn.kind === 'user' ? (

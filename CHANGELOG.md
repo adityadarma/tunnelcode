@@ -12,6 +12,13 @@ to the version it ships as and leaves an empty one behind.
 
 ### Added
 
+- Choosing Scan QR now shows an animated `Generating...` line while the CLI looks for
+  installed engines and builds the QR. The menu erases itself once it is answered and
+  asking each engine for its models spawns a process, so the terminal used to sit blank
+  for a second or two with nothing to say whether the CLI was working or stuck. The line
+  erases itself when the QR appears, and a piped or dumb terminal gets the same words as
+  plain text instead of an animation.
+
 - A running answer can be stopped. While one is running the send button is a red Stop
   button, and pressing it kills the engine on the paired machine and ends the turn. It
   works on an answer that has stopped saying anything at all, which is the one worth
@@ -131,7 +138,11 @@ to the version it ships as and leaves an empty one behind.
   view as it arrives instead of the reader having to scroll after every paragraph, and
   once that row has been scrolled away from, nothing drags the view back down: reading
   back through an answer, or through the output of a call, used to be interrupted by
-  every new fragment. Scrolling to the end again picks the answer back up.
+  every new fragment. Scrolling to the end again picks the answer back up. Scrolling is
+  noticed on whichever element the transcript is in rather than on the one that existed
+  when the page loaded, which is none of them: the history arrives after the page, so on
+  a freshly loaded page nothing had been telling the view that the reader had scrolled
+  away, and an answer was followed for the rest of the turn however far up they had gone.
 - Opening a conversation now starts at its end. A reload used to land at the top of the
   transcript, so the last answer, which is what a reader came back for, was a scroll
   past everything that ever happened in that conversation. The view is placed at the end

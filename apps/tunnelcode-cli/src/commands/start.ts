@@ -4,6 +4,7 @@ import { ENGINE_NAMES, discoverEngines } from '@tunnelcode/engine';
 import type { AvailableEngine } from '@tunnelcode/engine';
 import { runPairingSession } from '../pairing/session.js';
 import { writeErr, writeOut } from '../output.js';
+import { withSpinner } from '../spinner.js';
 
 /**
  * Configuration plus the engines this machine can run, or undefined when
@@ -35,7 +36,10 @@ async function prepare(cwd: string): Promise<Ready | undefined> {
     return undefined;
   }
 
-  const engines = await discoverEngines();
+  // Discovery asks every installed engine for its models, which spawns a process
+  // each. The menu has already erased itself by now, so without something on screen
+  // the terminal is blank for as long as the slowest engine takes to answer.
+  const engines = await withSpinner('Generating...', () => discoverEngines());
 
   writeOut('');
   writeOut(`workspace  ${cwd}`);

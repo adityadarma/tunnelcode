@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 
 /**
  * Where the transcript is scrolled to.
@@ -73,30 +73,12 @@ export function useTranscriptScroll(
   containerRef: React.RefObject<HTMLDivElement | null>,
   liveRef: React.RefObject<HTMLDivElement | null>,
   { conversationId, loaded, stored }: TranscriptState,
-): void {
+): () => void {
   const following = useRef(true);
   // Holds which conversation was placed and whether its history had arrived by then,
   // rather than a flag, so another conversation is placed at its end too and one
   // opened mid-answer is placed again when its history lands.
   const placed = useRef<{ id: string | undefined; stored: boolean } | undefined>(undefined);
-
-  useEffect(() => {
-    const container = containerRef.current;
-
-    if (container === null) {
-      return;
-    }
-
-    const onScroll = (): void => {
-      following.current = atEnd(container, liveRef.current);
-    };
-
-    container.addEventListener('scroll', onScroll, { passive: true });
-
-    return () => {
-      container.removeEventListener('scroll', onScroll);
-    };
-  }, [containerRef, liveRef]);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -141,4 +123,22 @@ export function useTranscriptScroll(
 
     container.scrollTop = container.scrollHeight;
   });
+
+  /**
+   * Handles the reader scrolling, and is bound as a prop rather than by hand.
+   *
+   * Attaching a listener to the element meant attaching it to whichever element
+   * existed when the effect first ran, and on a page being loaded that is none of
+   * them: the transcript is empty until the history arrives, so the scroll container
+   * is not in the document yet. Nothing then ever told this that the reader had
+   * scrolled away, and the answer was followed for the rest of the turn however far
+   * up they had gone. A prop is bound to whatever element is there.
+   */
+  return () => {
+    const container = containerRef.current;
+
+    if (container !== null) {
+      following.current = atEnd(container, liveRef.current);
+    }
+  };
 }

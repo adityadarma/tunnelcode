@@ -8,6 +8,7 @@ import { createPermissionPolicy } from './permission-policy.js';
 import { PromptRunner } from './prompt-runner.js';
 import { renderQr } from './qr.js';
 import { writeErr, writeOut } from '../output.js';
+import { withSpinner } from '../spinner.js';
 
 export interface PairingSessionOptions {
   serverUrl: string;
@@ -91,7 +92,7 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
   const loginUrl = buildLoginUrl(options.serverUrl, code);
   const socketUrl = buildCliSocketUrl(options.serverUrl);
 
-  writeOut(await renderQr(loginUrl));
+  writeOut(await withSpinner('Generating...', () => renderQr(loginUrl)));
   writeOut(`Scan the QR or open  ${loginUrl}`);
   writeOut(`Pairing code         ${code}`);
   writeOut('');
