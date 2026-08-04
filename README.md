@@ -2,7 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/tunnelcode)](https://www.npmjs.com/package/tunnelcode)
 [![CI](https://github.com/adityadarma/tunnelcode/actions/workflows/ci.yml/badge.svg)](https://github.com/adityadarma/tunnelcode/actions/workflows/ci.yml)
-[![Socket Badge](https://badge.socket.dev/npm/package/tunnelcode/0.3.8)](https://badge.socket.dev/npm/package/tunnelcode/0.3.8)
+[![Socket Badge](https://badge.socket.dev/npm/package/tunnelcode/0.3.9)](https://badge.socket.dev/npm/package/tunnelcode/0.3.9)
 [![license](https://img.shields.io/github/license/adityadarma/tunnelcode)](./LICENSE)
 
 Run an AI coding agent on your own machine and drive it from a browser.
@@ -15,7 +15,7 @@ not an IDE and not an AI provider. See `PROJECT.md` for the full specification a
 
 - Node.js 24 or newer
 - pnpm 11
-- An engine on PATH: [OpenCode](https://opencode.ai), Claude Code,
+- An engine on PATH: [OpenCode](https://opencode.ai), [Claude Code](https://claude.com/product/claude-code),
   [Antigravity CLI](https://antigravity.google/product/antigravity-cli), or
   [Kiro CLI](https://kiro.dev)
 

@@ -10,6 +10,52 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+## [0.3.9] - 2026-08-04
+
+### Added
+
+- Token usage is tracked and displayed. When an engine reports how many tokens a turn
+  consumed, the count travels with `turn_done` to the browser and is shown as a compact
+  pill beside the model name. Input and output are stated separately, and an engine that
+  cannot count simply shows nothing: absent means unknown, not zero. Claude Code, Kiro,
+  and Antigravity can report it; opencode does not yet. The count is accumulated per
+  turn, so an engine that reports per step still shows one total. See ADR-046.
+
+- Self-update command. Running `tunnelcode update` checks the npm registry for a newer
+  version and installs it globally using whichever package manager originally installed
+  it (npm, pnpm, or yarn). The command prints what it found, what it will do, and
+  whether it succeeded.
+
+- Background update check. After a session ends cleanly, the CLI checks the registry in
+  the background and prints a notice if a newer version exists. The check never blocks,
+  never throws, and is silently skipped on a network failure or timeout.
+
+- Sleep prevention. While a session is active the CLI prevents the machine from sleeping
+  idle. On macOS it spawns `caffeinate -i`, on Linux it holds a `systemd-inhibit` lock,
+  and on Windows it calls `SetThreadExecutionState` in a PowerShell loop. Killing the
+  process releases the hold. Unsupported platforms are a silent no-op.
+
+### Fixed
+
+- A permission rule glob containing a literal NUL byte no longer corrupts the regular
+  expression. The byte is stripped before the pattern is compiled, which closes an edge
+  case where a crafted rule could match unintended commands.
+
+- The pair status polling endpoint is now rate limited (60 requests per minute per
+  client), preventing a misbehaving browser from flooding the server with status checks
+  while waiting for approval.
+
+- The install banner no longer renders when notifications are unsupported or the service
+  worker failed to register. It also handles a missing `beforeinstallprompt` event
+  gracefully on browsers that do not fire it.
+
+### Changed
+
+- pnpm upgraded from 10.x to 11.20.0 across the workspace and CI.
+
+- The release workflow tags Docker images with the short SHA and `latest` only, dropping
+  the redundant full-SHA tag.
+
 ## [0.3.8] - 2026-08-03
 
 ### Added

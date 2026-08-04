@@ -651,3 +651,91 @@ A refresh brings the thinking back with the rest of the transcript.
 
 An engine that reports no thinking is unaffected, and its turns still say what they
 are doing, because that is read from the tool calls every engine reports.
+
+---
+
+# Milestone 21 — Token Usage
+
+## Goal
+
+Show how much a turn cost, when the engine can say so. See ADR-046.
+
+### Tasks
+
+- [x] `EngineUsage` event in the engine contract (`type: 'usage'`)
+- [x] Claude Code adapter emits usage from the result line
+- [x] Antigravity adapter emits usage from tool step metrics
+- [x] Kiro adapter emits usage from session response metadata
+- [x] Accumulate usage across multiple events per turn in the prompt runner
+- [x] Carry usage on `turn_done` from CLI to server (optional field)
+- [x] Relay usage on `turn_done` from server to browser (optional field)
+- [x] `TokenUsage` component displaying a compact pill with input/output counts
+- [x] Show the pill in the conversation page beside the model name
+
+Acceptance
+
+A turn that reports usage shows how many tokens went in and came out, formatted
+compactly.
+
+A turn whose engine does not report usage shows nothing extra.
+
+The count is accumulated per turn, so an engine reporting per step still shows one
+total.
+
+---
+
+# Milestone 22 — Self-Update & Background Check
+
+## Goal
+
+Let the CLI update itself and tell the user when a newer version exists. See ADR-047.
+
+### Tasks
+
+- [x] `tunnelcode update` command: check the npm registry, detect the package manager,
+      install globally
+- [x] Semver comparison utility (`isNewer`)
+- [x] Package manager detection from the global install path
+- [x] Background update check after session ends, non-blocking
+- [x] Notice printed to the terminal when a newer version exists
+- [x] Network failure or timeout silently skipped
+- [x] Sleep prevention (`Caffeinate` class) started on session start, stopped on end
+- [x] macOS: `caffeinate -i`
+- [x] Linux: `systemd-inhibit` with idle lock
+- [x] Windows: PowerShell `SetThreadExecutionState` loop
+
+Acceptance
+
+`tunnelcode update` installs the latest version from npm.
+
+A session that ends without an update available says nothing extra.
+
+A session that ends when a newer version exists prints a notice naming both versions
+and the command to run.
+
+The machine does not sleep idle while a session is running.
+
+---
+
+# Milestone 23 — Hardening (Round 2)
+
+## Goal
+
+Close edge cases found after the install banner and permission rules shipped.
+
+### Tasks
+
+- [x] Strip NUL bytes from permission rule globs before compiling the regex
+- [x] Rate limit the pair status polling endpoint (60/min per client)
+- [x] Guard install banner against missing `beforeinstallprompt` and unsupported
+      notification/service-worker APIs
+- [x] Unit: a glob with a NUL byte still matches or rejects correctly
+- [x] README: add npm, CI, and license badges
+
+Acceptance
+
+A crafted rule cannot corrupt the regex matcher.
+
+A misbehaving browser cannot flood the status endpoint.
+
+The install banner degrades gracefully on browsers that do not support installation.

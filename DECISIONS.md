@@ -2008,3 +2008,83 @@ identifies their contents.
 A notification is not a channel. Sending is fire and forget and its failures are
 logged, never raised: the turn is the work, and a push service that is slow must not be
 able to hold up an answer.
+
+---
+
+# ADR-046
+
+## Token Usage Is Reported When The Engine Can, And Shown When It Does
+
+Decision
+
+An engine that can count tokens emits a `usage` event carrying `inputTokens` and
+`outputTokens`. The event is optional: an engine that cannot count simply never
+emits one.
+
+Usage is accumulated per turn. An engine that reports per step has its counts
+summed, so the browser always sees one total.
+
+The CLI carries usage on `turn_done` as an optional field. The server relays it on
+the same message to the browser.
+
+The browser shows it as a compact pill beside the model name. Absent means unknown,
+and no pill is shown.
+
+Reason
+
+The cost of a turn is the one thing a user cannot know from the answer alone.
+Showing it where the answer is read makes the cost visible without requiring a
+visit to the provider's dashboard, and keeping it optional means an engine that
+cannot report it adds nothing wrong to the screen.
+
+Accumulated rather than last-wins, because an engine that reports per tool step
+would otherwise show only its final step. The total is what matters.
+
+Optional on the wire because it is optional in reality. Not every engine counts,
+not every model reports it, and a field that could be absent is less wrong than a
+field that carries zero when the truth is unknown.
+
+---
+
+# ADR-047
+
+## The CLI Updates Itself And Checks In The Background
+
+Decision
+
+`tunnelcode update` checks the npm registry for the latest published version. If
+newer, it detects which package manager installed the binary (npm, pnpm, or yarn)
+and runs the global install command for that manager.
+
+After a session ends, the CLI checks the registry in the background. If a newer
+version exists, it prints a one-line notice naming both versions and the command to
+run. Network failures and timeouts are silently ignored.
+
+While a session is active, the CLI prevents the machine from sleeping idle. On
+macOS it spawns `caffeinate -i`, on Linux it holds a `systemd-inhibit` lock, and on
+Windows it calls `SetThreadExecutionState` in a loop. The hold is released when the
+session ends.
+
+Reason
+
+A global npm install is the kind of thing a user forgets, because nothing about
+using the tool reminds them there is a newer one. The notice appears at the one
+moment they are already looking at the terminal — the session ending — and it names
+the command rather than running it, because an upgrade that happens without being
+asked for is not safe to do silently.
+
+The update command is explicit, so it can be run at any time. Detecting the package
+manager avoids the "use npm to update a pnpm install" mistake, which leaves two
+copies and picks the wrong one.
+
+Sleep prevention exists because the machine is doing work the user walked away from.
+A laptop that sleeps five minutes after the lid closes kills the engine mid-turn,
+the reconnect loop cannot help while the machine is asleep, and the turn is
+abandoned as a hung engine on the server side. Holding a power assertion for the
+lifetime of the session is the smallest intervention that keeps the machine awake
+while it is needed.
+
+Platform-specific rather than a dependency, because every platform ships a way to do
+this and none of them agree on what it is called. A no-op on an unknown platform is
+correct: the reconnect loop already handles recovery after a sleep/wake cycle, so
+failing to inhibit sleep is never fatal, only inconvenient.

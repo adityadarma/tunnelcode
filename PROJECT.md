@@ -120,11 +120,23 @@ Utilities
 
 # CLI
 
-The CLI takes no arguments and no options. See ADR-018.
+The CLI takes no arguments and no options for its main flow. See ADR-018.
 
 tunnelcode
 
 Opens the menu.
+
+tunnelcode update
+
+Checks the npm registry and installs a newer version if one exists. See ADR-047.
+
+tunnelcode -v / --version
+
+Prints the version number and exits.
+
+tunnelcode -h / --help
+
+Prints usage information and exits.
 
 Menu
 
@@ -454,6 +466,12 @@ Custom Engine
 Without changing business logic.
 
 Implemented so far: OpenCode, Claude Code, Antigravity CLI, Kiro CLI.
+
+Token Usage
+
+An engine that can count tokens reports usage per turn. The count travels with
+`turn_done` to the browser and is shown as a compact pill. Absent means unknown.
+See ADR-046.
 
 Engine Selection
 

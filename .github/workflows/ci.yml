@@ -43,6 +43,7 @@ jobs:
   # and publishes, so this is the last place a broken bundle can be caught, and an
   # npm version cannot be republished once it is out.
   bundle:
+    needs: check
     runs-on: ubuntu-latest
 
     steps:
@@ -95,6 +96,7 @@ jobs:
           grep -q 'Main Menu' /tmp/menu.txt
 
   docker:
+    needs: check
     runs-on: ubuntu-latest
 
     steps:
