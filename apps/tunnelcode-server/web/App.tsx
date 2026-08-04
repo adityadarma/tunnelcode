@@ -39,7 +39,10 @@ export function App(): React.JSX.Element {
   // Landing on /conversation without a stored session cannot render anything, so
   // the URL is corrected instead of showing an empty page.
   useEffect(() => {
-    if ((route.name === 'conversation' || route.name === 'file-changes') && sessionId === undefined) {
+    if (
+      (route.name === 'conversation' || route.name === 'file-changes') &&
+      sessionId === undefined
+    ) {
       goToLogin();
     }
   }, [route, sessionId, goToLogin]);

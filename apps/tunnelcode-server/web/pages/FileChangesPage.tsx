@@ -106,7 +106,12 @@ function parseDiff(diff: string): DiffLine[] {
         newLine = parseInt(match[2] ?? '0', 10);
       }
       // Skip hunk headers from display
-    } else if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('diff ') || line.startsWith('index ')) {
+    } else if (
+      line.startsWith('+++') ||
+      line.startsWith('---') ||
+      line.startsWith('diff ') ||
+      line.startsWith('index ')
+    ) {
       // Skip file headers
     } else if (line.startsWith('+')) {
       result.push({ type: 'add', oldNum: null, newNum: newLine, text: line.slice(1) });
@@ -168,12 +173,8 @@ function DiffView({ diff }: { diff: string }): React.JSX.Element {
               ref={isFirst ? firstChangeRef : undefined}
               className={`fc-diff-row fc-diff-row-${line.type}`}
             >
-              <td className="fc-diff-gutter fc-diff-gutter-old">
-                {line.oldNum ?? ''}
-              </td>
-              <td className="fc-diff-gutter fc-diff-gutter-new">
-                {line.newNum ?? ''}
-              </td>
+              <td className="fc-diff-gutter fc-diff-gutter-old">{line.oldNum ?? ''}</td>
+              <td className="fc-diff-gutter fc-diff-gutter-new">{line.newNum ?? ''}</td>
               <td className="fc-diff-marker">
                 {line.type === 'add' ? '+' : line.type === 'del' ? '-' : ''}
               </td>
@@ -273,13 +274,10 @@ export function FileChangesPage({ sessionId, onBack }: FileChangesPageProps): Re
     };
   }, [sessionId]);
 
-  const handleSelectFile = useCallback(
-    (file: FileChange) => {
-      setSelectedFile(file);
-      setMenuOpen(false);
-    },
-    [],
-  );
+  const handleSelectFile = useCallback((file: FileChange) => {
+    setSelectedFile(file);
+    setMenuOpen(false);
+  }, []);
 
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -289,7 +287,14 @@ export function FileChangesPage({ sessionId, onBack }: FileChangesPageProps): Re
       <header className="fc-header">
         <div className="fc-header-left">
           <button type="button" className="fc-back-btn" onClick={onBack} aria-label="Go back">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <polyline points="15 18 9 12 15 6" />
             </svg>
           </button>
@@ -297,7 +302,9 @@ export function FileChangesPage({ sessionId, onBack }: FileChangesPageProps): Re
           <button
             type="button"
             className="fc-menu-btn"
-            onClick={() => { setMenuOpen(!menuOpen); }}
+            onClick={() => {
+              setMenuOpen(!menuOpen);
+            }}
             aria-label="Toggle file list"
           >
             ☰
@@ -320,7 +327,14 @@ export function FileChangesPage({ sessionId, onBack }: FileChangesPageProps): Re
           </div>
         ) : files.length === 0 ? (
           <div className="fc-empty">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" strokeWidth="1.5">
+            <svg
+              width="32"
+              height="32"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="var(--ok)"
+              strokeWidth="1.5"
+            >
               <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
               <polyline points="22 4 12 14.01 9 11.01" />
             </svg>
@@ -329,7 +343,12 @@ export function FileChangesPage({ sessionId, onBack }: FileChangesPageProps): Re
         ) : (
           <>
             {/* Overlay for mobile drawer */}
-            <div className="fc-overlay" onClick={() => { setMenuOpen(false); }} />
+            <div
+              className="fc-overlay"
+              onClick={() => {
+                setMenuOpen(false);
+              }}
+            />
 
             {/* File sidebar */}
             <aside className="fc-sidebar">
@@ -342,26 +361,39 @@ export function FileChangesPage({ sessionId, onBack }: FileChangesPageProps): Re
                 {files.map((file) => {
                   const stats = diffStats(file.diff);
                   return (
-                  <li key={file.path} role="option" aria-selected={selectedFile?.path === file.path}>
-                    <button
-                      type="button"
-                      className={`fc-file-item ${selectedFile?.path === file.path ? 'active' : ''}`}
-                      onClick={() => { handleSelectFile(file); }}
+                    <li
+                      key={file.path}
+                      role="option"
+                      aria-selected={selectedFile?.path === file.path}
                     >
-                      <span className="fc-file-icon">{fileIcon(file.status)}</span>
-                      <span className="fc-file-info">
-                        <span className="fc-file-name">{fileName(file.path)}</span>
-                        <span className="fc-file-dir">{fileDir(file.path)}</span>
-                      </span>
-                      <span className="fc-file-stats">
-                        {stats.added > 0 && <span className="fc-stat-add">+{stats.added}</span>}
-                        {stats.deleted > 0 && <span className="fc-stat-del">-{stats.deleted}</span>}
-                        {stats.added === 0 && stats.deleted === 0 && (
-                          <span className="fc-file-status" style={{ color: statusColor(file.status) }}>{file.status}</span>
-                        )}
-                      </span>
-                    </button>
-                  </li>
+                      <button
+                        type="button"
+                        className={`fc-file-item ${selectedFile?.path === file.path ? 'active' : ''}`}
+                        onClick={() => {
+                          handleSelectFile(file);
+                        }}
+                      >
+                        <span className="fc-file-icon">{fileIcon(file.status)}</span>
+                        <span className="fc-file-info">
+                          <span className="fc-file-name">{fileName(file.path)}</span>
+                          <span className="fc-file-dir">{fileDir(file.path)}</span>
+                        </span>
+                        <span className="fc-file-stats">
+                          {stats.added > 0 && <span className="fc-stat-add">+{stats.added}</span>}
+                          {stats.deleted > 0 && (
+                            <span className="fc-stat-del">-{stats.deleted}</span>
+                          )}
+                          {stats.added === 0 && stats.deleted === 0 && (
+                            <span
+                              className="fc-file-status"
+                              style={{ color: statusColor(file.status) }}
+                            >
+                              {file.status}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    </li>
                   );
                 })}
               </ul>

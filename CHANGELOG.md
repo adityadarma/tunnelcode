@@ -8,7 +8,7 @@ The CLI and the server image share one version and ship from a single `v*` tag.
 Every change is written under `Unreleased` as it is made; a release renames that section
 to the version it ships as and leaves an empty one behind.
 
-## [Unreleased]
+## [0.3.10] - 2026-08-04
 
 ### Added
 
