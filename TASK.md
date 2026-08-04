@@ -739,3 +739,52 @@ A crafted rule cannot corrupt the regex matcher.
 A misbehaving browser cannot flood the status endpoint.
 
 The install banner degrades gracefully on browsers that do not support installation.
+
+
+---
+
+# Milestone 24 — File Changes Page
+
+## Goal
+
+Show real-time git workspace changes in the browser, with a diff viewer modeled after
+VS Code's source control panel. The user sees which files changed and can read each
+diff without switching to a terminal.
+
+### Tasks
+
+- [x] `file_changes` message type in `cliMessageSchema` (CLI → Server)
+- [x] `file_changes` message type in `serverToBrowserMessageSchema` (Server → Browser)
+- [x] `FileWatcher` class in the CLI: polls `git status --porcelain` every 5 seconds
+- [x] Only send updates when the snapshot actually changes
+- [x] Enrich each changed file with its `git diff` (staged or working tree)
+- [x] Normalize git porcelain status (`??` → `U`, first char otherwise)
+- [x] Start the watcher on pair and on reconnect, stop on session end
+- [x] Server handler: cache last `file_changes` per device, broadcast to browsers
+- [x] Send cached file changes immediately on browser attach
+- [x] Clean up cache when a device disconnects
+- [x] `/file-changes` client-side route with `useRoute` integration
+- [x] `FileChangesPage` component: WebSocket-connected, real-time updates
+- [x] Split layout: sidebar (file list) + content area (diff viewer), CSS Grid
+- [x] Custom diff parser: line numbers, hunk headers, additions/deletions
+- [x] Diff table with gutter numbers, markers, and color-coded rows
+- [x] File status icons and labels (Modified, Added, Deleted, Untracked)
+- [x] Responsive: stacks vertically on mobile
+- [x] Navigation button in conversation header
+- [x] Live/offline connection indicator
+- [x] Full file view via `git diff -U9999` (all lines visible, changes highlighted)
+- [x] Auto-scroll to first change when selecting a file
+- [x] Per-file counters in sidebar: `+N` added, `-N` deleted
+- [x] Mobile drawer: sidebar slides in from left, overlay dismisses, file select closes
+- [x] Hamburger button visible only on mobile, matches conversation page pattern
+
+Acceptance
+
+Opening the file-changes page shows which files have uncommitted changes, immediately
+and without polling from the browser.
+
+Each file's diff is rendered with line numbers and color, like a code review.
+
+The list updates within seconds of a file being saved on the paired machine.
+
+A workspace with no changes shows a clean state rather than an empty list.

@@ -149,10 +149,14 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # The tag prefix is stripped so the image reads 0.2.0 rather than v0.2.0.
+      # flavor latest=false disables the automatic latest tag from metadata-action,
+      # so the explicit raw rule below is the only source of it.
       - id: meta
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
+          flavor: |
+            latest=false
           tags: |
             type=match,pattern=v(.*),group=1
             type=match,pattern=v(\d+\.\d+),group=1

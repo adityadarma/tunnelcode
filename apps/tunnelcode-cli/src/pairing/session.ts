@@ -4,6 +4,7 @@ import { Caffeinate } from './caffeinate.js';
 import { PairingClient } from './client.js';
 import { askApproval } from './approval.js';
 import { buildCliSocketUrl, buildLoginUrl, generatePairingCode, generateRunId } from './code.js';
+import { FileWatcher } from './file-watcher.js';
 import { IdleTimer } from './idle.js';
 import { createPermissionPolicy } from './permission-policy.js';
 import { PromptRunner } from './prompt-runner.js';
@@ -201,6 +202,19 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
     policy: createPermissionPolicy(),
   });
 
+  /**
+   * Watches git file changes in the workspace and sends them to browsers.
+   *
+   * Polls git status periodically so the file-changes page shows real-time workspace
+   * state. Starts when paired, stops with the session.
+   */
+  const fileWatcher = new FileWatcher({
+    cwd: options.workspace,
+    send: (message) => {
+      state.client?.report(message);
+    },
+  });
+
   while (!shouldStop()) {
     const connected = await runConnection({
       ...options,
@@ -211,6 +225,7 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
       stop,
       idle,
       runner,
+      fileWatcher,
     });
 
     if (shouldStop() || state.fatal !== undefined) {
@@ -233,6 +248,7 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
 
   idle.stop();
   caffeinate.stop();
+  fileWatcher.stop();
 
   // Stopped once, when the session is over, rather than on every disconnect. An
   // engine that runs a server of its own would otherwise have it killed by a network
@@ -267,6 +283,8 @@ interface ConnectionOptions extends PairingSessionOptions {
   idle: IdleTimer;
   /** Owned by the session, because a turn outlives the connection. See ADR-044. */
   runner: PromptRunner;
+  /** Watches git changes and reports them to the browser. */
+  fileWatcher: FileWatcher;
 }
 
 /**
@@ -274,7 +292,7 @@ interface ConnectionOptions extends PairingSessionOptions {
  * which decides how long to wait before trying again.
  */
 async function runConnection(options: ConnectionOptions): Promise<boolean> {
-  const { state, idle, runner } = options;
+  const { state, idle, runner, fileWatcher } = options;
   const local = { registered: false };
 
   const client = new PairingClient({
@@ -292,6 +310,9 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
 
       if (state.paired) {
         writeOut('Reconnected.');
+        // Ensure the file watcher is running after a reconnect, since onPaired
+        // does not fire again for sessions that were already paired.
+        fileWatcher.start();
       }
     },
 
@@ -339,6 +360,7 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
     onPaired: () => {
       state.paired = true;
       idle.reset();
+      fileWatcher.start();
       writeOut('');
       writeOut('Device connected.');
       writeOut('Prompts from the browser now run here. Press Ctrl+C to stop.');

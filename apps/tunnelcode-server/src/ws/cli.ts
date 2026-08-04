@@ -14,6 +14,7 @@ import type { TurnRelay } from './turn-relay.js';
 import { startAuthTimeout } from './auth-timeout.js';
 import { startHeartbeat } from './heartbeat.js';
 import { requestResume } from './resume.js';
+import { fileChangesCache } from './file-changes-cache.js';
 import type { Lifecycle } from '../lifecycle.js';
 
 /**
@@ -338,6 +339,20 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
             relay.fail(deviceId, message.turnId, message.message, message.text);
           }
           return;
+
+        case 'file_changes':
+          if (deviceId !== undefined) {
+            // Cache the latest file changes for this device, so a browser that
+            // attaches later gets them immediately without waiting for the next poll.
+            fileChangesCache.set(deviceId, message.files);
+
+            // Broadcast to all browsers watching sessions for this device.
+            const sessions = sessionRepository.listSessionIdsByDevice(deviceId);
+            for (const sid of sessions) {
+              browsers.broadcast(sid, { type: 'file_changes', files: message.files });
+            }
+          }
+          return;
       }
     };
 
@@ -403,6 +418,7 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
 
         sessions.removeByDevice(droppedDeviceId);
         devices.remove(droppedDeviceId);
+        fileChangesCache.delete(droppedDeviceId);
       }, graceMs);
     });
   });

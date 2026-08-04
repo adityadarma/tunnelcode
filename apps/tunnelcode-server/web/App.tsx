@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ConversationPage } from './pages/ConversationPage.js';
+import { FileChangesPage } from './pages/FileChangesPage.js';
 import { LoginPage } from './pages/LoginPage.js';
 import { clearStoredSession, readStoredSession, storeSession, takeCodeFromUrl } from './storage.js';
 import { useRoute } from './useRoute.js';
@@ -13,7 +14,7 @@ import { useRoute } from './useRoute.js';
 export function App(): React.JSX.Element {
   const [codeFromUrl, setCodeFromUrl] = useState(takeCodeFromUrl);
   const [sessionId, setSessionId] = useState<string | undefined>(readStoredSession);
-  const { route, goToConversation, goToLogin } = useRoute();
+  const { route, goToConversation, goToFileChanges, goToLogin } = useRoute();
 
   const handlePaired = useCallback(
     (id: string): void => {
@@ -38,7 +39,7 @@ export function App(): React.JSX.Element {
   // Landing on /conversation without a stored session cannot render anything, so
   // the URL is corrected instead of showing an empty page.
   useEffect(() => {
-    if (route.name === 'conversation' && sessionId === undefined) {
+    if ((route.name === 'conversation' || route.name === 'file-changes') && sessionId === undefined) {
       goToLogin();
     }
   }, [route, sessionId, goToLogin]);
@@ -52,7 +53,17 @@ export function App(): React.JSX.Element {
   }, [route, sessionId, codeFromUrl, goToConversation]);
 
   if (route.name === 'conversation' && sessionId !== undefined) {
-    return <ConversationPage sessionId={sessionId} onSessionLost={handleSessionLost} />;
+    return (
+      <ConversationPage
+        sessionId={sessionId}
+        onSessionLost={handleSessionLost}
+        onNavigateFileChanges={goToFileChanges}
+      />
+    );
+  }
+
+  if (route.name === 'file-changes' && sessionId !== undefined) {
+    return <FileChangesPage sessionId={sessionId} onBack={goToConversation} />;
   }
 
   return <LoginPage initialCode={codeFromUrl} onPaired={handlePaired} />;

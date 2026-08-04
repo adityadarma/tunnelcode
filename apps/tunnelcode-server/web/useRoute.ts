@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 
-export type Route = { name: 'login' } | { name: 'conversation' };
+export type Route = { name: 'login' } | { name: 'conversation' } | { name: 'file-changes' };
 
 const CONVERSATION_PATH = '/conversation';
+const FILE_CHANGES_PATH = '/file-changes';
 
 function routeFromPath(pathname: string): Route {
-  return pathname.startsWith(CONVERSATION_PATH) ? { name: 'conversation' } : { name: 'login' };
+  if (pathname.startsWith(FILE_CHANGES_PATH)) return { name: 'file-changes' };
+  if (pathname.startsWith(CONVERSATION_PATH)) return { name: 'conversation' };
+  return { name: 'login' };
 }
 
 /**
@@ -18,6 +21,7 @@ function routeFromPath(pathname: string): Route {
 export function useRoute(): {
   route: Route;
   goToConversation: () => void;
+  goToFileChanges: () => void;
   goToLogin: () => void;
 } {
   const [route, setRoute] = useState<Route>(() => routeFromPath(window.location.pathname));
@@ -48,5 +52,10 @@ export function useRoute(): {
     setRoute({ name: 'login' });
   }, []);
 
-  return { route, goToConversation, goToLogin };
+  const goToFileChanges = useCallback((): void => {
+    window.history.pushState({}, '', FILE_CHANGES_PATH);
+    setRoute({ name: 'file-changes' });
+  }, []);
+
+  return { route, goToConversation, goToFileChanges, goToLogin };
 }

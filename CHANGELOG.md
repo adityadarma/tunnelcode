@@ -10,6 +10,35 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+### Added
+
+- File changes page. A new `/file-changes` route shows which files in the workspace have
+  been modified, added, or deleted since the last commit, with a VS Code-like split view:
+  a sidebar lists every changed file with its git status, and the content panel renders
+  the unified diff with line numbers and color-coded additions/deletions. The page is
+  reachable from a button in the conversation header.
+
+- Real-time git diff streaming. The CLI polls `git status` every 5 seconds and sends a
+  `file_changes` message over the WebSocket whenever the workspace state changes. The
+  server caches the latest state per device and delivers it immediately when a browser
+  attaches, so navigating to the file-changes page shows results without waiting for the
+  next poll.
+
+- Protocol: `file_changes` message type in both `cliMessageSchema` and
+  `serverToBrowserMessageSchema`, carrying an array of `{ path, status, diff? }` entries.
+
+- Full file diff view. The diff viewer shows every line of the file with line numbers,
+  highlighting additions in green and deletions in red. Context lines are shown in their
+  normal color so the change is visible in place. The view auto-scrolls to the first
+  change when selecting a file.
+
+- Per-file change counters. The sidebar shows `+N` and `-N` beside each file name,
+  counting how many lines were added and deleted without opening the diff.
+
+- Mobile drawer. On screens below 640px the file list becomes a slide-in drawer opened
+  by a hamburger button, matching the conversation list pattern. Selecting a file closes
+  the drawer and shows the diff full-screen. An overlay dismisses it on tap.
+
 ## [0.3.9] - 2026-08-04
 
 ### Added

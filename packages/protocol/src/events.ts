@@ -238,6 +238,26 @@ export const cliMessageSchema = z.discriminatedUnion('type', [
      */
     text: z.string().max(ENGINE_TEXT_MAX_LENGTH).optional(),
   }),
+  /**
+   * Git diff data from the local workspace, sent periodically by the CLI.
+   *
+   * Carries the output of `git status` and optionally the diff content for each
+   * changed file. Not tied to a turn, because file changes happen independently
+   * of the agent's work. See the file-changes page.
+   */
+  z.object({
+    type: z.literal('file_changes'),
+    files: z.array(
+      z.object({
+        /** Relative file path from workspace root. */
+        path: z.string().min(1),
+        /** Git status: M (modified), A (added), D (deleted), ? (untracked), etc. */
+        status: z.string().min(1).max(4),
+        /** Unified diff content for the file, when available. */
+        diff: z.string().max(ENGINE_TEXT_MAX_LENGTH).optional(),
+      }),
+    ),
+  }),
 ]);
 
 /**
@@ -615,6 +635,22 @@ export const serverToBrowserMessageSchema = z.discriminatedUnion('type', [
         outputTokens: z.number().int().min(0),
       })
       .optional(),
+  }),
+  /**
+   * Git file changes from the local workspace, forwarded from the CLI.
+   *
+   * Broadcast to all browsers on the session so the file-changes page can show
+   * real-time workspace state without polling.
+   */
+  z.object({
+    type: z.literal('file_changes'),
+    files: z.array(
+      z.object({
+        path: z.string().min(1),
+        status: z.string().min(1).max(4),
+        diff: z.string().max(ENGINE_TEXT_MAX_LENGTH).optional(),
+      }),
+    ),
   }),
   z.object({
     type: z.literal('pong'),

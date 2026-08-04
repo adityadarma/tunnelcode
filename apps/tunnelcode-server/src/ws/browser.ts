@@ -11,6 +11,7 @@ import type { RunApprovals } from '../services/run-approvals.js';
 import type { SessionService } from '../services/session.js';
 import type { TurnService } from '../services/turn.js';
 import type { BrowserRegistry } from './browser-registry.js';
+import { fileChangesCache } from './file-changes-cache.js';
 import type { CliRegistry } from './registry.js';
 import type { TurnRelay } from './turn-relay.js';
 import { startAuthTimeout } from './auth-timeout.js';
@@ -151,6 +152,13 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
       // is holding still until one of these is answered. See ADR-022.
       for (const pending of permissions.listBySession(detail.id)) {
         reply(relay.askMessage(pending));
+      }
+
+      // Send the last known file changes immediately so the file-changes page
+      // does not have to wait for the next CLI poll.
+      const cachedFiles = fileChangesCache.get(detail.deviceId);
+      if (cachedFiles !== undefined) {
+        reply({ type: 'file_changes', files: cachedFiles });
       }
     };
 

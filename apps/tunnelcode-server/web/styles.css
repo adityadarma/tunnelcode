@@ -1207,3 +1207,372 @@
 .btn-modal-submit {
   @apply px-4 py-2 rounded-xl text-xs md:text-sm font-medium text-white bg-[var(--accent)] border border-[var(--accent)] hover:bg-[var(--accent-hover)] shadow-md transition-all cursor-pointer;
 }
+
+/* File Changes Page — VS Code-like split view */
+.fc-layout {
+  @apply h-full w-full flex flex-col overflow-hidden bg-[var(--bg)];
+}
+
+.fc-header {
+  @apply flex items-center justify-between gap-3 h-14 px-4 md:px-6 border-b border-[var(--border)] bg-[var(--surface)] shrink-0;
+}
+
+.fc-header-left {
+  @apply flex items-center gap-2 min-w-0;
+}
+
+.fc-back-btn {
+  @apply inline-flex items-center justify-center p-1.5 rounded-lg bg-transparent border-0 text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer;
+}
+
+.fc-title {
+  @apply text-sm md:text-base font-semibold text-[var(--text)] m-0;
+}
+
+.fc-header-right {
+  @apply flex items-center gap-2 shrink-0;
+}
+
+.fc-conv-select {
+  @apply bg-[var(--surface-2)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--text)] outline-none focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-glow)] transition-all cursor-pointer max-w-[12rem] truncate;
+}
+
+.fc-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 16rem 1fr;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.fc-body:has(.fc-empty) {
+  display: flex;
+  flex-direction: row;
+}
+
+.fc-empty {
+  @apply flex-1 flex flex-col items-center justify-center gap-3 text-center p-6;
+}
+
+/* Sidebar: list of changed files */
+.fc-sidebar {
+  @apply shrink-0 flex flex-col border-r border-[var(--border)] bg-[var(--surface)] overflow-hidden min-h-0;
+}
+
+.fc-sidebar-head {
+  @apply flex items-center px-3 h-10 border-b border-[var(--border)] bg-[var(--surface-2)] shrink-0;
+}
+
+.fc-sidebar-count {
+  @apply text-xs font-medium text-[var(--muted)] uppercase tracking-wider;
+}
+
+.fc-file-list {
+  @apply list-none m-0 p-1.5 flex-1 overflow-y-auto space-y-0.5;
+}
+
+.fc-file-item {
+  @apply w-full flex items-center gap-2 px-2.5 py-2 rounded-lg bg-transparent border-0 text-left text-xs cursor-pointer text-[var(--text)] transition-colors;
+}
+
+.fc-file-item.active {
+  @apply bg-[var(--surface-2)] font-medium;
+}
+
+.fc-file-icon {
+  @apply shrink-0 flex items-center justify-center;
+}
+
+.fc-file-info {
+  @apply flex flex-col gap-0.5 min-w-0 overflow-hidden;
+}
+
+.fc-file-name {
+  @apply block truncate text-xs font-medium text-[var(--text)];
+}
+
+.fc-file-dir {
+  @apply block truncate text-[10px] text-[var(--muted)];
+}
+
+/* Content viewer: file output */
+.fc-content {
+  @apply flex flex-col min-w-0 overflow-hidden min-h-0;
+}
+
+.fc-content-head {
+  @apply flex items-center gap-2 px-4 h-10 border-b border-[var(--border)] bg-[var(--surface-2)] shrink-0 min-w-0;
+}
+
+.fc-content-icon {
+  @apply shrink-0 flex items-center;
+}
+
+.fc-content-path {
+  @apply text-xs font-mono text-[var(--text)] truncate min-w-0;
+}
+
+.fc-content-tool {
+  @apply ml-auto text-[10px] uppercase tracking-wider text-[var(--muted)] font-medium shrink-0 px-2 py-0.5 rounded bg-[var(--surface)] border border-[var(--border)];
+}
+
+.fc-content-blocked {
+  @apply text-[10px] uppercase tracking-wider text-[var(--danger)] font-semibold shrink-0 px-2 py-0.5 rounded bg-red-500/10 border border-red-500/20;
+}
+
+.fc-content-body {
+  @apply flex-1 overflow-auto bg-[var(--code-bg)];
+}
+
+.fc-code {
+  @apply m-0 p-4 text-xs md:text-sm font-mono leading-relaxed text-[var(--code-text)] whitespace-pre overflow-x-auto min-h-full;
+}
+
+.fc-no-output {
+  @apply flex items-center justify-center h-full p-6;
+}
+
+/* Responsive: mobile drawer sidebar */
+.fc-menu-btn {
+  @apply hidden;
+}
+
+.fc-overlay {
+  @apply hidden;
+}
+
+@media (max-width: 640px) {
+  .fc-menu-btn {
+    @apply inline-flex items-center justify-center p-1.5 rounded-lg text-lg leading-none text-[var(--text)] hover:bg-[var(--surface-2)] bg-transparent border-0 cursor-pointer;
+  }
+
+  .fc-header {
+    @apply px-3 h-12;
+  }
+
+  .fc-workspace {
+    @apply hidden;
+  }
+
+  .fc-body {
+    display: flex;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .fc-body:has(.fc-empty) {
+    display: flex;
+  }
+
+  .fc-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 40;
+    width: min(16rem, 85vw);
+    border-right: 1px solid var(--border);
+    border-bottom: none;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    max-height: none;
+  }
+
+  .fc-menu-open .fc-sidebar {
+    transform: translateX(0);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  }
+
+  .fc-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(1px);
+  }
+
+  .fc-menu-open .fc-overlay {
+    display: block;
+  }
+
+  .fc-content {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .fc-content-head {
+    @apply px-3 h-9 gap-1.5;
+  }
+
+  .fc-content-path {
+    @apply text-[11px];
+  }
+
+  .fc-content-tool {
+    @apply text-[9px] px-1.5 py-0.5;
+  }
+
+  .fc-diff-table {
+    font-size: 0.65rem;
+  }
+
+  .fc-diff-gutter {
+    width: 2rem;
+    min-width: 2rem;
+    max-width: 2rem;
+    padding: 0 0.25rem;
+    font-size: 0.6rem;
+  }
+
+  .fc-diff-marker {
+    width: 1rem;
+    min-width: 1rem;
+    max-width: 1rem;
+    padding: 0 0.125rem;
+  }
+
+  .fc-diff-code {
+    padding: 0 0.5rem;
+  }
+
+  .fc-empty {
+    @apply p-4;
+  }
+}
+
+
+/* File changes page: diff highlighting */
+.fc-diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  table-layout: fixed;
+}
+
+.fc-diff-row {
+  border: none;
+}
+
+.fc-diff-row-add {
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.fc-diff-row-del {
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.fc-diff-row-hunk {
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.fc-diff-row-header {
+  background: transparent;
+}
+
+.fc-diff-gutter {
+  width: 3rem;
+  min-width: 3rem;
+  max-width: 3rem;
+  padding: 0 0.5rem;
+  text-align: right;
+  color: var(--muted);
+  opacity: 0.6;
+  user-select: none;
+  vertical-align: top;
+  border-right: 1px solid var(--border);
+  font-size: 0.7rem;
+}
+
+.fc-diff-gutter-new {
+  border-right: 1px solid var(--border);
+}
+
+.fc-diff-marker {
+  width: 1.25rem;
+  min-width: 1.25rem;
+  max-width: 1.25rem;
+  padding: 0 0.25rem;
+  text-align: center;
+  user-select: none;
+  vertical-align: top;
+  font-weight: 700;
+}
+
+.fc-diff-row-add .fc-diff-marker {
+  color: var(--ok);
+}
+
+.fc-diff-row-del .fc-diff-marker {
+  color: var(--danger);
+}
+
+.fc-diff-row-hunk .fc-diff-marker {
+  color: var(--accent);
+  opacity: 0.7;
+}
+
+.fc-diff-code {
+  padding: 0 0.75rem;
+  white-space: pre;
+  overflow-x: visible;
+  vertical-align: top;
+  color: var(--code-text);
+}
+
+.fc-diff-row-add .fc-diff-code {
+  color: var(--ok);
+}
+
+.fc-diff-row-del .fc-diff-code {
+  color: var(--danger);
+}
+
+.fc-diff-row-hunk .fc-diff-code {
+  color: var(--accent);
+  opacity: 0.7;
+  font-style: italic;
+}
+
+.fc-diff-row-header .fc-diff-code {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+.fc-file-status {
+  @apply text-[10px] font-mono font-bold shrink-0 ml-auto;
+}
+
+.fc-file-stats {
+  @apply flex items-center gap-1 shrink-0 ml-auto text-[10px] font-mono font-bold;
+}
+
+.fc-stat-add {
+  color: var(--ok);
+}
+
+.fc-stat-del {
+  color: var(--danger);
+}
+
+.fc-workspace {
+  @apply text-xs text-[var(--muted)] truncate max-w-[12rem] hidden md:inline-block;
+}
+
+.fc-status-dot {
+  @apply w-2 h-2 rounded-full inline-block shrink-0;
+}
+
+.fc-status-dot.online {
+  @apply bg-[var(--ok)] shadow-[0_0_8px_var(--ok)];
+}
+
+.fc-status-dot.offline {
+  @apply bg-[var(--danger)];
+}
+
+.fc-status-label {
+  @apply text-xs text-[var(--muted)];
+}

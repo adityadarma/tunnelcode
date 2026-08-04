@@ -33,6 +33,7 @@ import { useSessionSocket } from '../useSessionSocket.js';
 interface ConversationPageProps {
   sessionId: string;
   onSessionLost: () => void;
+  onNavigateFileChanges?: () => void;
 }
 
 interface ServerEvent {
@@ -148,6 +149,7 @@ function readActiveTurn(value: unknown): RunningTurn | undefined {
 export function ConversationPage({
   sessionId,
   onSessionLost,
+  onNavigateFileChanges,
 }: ConversationPageProps): React.JSX.Element {
   const [session, setSession] = useState<SessionDetail | undefined>(undefined);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -997,6 +999,21 @@ export function ConversationPage({
             <h1>{active?.title ?? 'TunnelCode'}</h1>
           </div>
           <div className="main-head-controls">
+            {onNavigateFileChanges && (
+              <button
+                type="button"
+                className="theme-toggle"
+                onClick={onNavigateFileChanges}
+                aria-label="View changed files"
+                title="Changed files"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="9" y1="15" x2="15" y2="15" />
+                </svg>
+              </button>
+            )}
             <ThemeToggle theme={theme} onToggle={toggleTheme} />
           </div>
         </header>
