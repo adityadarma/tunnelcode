@@ -16,6 +16,18 @@ export const globalConfigSchema = z.object({
   }),
   engine: z.string().min(1),
   /**
+   * Timeout configuration, in minutes. Each field falls back to its hardcoded
+   * default when absent, so existing config files keep working untouched.
+   */
+  timeouts: z
+    .object({
+      /** Minutes without conversation before the session ends. Default: 60. */
+      idleMinutes: z.number().positive().default(60),
+      /** Minutes a tool-run approval waits before being auto-refused. Default: 5. */
+      answerMinutes: z.number().positive().default(5),
+    })
+    .default({ idleMinutes: 60, answerMinutes: 5 }),
+  /**
    * Limit on what this machine will ever agree to do, whatever the browser
    * answers.
    *

@@ -99,6 +99,9 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
             // frame. See ADR-043.
             ...(message.runId === undefined ? {} : { runIdHash: hashRunId(message.runId) }),
             ...(message.version === undefined ? {} : { version: message.version }),
+            ...(message.answerTimeoutMs === undefined
+              ? {}
+              : { answerTimeoutMs: message.answerTimeoutMs }),
           });
 
           if (!result.ok) {

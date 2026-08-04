@@ -35,6 +35,7 @@ function draftFrom(stored: GlobalConfig | undefined): GlobalConfig {
       server: { url: resolveDefaultServerUrl() },
       device: { name: hostname() },
       engine: DEFAULT_ENGINE,
+      timeouts: { idleMinutes: 60, answerMinutes: 5 },
       permission: { deny: [] },
     }
   );

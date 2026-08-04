@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { PermissionDecision, ServerToCliMessage } from '@tunnelcode/protocol';
 import type { ConversationRepository, Interruption } from '../db/conversation-repository.js';
 import type { SessionRepository } from '../db/session-repository.js';
+import type { DeviceService } from '../services/device.js';
 import type { PendingPermission, PermissionService } from '../services/permission.js';
 import type { Notification } from '../services/push.js';
 import type { Turn, TurnService } from '../services/turn.js';
@@ -25,6 +26,8 @@ export interface TurnRelayOptions {
   conversationRepository: ConversationRepository;
   sessionRepository: SessionRepository;
   permissions: PermissionService;
+  /** Needed to read per-device config like answerTimeoutMs. */
+  devices: DeviceService;
   /** Needed because an answer has to travel back to the waiting engine. */
   registry: CliRegistry;
   /**
@@ -262,6 +265,8 @@ export class TurnRelay {
       return;
     }
 
+    const device = this.options.devices.findById(deviceId);
+
     const pending = this.options.permissions.add(
       {
         id: ask.permissionId,
@@ -282,6 +287,7 @@ export class TurnRelay {
         this.answerEngine(expired, 'reject', true);
         this.announceResolved(expired, 'expired');
       },
+      device?.answerTimeoutMs,
     );
 
     this.options.browsers.broadcast(turn.sessionId, this.askMessage(pending));

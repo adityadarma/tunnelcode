@@ -4,8 +4,12 @@
  * Long enough to notice a notification and pick up the phone, and short enough to
  * stay well inside the hour of inactivity that ends a session, so an unanswered
  * ask resolves while the session is still there to resolve it into. See ADR-022.
+ *
+ * Configurable per-device via tunnelcode.json (timeouts.answerMinutes), sent by
+ * the CLI on register. This constant is the server-wide fallback when the CLI
+ * does not send one.
  */
-const ANSWER_TIMEOUT_MS = 10 * 60 * 1000;
+const ANSWER_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
  * A tool call an engine is holding still for, waiting to be allowed.
@@ -65,16 +69,21 @@ export class PermissionService {
    * The expiry handler is supplied per ask rather than held on the service, so
    * deciding what an expiry means stays with the caller that knows how to reach
    * the engine and the browsers.
+   *
+   * An optional timeoutMs overrides the service default for this specific ask,
+   * allowing per-device timeouts read from the CLI config.
    */
   add(
     input: Omit<PendingPermission, 'createdAt' | 'expiresAt'>,
     onExpired: (pending: PendingPermission) => void,
+    timeoutMs?: number,
   ): PendingPermission {
+    const effectiveTimeout = timeoutMs ?? this.timeoutMs;
     const createdAt = Date.now();
     const pending: PendingPermission = {
       ...input,
       createdAt,
-      expiresAt: createdAt + this.timeoutMs,
+      expiresAt: createdAt + effectiveTimeout,
     };
 
     const key = PermissionService.key(pending.turnId, pending.id);
@@ -85,7 +94,7 @@ export class PermissionService {
       if (this.resolve(pending.turnId, pending.id) !== undefined) {
         onExpired(pending);
       }
-    }, this.timeoutMs);
+    }, effectiveTimeout);
 
     // The server stays alive on its listening socket, so this timer has no
     // business holding the process open by itself.

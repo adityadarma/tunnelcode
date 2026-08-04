@@ -35,6 +35,13 @@ export interface Device {
    */
   version?: string;
   /**
+   * How long a tool-run approval waits before being auto-refused, in milliseconds.
+   *
+   * Sent by the CLI from its tunnelcode.json config. Undefined from a CLI that does
+   * not send it, which falls back to the server's default.
+   */
+  answerTimeoutMs?: number;
+  /**
    * Engines installed on the machine, in the order the browser should offer them.
    *
    * A list rather than one engine, because each conversation picks its own. The
@@ -66,6 +73,8 @@ export interface RegisterDeviceInput {
   runIdHash?: string;
   /** CLI version, absent from an older CLI. */
   version?: string;
+  /** Per-device answer timeout from the CLI config, absent from an older CLI. */
+  answerTimeoutMs?: number;
 }
 
 export interface DeviceServiceOptions {
@@ -133,6 +142,7 @@ export class DeviceService {
       code: input.code,
       ...(input.runIdHash === undefined ? {} : { runIdHash: input.runIdHash }),
       ...(input.version === undefined ? {} : { version: input.version }),
+      ...(input.answerTimeoutMs === undefined ? {} : { answerTimeoutMs: input.answerTimeoutMs }),
       workspace: input.workspace,
       engines: input.engines,
       // A reconnect keeps the paired flag: the code is single use, so it must not

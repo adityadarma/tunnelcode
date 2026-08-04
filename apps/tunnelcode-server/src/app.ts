@@ -143,6 +143,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     conversationRepository,
     sessionRepository,
     permissions,
+    devices,
     registry,
     push,
   });

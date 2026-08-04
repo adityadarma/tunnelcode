@@ -25,6 +25,14 @@ export interface PairingSessionOptions {
    * ADR-020.
    */
   engines: AvailableEngine[];
+  /**
+   * Timeout overrides from the config file, in milliseconds.
+   * When absent, hardcoded defaults are used.
+   */
+  timeouts?: {
+    idleMs?: number;
+    answerMs?: number;
+  };
 }
 
 /** Backoff between reconnect attempts, capped so it keeps retrying. */
@@ -152,9 +160,11 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
    * Built per connection, a reconnect handed the session a fresh hour. See ADR-044.
    */
   const idle = new IdleTimer({
+    timeoutMs: options.timeouts?.idleMs,
     onExpired: () => {
+      const minutes = Math.round((options.timeouts?.idleMs ?? 60 * 60 * 1000) / 60 / 1000);
       writeOut('');
-      writeOut('No conversation for 1 hour. Ending the session.');
+      writeOut(`No conversation for ${String(minutes)} minute${minutes === 1 ? '' : 's'}. Ending the session.`);
       stop();
     },
   });
@@ -304,6 +314,7 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
     deviceName: options.deviceName,
     workspace: options.workspace,
     version: readVersion(),
+    answerTimeoutMs: options.timeouts?.answerMs,
     engines: options.engines.map((engine) => ({ name: engine.name, models: engine.models })),
 
     onRegistered: () => {

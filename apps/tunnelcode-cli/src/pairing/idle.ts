@@ -1,9 +1,9 @@
-/** One hour without conversation ends the session. */
-const IDLE_TIMEOUT_MS = 60 * 60 * 1000;
+/** One hour without conversation ends the session (default). */
+const DEFAULT_IDLE_TIMEOUT_MS = 60 * 60 * 1000;
 
 export interface IdleTimerOptions {
   onExpired: () => void;
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
 }
 
 /**
@@ -20,7 +20,7 @@ export class IdleTimer {
   private timer: NodeJS.Timeout | undefined;
 
   constructor(options: IdleTimerOptions) {
-    this.timeoutMs = options.timeoutMs ?? IDLE_TIMEOUT_MS;
+    this.timeoutMs = options.timeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
     this.onExpired = options.onExpired;
   }
 

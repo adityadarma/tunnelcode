@@ -108,5 +108,9 @@ export async function runStart(cwd: string): Promise<number> {
     deviceName: ready.config.device.name,
     workspace: cwd,
     engines,
+    timeouts: {
+      idleMs: ready.config.timeouts.idleMinutes * 60 * 1000,
+      answerMs: ready.config.timeouts.answerMinutes * 60 * 1000,
+    },
   });
 }

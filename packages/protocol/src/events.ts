@@ -117,6 +117,13 @@ export const cliMessageSchema = z.discriminatedUnion('type', [
      * as unknown rather than as a version.
      */
     version: z.string().min(1).optional(),
+    /**
+     * How long a tool-run approval waits before being auto-refused, in milliseconds.
+     *
+     * Read from the CLI's tunnelcode.json (timeouts.answerMinutes). Optional, so an
+     * older CLI that does not send it falls back to the server's default. See ADR-022.
+     */
+    answerTimeoutMs: z.number().positive().optional(),
   }),
   z.object({
     type: z.literal('approve'),

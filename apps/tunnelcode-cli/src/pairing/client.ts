@@ -22,6 +22,8 @@ export interface PairingClientOptions {
   version: string;
   /** Engines this machine can run, each with the models it reported. */
   engines: { name: string; models: string[] }[];
+  /** Per-device answer timeout from config, sent to the server. */
+  answerTimeoutMs?: number | undefined;
   /** Asked when the server forwards a pairing request. */
   onPairRequest: (approvalNumber: string) => Promise<boolean>;
   /**
@@ -93,6 +95,7 @@ export class PairingClient {
         workspace: options.workspace,
         engines: options.engines,
         version: options.version,
+        ...(options.answerTimeoutMs === undefined ? {} : { answerTimeoutMs: options.answerTimeoutMs }),
       });
       this.pingTimer = setInterval(() => {
         this.send({ type: 'ping' });
