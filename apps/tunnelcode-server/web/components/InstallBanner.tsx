@@ -15,7 +15,7 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
-if (typeof window !== 'undefined') {
+if (typeof window !== 'undefined' && 'addEventListener' in window) {
   window.addEventListener('beforeinstallprompt', (event) => {
     event.preventDefault();
     deferredPrompt = event as BeforeInstallPromptEvent;
@@ -23,15 +23,27 @@ if (typeof window !== 'undefined') {
 }
 
 function isInstalled(): boolean {
-  return window.matchMedia('(display-mode: standalone)').matches;
+  try {
+    return window.matchMedia('(display-mode: standalone)').matches;
+  } catch {
+    return false;
+  }
 }
 
 function wasDismissed(): boolean {
-  return window.localStorage.getItem(DISMISSED_KEY) === '1';
+  try {
+    return window.localStorage.getItem(DISMISSED_KEY) === '1';
+  } catch {
+    return false;
+  }
 }
 
 function dismiss(): void {
-  window.localStorage.setItem(DISMISSED_KEY, '1');
+  try {
+    window.localStorage.setItem(DISMISSED_KEY, '1');
+  } catch {
+    // Storage unavailable, e.g. in a test.
+  }
 }
 
 /**

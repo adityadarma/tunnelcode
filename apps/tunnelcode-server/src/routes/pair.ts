@@ -9,6 +9,10 @@ import type { CliRegistry } from '../ws/registry.js';
 const PAIR_MAX_ATTEMPTS = 10;
 const PAIR_WINDOW = '1 minute';
 
+/** How many status check attempts a single client may make per window. */
+const PAIR_STATUS_MAX_ATTEMPTS = 60;
+const PAIR_STATUS_WINDOW = '1 minute';
+
 interface PairRoutesOptions {
   devices: DeviceService;
   sessions: SessionService;
@@ -70,7 +74,17 @@ export function registerPairRoutes(app: FastifyInstance, options: PairRoutesOpti
     },
   );
 
-  app.get('/pair/:requestId/status', async (request, reply) => {
+  app.get(
+    '/pair/:requestId/status',
+    {
+      config: {
+        rateLimit: {
+          max: PAIR_STATUS_MAX_ATTEMPTS,
+          timeWindow: PAIR_STATUS_WINDOW,
+        },
+      },
+    },
+    async (request, reply) => {
     const params = request.params as { requestId?: string };
     const requestId = params.requestId;
 

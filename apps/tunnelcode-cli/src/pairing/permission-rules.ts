@@ -55,7 +55,8 @@ export function parseRules(raw: readonly string[]): PermissionRule[] {
  * looks like it does.
  */
 function globToRegExp(glob: string): RegExp {
-  const escaped = glob.replace(/[.*+?^${}()|[\]\\]/g, (character) =>
+  const cleanGlob = glob.replace(/\0/g, '');
+  const escaped = cleanGlob.replace(/[.*+?^${}()|[\]\\]/g, (character) =>
     character === '*' ? '\u0000' : `\\${character}`,
   );
 

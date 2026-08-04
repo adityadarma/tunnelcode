@@ -56,6 +56,13 @@ test('only * is a wildcard', () => {
   assert.equal(anyRuleMatches(rules, 'Bash', ['axb']), undefined);
 });
 
+test('null byte in glob does not become a wildcard', () => {
+  const rules = parseRules(['Bash(a\u0000b)']);
+
+  assert.equal(anyRuleMatches(rules, 'Bash', ['axb']), undefined);
+});
+
+
 test('a ceiling reaches an ask when any one operation is forbidden', () => {
   const rules = parseRules(['Bash(rm *)']);
 
@@ -127,7 +134,8 @@ test('with nothing suggested, only what was agreed to is recorded', () => {
 });
 
 test('an ask with nothing to narrow by grants the tool', () => {
-  assert.deepEqual(rulesToGrant(ask({ target: undefined })), ['Bash']);
+  const { target: _, ...withoutTarget } = ask();
+  assert.deepEqual(rulesToGrant(withoutTarget), ['Bash']);
 });
 
 test('a narrowed grant does not cover an ask that says nothing', () => {
