@@ -464,7 +464,12 @@ export class TurnRelay {
    * Stores the finished answer and tells the browsers the turn is over.
    * An empty answer is not stored, since there is nothing to show later.
    */
-  done(deviceId: string, turnId: string, text: string, usage?: { inputTokens: number; outputTokens: number }): void {
+  done(
+    deviceId: string,
+    turnId: string,
+    text: string,
+    usage?: { inputTokens: number; outputTokens: number },
+  ): void {
     const turn = this.activeTurn(deviceId, turnId);
 
     if (turn === undefined) {

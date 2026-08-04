@@ -71,13 +71,7 @@ export class Caffeinate {
   private startLinux(): void {
     this.process = spawn(
       'systemd-inhibit',
-      [
-        '--what=idle',
-        '--who=tunnelcode',
-        '--why=Tunnelcode session active',
-        'sleep',
-        'infinity',
-      ],
+      ['--what=idle', '--who=tunnelcode', '--why=Tunnelcode session active', 'sleep', 'infinity'],
       {
         stdio: 'ignore',
         detached: false,

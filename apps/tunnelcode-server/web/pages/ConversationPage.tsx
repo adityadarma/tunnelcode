@@ -319,32 +319,34 @@ export function ConversationPage({
         // and messages arrive via both the fetch and the socket.
         const conversationToRefresh = activeIdRef.current;
         if (conversationToRefresh !== undefined) {
-          void readTranscript(conversationToRefresh).then((transcript) => {
-            // Guard against the user having switched conversations while the
-            // request was in flight.
-            if (activeIdRef.current !== conversationToRefresh) {
-              return;
-            }
-            setMessages((current) => {
-              const ids = new Set(current.map((m) => m.id));
-              const novel = transcript.messages.filter((m) => !ids.has(m.id));
-              return novel.length > 0 ? [...current, ...novel] : current;
+          void readTranscript(conversationToRefresh)
+            .then((transcript) => {
+              // Guard against the user having switched conversations while the
+              // request was in flight.
+              if (activeIdRef.current !== conversationToRefresh) {
+                return;
+              }
+              setMessages((current) => {
+                const ids = new Set(current.map((m) => m.id));
+                const novel = transcript.messages.filter((m) => !ids.has(m.id));
+                return novel.length > 0 ? [...current, ...novel] : current;
+              });
+              setActivities((current) => {
+                const ids = new Set(current.map((a) => a.id));
+                const novel = transcript.activities.filter((a) => !ids.has(a.id));
+                return novel.length > 0 ? [...current, ...novel] : current;
+              });
+              setReasonings((current) => {
+                const ids = new Set(current.map((r) => r.id));
+                const novel = transcript.reasonings.filter((r) => !ids.has(r.id));
+                return novel.length > 0 ? [...current, ...novel] : current;
+              });
+            })
+            .catch(() => {
+              // Silent: the conversation is already on screen, and a failed refresh
+              // is not worth interrupting the user for. The next reconnect or manual
+              // switch will try again.
             });
-            setActivities((current) => {
-              const ids = new Set(current.map((a) => a.id));
-              const novel = transcript.activities.filter((a) => !ids.has(a.id));
-              return novel.length > 0 ? [...current, ...novel] : current;
-            });
-            setReasonings((current) => {
-              const ids = new Set(current.map((r) => r.id));
-              const novel = transcript.reasonings.filter((r) => !ids.has(r.id));
-              return novel.length > 0 ? [...current, ...novel] : current;
-            });
-          }).catch(() => {
-            // Silent: the conversation is already on screen, and a failed refresh
-            // is not worth interrupting the user for. The next reconnect or manual
-            // switch will try again.
-          });
         }
         return;
       }
@@ -1067,10 +1069,7 @@ export function ConversationPage({
                 onChange={changeModel}
               />
               {usage !== undefined && (
-                <TokenUsage
-                  inputTokens={usage.inputTokens}
-                  outputTokens={usage.outputTokens}
-                />
+                <TokenUsage inputTokens={usage.inputTokens} outputTokens={usage.outputTokens} />
               )}
             </>
           }

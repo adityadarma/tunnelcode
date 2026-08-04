@@ -85,36 +85,37 @@ export function registerPairRoutes(app: FastifyInstance, options: PairRoutesOpti
       },
     },
     async (request, reply) => {
-    const params = request.params as { requestId?: string };
-    const requestId = params.requestId;
+      const params = request.params as { requestId?: string };
+      const requestId = params.requestId;
 
-    if (requestId === undefined || requestId === '') {
-      return reply.code(400).send({ error: 'Missing request id.' });
-    }
+      if (requestId === undefined || requestId === '') {
+        return reply.code(400).send({ error: 'Missing request id.' });
+      }
 
-    const outcome = sessions.outcomeOf(requestId);
+      const outcome = sessions.outcomeOf(requestId);
 
-    if (outcome.status === 'unknown') {
-      return reply.code(404).send({ error: 'Unknown pairing request.' });
-    }
+      if (outcome.status === 'unknown') {
+        return reply.code(404).send({ error: 'Unknown pairing request.' });
+      }
 
-    if (outcome.status === 'approved') {
-      // The one response that carries the token, and it carries it where the page
-      // cannot read it. The id is still returned, because the browser addresses its
-      // session by id and remembers which one it was looking at; on its own the id
-      // proves nothing. See ADR-041.
-      //
-      // Secure is set only on a request that already arrived over TLS: the usual
-      // deployment is a plain address on a home network, and a Secure cookie sent
-      // there is one the browser discards.
-      reply.header(
-        'set-cookie',
-        sessionCookie(outcome.session.token, request.protocol === 'https'),
-      );
+      if (outcome.status === 'approved') {
+        // The one response that carries the token, and it carries it where the page
+        // cannot read it. The id is still returned, because the browser addresses its
+        // session by id and remembers which one it was looking at; on its own the id
+        // proves nothing. See ADR-041.
+        //
+        // Secure is set only on a request that already arrived over TLS: the usual
+        // deployment is a plain address on a home network, and a Secure cookie sent
+        // there is one the browser discards.
+        reply.header(
+          'set-cookie',
+          sessionCookie(outcome.session.token, request.protocol === 'https'),
+        );
 
-      return reply.send({ status: 'approved', sessionId: outcome.session.id });
-    }
+        return reply.send({ status: 'approved', sessionId: outcome.session.id });
+      }
 
-    return reply.send({ status: outcome.status });
-  });
+      return reply.send({ status: outcome.status });
+    },
+  );
 }

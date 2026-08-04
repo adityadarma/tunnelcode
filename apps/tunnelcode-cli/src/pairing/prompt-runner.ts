@@ -514,7 +514,12 @@ export class PromptRunner {
         // as if the engine had finished.
         send({ type: 'turn_error', turnId, message: abandonedMessage, ...partial() });
       } else if (!failed) {
-        send({ type: 'turn_done', turnId, text: clamp(answer), ...(usage !== undefined ? { usage } : {}) });
+        send({
+          type: 'turn_done',
+          turnId,
+          text: clamp(answer),
+          ...(usage !== undefined ? { usage } : {}),
+        });
       }
     } catch (error) {
       flushReasoning();

@@ -62,7 +62,6 @@ test('null byte in glob does not become a wildcard', () => {
   assert.equal(anyRuleMatches(rules, 'Bash', ['axb']), undefined);
 });
 
-
 test('a ceiling reaches an ask when any one operation is forbidden', () => {
   const rules = parseRules(['Bash(rm *)']);
 

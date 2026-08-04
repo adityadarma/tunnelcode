@@ -632,7 +632,11 @@ export class KiroEngine implements Engine {
             typeof usage.inputTokens === 'number' &&
             typeof usage.outputTokens === 'number'
           ) {
-            push({ type: 'usage', inputTokens: usage.inputTokens, outputTokens: usage.outputTokens });
+            push({
+              type: 'usage',
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+            });
           }
 
           // Claimed before anything is reported, so the exit that follows a turn
