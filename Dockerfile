@@ -34,6 +34,18 @@ RUN pnpm build
 # binding of better-sqlite3 intact.
 RUN pnpm --filter tunnelcode-server --prod deploy --legacy /deploy
 
+# pnpm 11.20+ creates symlinks for workspace packages that point back into the
+# build workspace. Docker COPY preserves symlinks, so the runtime stage would get
+# dangling links to paths that only existed in the build stage. Replacing each
+# with a dereferenced copy (-L follows symlinks inside) makes them self-contained.
+# Their own dependencies (like zod) also live in the build tree, so those are
+# copied alongside.
+RUN find /deploy/node_modules/@tunnelcode -maxdepth 1 -type l | while read link; do \
+      target=$(readlink -f "$link") && \
+      rm "$link" && \
+      cp -rL "$target" "$link"; \
+    done
+
 FROM node:24-alpine AS runtime
 
 # Links the image to the repository, which is what makes GITHUB_TOKEN allowed to
