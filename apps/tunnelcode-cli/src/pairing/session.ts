@@ -1,5 +1,6 @@
 import { createEngine } from '@tunnelcode/engine';
 import type { AvailableEngine, Engine } from '@tunnelcode/engine';
+import { Caffeinate } from './caffeinate.js';
 import { PairingClient } from './client.js';
 import { askApproval } from './approval.js';
 import { buildCliSocketUrl, buildLoginUrl, generatePairingCode, generateRunId } from './code.js';
@@ -156,6 +157,11 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
     },
   });
 
+  // Prevent the machine from sleeping while the session is active, so the tunnel
+  // stays reachable without the user having to keep the screen awake manually.
+  const caffeinate = new Caffeinate();
+  caffeinate.start();
+
   // Built from the same list that was registered, so a prompt can only ever name an
   // engine this machine actually has. Adapters are stateless, so one instance per
   // engine is reused for every turn.
@@ -226,6 +232,7 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
   }
 
   idle.stop();
+  caffeinate.stop();
 
   // Stopped once, when the session is over, rather than on every disconnect. An
   // engine that runs a server of its own would otherwise have it killed by a network

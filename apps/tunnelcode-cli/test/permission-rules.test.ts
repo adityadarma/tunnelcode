@@ -134,7 +134,8 @@ test('with nothing suggested, only what was agreed to is recorded', () => {
 });
 
 test('an ask with nothing to narrow by grants the tool', () => {
-  const { target: _, ...withoutTarget } = ask();
+  const withoutTarget = { ...ask() };
+  delete (withoutTarget as { target?: unknown }).target;
   assert.deepEqual(rulesToGrant(withoutTarget), ['Bash']);
 });
 
