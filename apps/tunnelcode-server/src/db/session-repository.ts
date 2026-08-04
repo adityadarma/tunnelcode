@@ -38,6 +38,8 @@ export interface PersistSessionInput {
    * introduce itself, which reads as a run nobody can recognise. See ADR-043.
    */
   runIdHash: string | null;
+  /** Version of the CLI that approved this session. Null when unknown. */
+  cliVersion: string | null;
 }
 
 export interface SessionDetail {
@@ -47,6 +49,8 @@ export interface SessionDetail {
   workspace: string;
   /** Engine the session was paired with, the starting point for a new conversation. */
   engine: string;
+  /** CLI version at pairing time. Null when the CLI did not report one. */
+  cliVersion: string | null;
 }
 
 /**
@@ -101,6 +105,7 @@ export class SessionRepository {
         engine: input.engine,
         tokenHash: input.tokenHash,
         runIdHash: input.runIdHash,
+        cliVersion: input.cliVersion,
         createdAt: now,
       })
       .onConflictDoNothing()
@@ -217,6 +222,7 @@ export class SessionRepository {
         deviceName: devices.name,
         workspace: sessions.workspace,
         engine: sessions.engine,
+        cliVersion: sessions.cliVersion,
       })
       .from(sessions)
       .innerJoin(devices, eq(devices.id, sessions.deviceId))
@@ -242,6 +248,7 @@ export class SessionRepository {
         deviceName: devices.name,
         workspace: sessions.workspace,
         engine: sessions.engine,
+        cliVersion: sessions.cliVersion,
       })
       .from(sessions)
       .innerJoin(devices, eq(devices.id, sessions.deviceId))
@@ -267,6 +274,7 @@ export class SessionRepository {
         deviceName: devices.name,
         workspace: sessions.workspace,
         engine: sessions.engine,
+        cliVersion: sessions.cliVersion,
       })
       .from(conversations)
       .innerJoin(sessions, eq(sessions.id, conversations.sessionId))

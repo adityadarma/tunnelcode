@@ -98,6 +98,7 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
             // Hashed on arrival, so the plain id is never held anywhere but this
             // frame. See ADR-043.
             ...(message.runId === undefined ? {} : { runIdHash: hashRunId(message.runId) }),
+            ...(message.version === undefined ? {} : { version: message.version }),
           });
 
           if (!result.ok) {
@@ -219,6 +220,7 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
               // session starts on. Registration requires at least one, so the
               // fallback is only here to satisfy the type.
               engine: device.engines[0]?.name ?? '',
+              cliVersion: device.version ?? null,
             });
           }
 

@@ -18,6 +18,8 @@ export interface PairingClientOptions {
   deviceId: string;
   deviceName: string;
   workspace: string;
+  /** Version of the CLI, sent to the server for display. */
+  version: string;
   /** Engines this machine can run, each with the models it reported. */
   engines: { name: string; models: string[] }[];
   /** Asked when the server forwards a pairing request. */
@@ -90,6 +92,7 @@ export class PairingClient {
         deviceName: options.deviceName,
         workspace: options.workspace,
         engines: options.engines,
+        version: options.version,
       });
       this.pingTimer = setInterval(() => {
         this.send({ type: 'ping' });

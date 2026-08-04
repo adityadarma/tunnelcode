@@ -11,6 +11,7 @@ import { PromptRunner } from './prompt-runner.js';
 import { renderQr } from './qr.js';
 import { writeErr, writeOut } from '../output.js';
 import { withSpinner } from '../spinner.js';
+import { readVersion } from '../version.js';
 
 export interface PairingSessionOptions {
   serverUrl: string;
@@ -302,6 +303,7 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
     deviceId: options.deviceId,
     deviceName: options.deviceName,
     workspace: options.workspace,
+    version: readVersion(),
     engines: options.engines.map((engine) => ({ name: engine.name, models: engine.models })),
 
     onRegistered: () => {

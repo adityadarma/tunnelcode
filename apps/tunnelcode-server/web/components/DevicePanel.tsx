@@ -18,6 +18,10 @@ interface DevicePanelProps {
  * preselected option when starting a new one. See ADR-020.
  */
 export function DevicePanel({ session, onDisconnect }: DevicePanelProps): React.JSX.Element {
+  const cliVersion = session.cliVersion;
+  const serverVersion = APP_VERSION;
+  const versionMismatch = cliVersion !== null && cliVersion !== serverVersion;
+
   return (
     <section className="device-panel" aria-label="Device">
       <div className="device-card-head">
@@ -43,7 +47,16 @@ export function DevicePanel({ session, onDisconnect }: DevicePanelProps): React.
         </div>
         <div>
           <dt>Version</dt>
-          <dd>{APP_VERSION}</dd>
+          <dd>
+            {versionMismatch ? (
+              <span className="version-mismatch">
+                <span className="version-line">server {serverVersion}</span>
+                <span className="version-line">cli {cliVersion}</span>
+              </span>
+            ) : (
+              serverVersion
+            )}
+          </dd>
         </div>
       </dl>
 

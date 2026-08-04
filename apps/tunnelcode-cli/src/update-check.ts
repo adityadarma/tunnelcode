@@ -1,5 +1,4 @@
 import { readVersion } from './version.js';
-import { writeOut } from './output.js';
 import { bold, yellow, dim, cyan } from './style.js';
 
 /** npm registry endpoint for the package metadata. */
@@ -32,8 +31,11 @@ function isNewer(local: string, remote: string): boolean {
  * This runs in the background and never throws or delays the caller. A network
  * failure or timeout is silently ignored — the user should never wait for an
  * update check.
+ *
+ * Returns the notice text to be printed by the caller after the interactive menu
+ * is done, so it never interferes with ANSI cursor movement.
  */
-export async function checkForUpdate(): Promise<void> {
+export async function checkForUpdate(): Promise<string | undefined> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => {
@@ -47,27 +49,28 @@ export async function checkForUpdate(): Promise<void> {
 
     clearTimeout(timer);
 
-    if (!response.ok) return;
+    if (!response.ok) return undefined;
 
     const data = (await response.json()) as { version?: string };
     const latest = data.version;
 
-    if (typeof latest !== 'string') return;
+    if (typeof latest !== 'string') return undefined;
 
     const current = readVersion();
 
     if (isNewer(current, latest)) {
-      writeOut('');
-      writeOut(
+      return (
         yellow('⬆ ') +
-          bold(`Update available: ${dim(current)} → ${cyan(latest)}`) +
-          dim('  Run ') +
-          bold('tunnelcode update') +
-          dim(' to upgrade.'),
+        bold(`Update available: ${dim(current)} → ${cyan(latest)}`) +
+        dim('  Run ') +
+        bold('tunnelcode update') +
+        dim(' to upgrade.')
       );
-      writeOut('');
     }
+
+    return undefined;
   } catch {
     // Network error, timeout, parse failure — all fine, just skip.
+    return undefined;
   }
 }

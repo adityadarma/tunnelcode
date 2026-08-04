@@ -193,6 +193,7 @@ export function FileChangesPage({ sessionId, onBack }: FileChangesPageProps): Re
   const [files, setFiles] = useState<FileChange[]>([]);
   const [selectedFile, setSelectedFile] = useState<FileChange | undefined>(undefined);
   const [connected, setConnected] = useState(false);
+  const [cliOnline, setCliOnline] = useState(false);
   const [workspace, setWorkspace] = useState<string | undefined>(undefined);
   const socketRef = useRef<WebSocket | undefined>(undefined);
 
@@ -232,30 +233,38 @@ export function FileChangesPage({ sessionId, onBack }: FileChangesPageProps): Re
           return;
         }
 
-        if (
-          typeof parsed === 'object' &&
-          parsed !== null &&
-          'type' in parsed &&
-          (parsed as Record<string, unknown>).type === 'file_changes' &&
-          'files' in parsed
-        ) {
-          const msg = parsed as { type: 'file_changes'; files: FileChange[] };
-          setFiles(msg.files);
+        if (typeof parsed !== 'object' || parsed === null || !('type' in parsed)) return;
+        const msg = parsed as Record<string, unknown>;
+
+        // Handle the initial attached response which includes CLI online state
+        if (msg.type === 'attached' && 'online' in msg) {
+          setCliOnline(msg.online as boolean);
+        }
+
+        // Handle CLI online/offline status changes
+        if (msg.type === 'device_status' && 'online' in msg) {
+          setCliOnline(msg.online as boolean);
+        }
+
+        if (msg.type === 'file_changes' && 'files' in msg) {
+          const fileMsg = msg as { type: 'file_changes'; files: FileChange[] };
+          setFiles(fileMsg.files);
 
           // Auto-select first file if nothing is selected or selection is gone
           setSelectedFile((prev) => {
-            if (msg.files.length === 0) return undefined;
-            if (prev && msg.files.some((f) => f.path === prev.path)) {
+            if (fileMsg.files.length === 0) return undefined;
+            if (prev && fileMsg.files.some((f) => f.path === prev.path)) {
               // Update current selection with latest data
-              return msg.files.find((f) => f.path === prev.path);
+              return fileMsg.files.find((f) => f.path === prev.path);
             }
-            return msg.files[0];
+            return fileMsg.files[0];
           });
         }
       });
 
       socket.addEventListener('close', () => {
         setConnected(false);
+        setCliOnline(false);
         if (!disposed) {
           reconnectTimer = window.setTimeout(connect, 2000);
         }
@@ -313,8 +322,10 @@ export function FileChangesPage({ sessionId, onBack }: FileChangesPageProps): Re
           {workspace && <span className="fc-workspace">{workspace}</span>}
         </div>
         <div className="fc-header-right">
-          <span className={`fc-status-dot ${connected ? 'online' : 'offline'}`} />
-          <span className="fc-status-label">{connected ? 'Live' : 'Connecting…'}</span>
+          <span className={`fc-status-dot ${connected && cliOnline ? 'online' : 'offline'}`} />
+          <span className="fc-status-label">
+            {!connected ? 'Connecting…' : cliOnline ? 'Live' : 'Device offline'}
+          </span>
         </div>
       </header>
 
@@ -324,6 +335,26 @@ export function FileChangesPage({ sessionId, onBack }: FileChangesPageProps): Re
           <div className="fc-empty">
             <span className="pulse-dot" />
             <p className="muted">Connecting to device…</p>
+          </div>
+        ) : !cliOnline ? (
+          <div className="fc-empty">
+            <svg
+              width="32"
+              height="32"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="var(--muted)"
+              strokeWidth="1.5"
+            >
+              <line x1="1" y1="1" x2="23" y2="23" />
+              <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
+              <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" />
+              <path d="M10.71 5.05A16 16 0 0 1 22.56 9" />
+              <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" />
+              <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+              <line x1="12" y1="20" x2="12.01" y2="20" />
+            </svg>
+            <p className="muted">Device is offline.</p>
           </div>
         ) : files.length === 0 ? (
           <div className="fc-empty">

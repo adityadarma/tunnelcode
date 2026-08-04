@@ -55,6 +55,13 @@ export const sessions = sqliteTable('sessions', {
    * introduce itself, both of which read as a run nobody can recognise. See ADR-043.
    */
   runIdHash: text('run_id_hash'),
+  /**
+   * Version of the CLI that approved this session.
+   *
+   * Stored so the browser can compare it with the server version. Null on a row
+   * written before this existed, or from a CLI too old to report its version.
+   */
+  cliVersion: text('cli_version'),
   createdAt: integer('created_at').notNull(),
   /**
    * When the conversation last moved: a prompt sent, or an answer stored.

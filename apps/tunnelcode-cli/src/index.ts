@@ -40,9 +40,15 @@ if (args[0] === 'update') {
 
     process.exitCode = await run();
 
-    // Wait for the check to finish so the notice prints before exit. The timeout
-    // inside ensures this never blocks for more than 5 seconds.
-    await updateCheck;
+    // Wait for the check to finish so the notice prints after the interactive
+    // menu is done. Printing during the menu would break ANSI cursor movement.
+    const notice = await updateCheck;
+
+    if (notice !== undefined) {
+      writeOut('');
+      writeOut(notice);
+      writeOut('');
+    }
   } catch (error) {
     writeErr(error instanceof Error ? error.message : 'Unexpected error.');
     process.exitCode = 1;

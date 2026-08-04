@@ -110,6 +110,13 @@ export const cliMessageSchema = z.discriminatedUnion('type', [
         }),
       )
       .min(1),
+    /**
+     * Version of the CLI process, so the browser can compare it with the server.
+     *
+     * Optional, so an older CLI that does not send it still registers. Absent reads
+     * as unknown rather than as a version.
+     */
+    version: z.string().min(1).optional(),
   }),
   z.object({
     type: z.literal('approve'),

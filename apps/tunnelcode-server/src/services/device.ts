@@ -30,6 +30,11 @@ export interface Device {
   /** Where the CLI is running, recorded with the session when it pairs. */
   workspace: string;
   /**
+   * Version of the CLI, reported on register. Undefined from a CLI too old to send
+   * it.
+   */
+  version?: string;
+  /**
    * Engines installed on the machine, in the order the browser should offer them.
    *
    * A list rather than one engine, because each conversation picks its own. The
@@ -59,6 +64,8 @@ export interface RegisterDeviceInput {
   engines: DeviceEngine[];
   /** Hash of this run's id, absent from a CLI that does not send one. See ADR-043. */
   runIdHash?: string;
+  /** CLI version, absent from an older CLI. */
+  version?: string;
 }
 
 export interface DeviceServiceOptions {
@@ -125,6 +132,7 @@ export class DeviceService {
       name: input.name,
       code: input.code,
       ...(input.runIdHash === undefined ? {} : { runIdHash: input.runIdHash }),
+      ...(input.version === undefined ? {} : { version: input.version }),
       workspace: input.workspace,
       engines: input.engines,
       // A reconnect keeps the paired flag: the code is single use, so it must not

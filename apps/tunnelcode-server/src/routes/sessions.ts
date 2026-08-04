@@ -53,6 +53,8 @@ export function registerSessionRoutes(app: FastifyInstance, options: SessionRout
       // Every engine installed on the machine, each with its own models. A
       // conversation picks one of these when it is created.
       engines: device?.engines ?? [],
+      // CLI version at pairing time, so the browser can compare.
+      cliVersion: caller.cliVersion ?? null,
     });
   });
 }

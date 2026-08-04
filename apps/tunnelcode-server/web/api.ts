@@ -28,6 +28,8 @@ export interface SessionDetail {
    * running CLI can serve. See ADR-020.
    */
   engines: DeviceEngine[];
+  /** CLI version at pairing time. Null when the CLI did not report one. */
+  cliVersion: string | null;
 }
 
 export interface ActivityOutput {

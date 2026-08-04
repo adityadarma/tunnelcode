@@ -714,6 +714,14 @@
   @apply w-full text-xs font-medium py-1.5 px-3 rounded-lg text-[var(--danger)] bg-red-500/10 border border-red-500/20 hover:bg-red-500 hover:text-white hover:border-red-500 transition-all inline-flex items-center justify-center gap-1.5 cursor-pointer mt-1;
 }
 
+.version-mismatch {
+  @apply flex flex-col gap-0.5 text-amber-500;
+}
+
+.version-line {
+  @apply block text-[11px] leading-tight font-mono;
+}
+
 /* Main Screen */
 .main {
   @apply flex flex-col min-w-0 h-full w-full max-w-full overflow-hidden bg-[var(--bg)];
@@ -1444,11 +1452,12 @@
 /* File changes page: diff highlighting */
 .fc-diff-table {
   width: 100%;
+  min-width: max-content;
   border-collapse: collapse;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.75rem;
   line-height: 1.5;
-  table-layout: fixed;
+  table-layout: auto;
 }
 
 .fc-diff-row {

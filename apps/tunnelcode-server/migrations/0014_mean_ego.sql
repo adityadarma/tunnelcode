@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `cli_version` text;
