@@ -16,6 +16,17 @@ import { startHeartbeat } from './heartbeat.js';
 import { requestResume } from './resume.js';
 import type { Lifecycle } from '../lifecycle.js';
 
+/**
+ * How long the server waits after a CLI socket closes before abandoning its turns.
+ *
+ * A brief network blip drops the socket, but the CLI reconnects within seconds and
+ * the engine never stopped. Abandoning immediately would kill a turn that is still
+ * running on the machine, so a grace period lets the reconnect land first. Long
+ * enough to cover the CLI's minimum reconnect delay (1 second) plus network
+ * variance, short enough that a genuinely dead machine is not held forever.
+ */
+const RECONNECT_GRACE_MS = 10_000;
+
 interface CliSocketOptions {
   devices: DeviceService;
   sessions: SessionService;
@@ -33,6 +44,8 @@ interface CliSocketOptions {
   push?: PushForget;
   /** Shortened by tests, which cannot wait out the real one. */
   authTimeoutMs?: number;
+  /** Shortened by tests, which cannot wait out the real one. */
+  reconnectGraceMs?: number;
 }
 
 /**
@@ -316,7 +329,7 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
 
         case 'turn_done':
           if (deviceId !== undefined) {
-            relay.done(deviceId, message.turnId, message.text);
+            relay.done(deviceId, message.turnId, message.text, message.usage);
           }
           return;
 
@@ -356,17 +369,41 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
         return;
       }
 
-      // During shutdown the database is already closing and every browser is
-      // being disconnected anyway, so notifying would only fail.
+      // Tell browsers the device is offline immediately, so the UI reflects the
+      // current state. If the CLI reconnects within the grace period, it will
+      // broadcast online again upon registering.
       if (!lifecycle.isClosing()) {
-        // Browsers are told before the device is forgotten, so an open tab
-        // learns why sending stopped working instead of failing silently.
-        relay.abandonDevice(deviceId);
         relay.status(sessionRepository.listSessionIdsByDevice(deviceId), false);
       }
 
-      sessions.removeByDevice(deviceId);
-      devices.remove(deviceId);
+      // A brief network blip drops the socket while the engine keeps working on
+      // the machine. Abandoning immediately would kill a turn the CLI is about to
+      // report as done once it reconnects. The grace period lets a reconnect land
+      // first; if the CLI comes back and re-registers the same device, its turns
+      // survive. If it does not, the device is cleaned up after the wait.
+      const droppedDeviceId = deviceId;
+      const graceMs = options.reconnectGraceMs ?? RECONNECT_GRACE_MS;
+
+      setTimeout(() => {
+        // The CLI reconnected within the grace period: it re-registered under
+        // the same device id, so the registry has a new socket for it. The turns
+        // are still alive on the machine, and the reconnect already told the
+        // browsers it is back. Nothing to tear down.
+        if (registry.isConnected(droppedDeviceId)) {
+          return;
+        }
+
+        // During shutdown the database is already closing and every browser is
+        // being disconnected anyway, so notifying would only fail.
+        if (!lifecycle.isClosing()) {
+          // Browsers are told before the device is forgotten, so an open tab
+          // learns why sending stopped working instead of failing silently.
+          relay.abandonDevice(droppedDeviceId);
+        }
+
+        sessions.removeByDevice(droppedDeviceId);
+        devices.remove(droppedDeviceId);
+      }, graceMs);
     });
   });
 }

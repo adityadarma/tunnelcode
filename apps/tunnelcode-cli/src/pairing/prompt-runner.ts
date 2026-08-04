@@ -218,6 +218,8 @@ export class PromptRunner {
      */
     let thought = '';
     let failed = false;
+    /** Token usage reported by the engine, accumulated across events. */
+    let usage: { inputTokens: number; outputTokens: number } | undefined;
 
     // Aborting kills the engine process, which ends the loop below. Without this a
     // hung engine would hold the device until the CLI is restarted.
@@ -464,6 +466,16 @@ export class PromptRunner {
             // exists either way, and losing the id would strand its context.
             send({ type: 'turn_session', turnId, engineSessionId: event.id });
             break;
+          case 'usage':
+            // Accumulated rather than replaced: an engine that reports usage per
+            // step emits several of these, and the total is what matters.
+            if (usage === undefined) {
+              usage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
+            } else {
+              usage.inputTokens += event.inputTokens;
+              usage.outputTokens += event.outputTokens;
+            }
+            break;
           case 'error':
             failed = true;
             // Kept for the same reason a partial answer is: the user watched it
@@ -502,7 +514,7 @@ export class PromptRunner {
         // as if the engine had finished.
         send({ type: 'turn_error', turnId, message: abandonedMessage, ...partial() });
       } else if (!failed) {
-        send({ type: 'turn_done', turnId, text: clamp(answer) });
+        send({ type: 'turn_done', turnId, text: clamp(answer), ...(usage !== undefined ? { usage } : {}) });
       }
     } catch (error) {
       flushReasoning();

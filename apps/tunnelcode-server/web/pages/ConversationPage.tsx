@@ -15,6 +15,7 @@ import { InstallBanner } from '../components/InstallBanner.js';
 import { MessageList } from '../components/MessageList.js';
 import { ModelPicker } from '../components/ModelPicker.js';
 import { NotificationToggle } from '../components/NotificationToggle.js';
+import { TokenUsage } from '../components/TokenUsage.js';
 import { PermissionPrompt } from '../components/PermissionPrompt.js';
 import type { PermissionAsk, PermissionDecision } from '../components/PermissionPrompt.js';
 import { ResumeApproval } from '../components/ResumeApproval.js';
@@ -58,6 +59,7 @@ interface ServerEvent {
   details?: unknown;
   suggestions?: unknown;
   expiresAt?: unknown;
+  usage?: unknown;
 }
 
 /** Strings from a list that crossed the socket, ignoring anything else in it. */
@@ -184,6 +186,10 @@ export function ConversationPage({
   const [error, setError] = useState<string | undefined>(undefined);
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  /** Token usage from the last completed turn, cleared when a new turn starts. */
+  const [usage, setUsage] = useState<{ inputTokens: number; outputTokens: number } | undefined>(
+    undefined,
+  );
 
   /**
    * Dismisses whichever sidebar is on screen.
@@ -305,6 +311,41 @@ export function ConversationPage({
             ? streamedRef.current
             : undefined,
         );
+
+        // A turn that finished while this browser was disconnected stored its
+        // messages in the database, but no WebSocket event ever delivered them
+        // here. Refetching the transcript picks them up. The deduplication in
+        // setMessages ensures nothing appears twice when a turn is still running
+        // and messages arrive via both the fetch and the socket.
+        const conversationToRefresh = activeIdRef.current;
+        if (conversationToRefresh !== undefined) {
+          void readTranscript(conversationToRefresh).then((transcript) => {
+            // Guard against the user having switched conversations while the
+            // request was in flight.
+            if (activeIdRef.current !== conversationToRefresh) {
+              return;
+            }
+            setMessages((current) => {
+              const ids = new Set(current.map((m) => m.id));
+              const novel = transcript.messages.filter((m) => !ids.has(m.id));
+              return novel.length > 0 ? [...current, ...novel] : current;
+            });
+            setActivities((current) => {
+              const ids = new Set(current.map((a) => a.id));
+              const novel = transcript.activities.filter((a) => !ids.has(a.id));
+              return novel.length > 0 ? [...current, ...novel] : current;
+            });
+            setReasonings((current) => {
+              const ids = new Set(current.map((r) => r.id));
+              const novel = transcript.reasonings.filter((r) => !ids.has(r.id));
+              return novel.length > 0 ? [...current, ...novel] : current;
+            });
+          }).catch(() => {
+            // Silent: the conversation is already on screen, and a failed refresh
+            // is not worth interrupting the user for. The next reconnect or manual
+            // switch will try again.
+          });
+        }
         return;
       }
 
@@ -317,6 +358,7 @@ export function ConversationPage({
         }
 
         setRunningTurn({ conversationId: event.conversationId, turnId: event.turnId });
+        setUsage(undefined);
 
         // Raises the indicator for the conversation on screen, including in a second
         // tab that did not send the prompt. Left alone when text has already arrived,
@@ -523,6 +565,19 @@ export function ConversationPage({
           event.conversationId !== activeIdRef.current,
         );
         lastAnswerRef.current = '';
+
+        // Token usage from the engine, when reported.
+        if (
+          typeof event.usage === 'object' &&
+          event.usage !== null &&
+          typeof (event.usage as { inputTokens?: unknown }).inputTokens === 'number' &&
+          typeof (event.usage as { outputTokens?: unknown }).outputTokens === 'number'
+        ) {
+          setUsage({
+            inputTokens: (event.usage as { inputTokens: number }).inputTokens,
+            outputTokens: (event.usage as { outputTokens: number }).outputTokens,
+          });
+        }
 
         setRunningTurn(undefined);
         setStreaming(undefined);
@@ -1004,12 +1059,20 @@ export function ConversationPage({
           running={runningTurn !== undefined}
           onStop={stop}
           modelPicker={
-            <ModelPicker
-              models={activeModels}
-              selected={active?.model ?? undefined}
-              disabled={sendDisabled}
-              onChange={changeModel}
-            />
+            <>
+              <ModelPicker
+                models={activeModels}
+                selected={active?.model ?? undefined}
+                disabled={sendDisabled}
+                onChange={changeModel}
+              />
+              {usage !== undefined && (
+                <TokenUsage
+                  inputTokens={usage.inputTokens}
+                  outputTokens={usage.outputTokens}
+                />
+              )}
+            </>
           }
         />
       </main>

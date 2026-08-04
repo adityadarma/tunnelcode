@@ -1113,6 +1113,18 @@
   @apply px-3 py-4 text-center text-xs text-[var(--muted)];
 }
 
+.token-usage {
+  @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[0.65rem] text-[var(--muted)] bg-[var(--surface)] border border-[var(--border)] select-none shrink-0;
+}
+
+.token-usage-icon {
+  @apply text-[var(--muted)] shrink-0 opacity-70;
+}
+
+.token-usage-text {
+  @apply whitespace-nowrap;
+}
+
 .btn-send {
   @apply bg-[var(--accent)] text-white font-medium text-xs md:text-sm px-3 py-1.5 rounded-lg shadow-md hover:bg-[var(--accent-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-all inline-flex items-center justify-center gap-1.5 shrink-0 min-h-[2rem];
 }

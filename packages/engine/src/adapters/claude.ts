@@ -90,6 +90,10 @@ interface ClaudeLine {
   session_id?: unknown;
   request_id?: unknown;
   request?: ControlRequest;
+  usage?: {
+    input_tokens?: unknown;
+    output_tokens?: unknown;
+  };
 }
 
 /**
@@ -427,12 +431,30 @@ export class ClaudeEngine implements Engine {
           return { type: 'error', message };
         }
 
+        const events: EngineEvent[] = [];
+
+        // Token usage, when the CLI reports it.
+        const usage = parsed.usage;
+        if (
+          usage !== undefined &&
+          typeof usage.input_tokens === 'number' &&
+          typeof usage.output_tokens === 'number'
+        ) {
+          events.push({
+            type: 'usage',
+            inputTokens: usage.input_tokens,
+            outputTokens: usage.output_tokens,
+          });
+        }
+
         // Read from the result line rather than the first line carrying an id.
         // Resuming makes hook lines report a different id, and storing that one
         // would break the next resume.
-        return typeof parsed.session_id === 'string' && parsed.session_id !== ''
-          ? { type: 'session', id: parsed.session_id }
-          : undefined;
+        if (typeof parsed.session_id === 'string' && parsed.session_id !== '') {
+          events.push({ type: 'session', id: parsed.session_id });
+        }
+
+        return events.length === 0 ? undefined : events;
       }
 
       // One assistant message can carry several tool calls, so every block that

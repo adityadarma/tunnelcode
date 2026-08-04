@@ -30,5 +30,6 @@ export type {
   EnginePermissionRequest,
   EngineReasoning,
   EngineSession,
+  EngineUsage,
   PromptOptions,
 } from './types.js';

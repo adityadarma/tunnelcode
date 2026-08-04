@@ -17,6 +17,8 @@ export interface ServerOptions {
   trustProxy?: boolean | string;
   /** Shortened so a test can watch an unauthenticated socket be dropped. */
   authTimeoutMs?: number;
+  /** Shortened so a test can watch the grace period expire quickly. */
+  reconnectGraceMs?: number;
   /**
    * Turns logging on and collects every line into this array.
    *
@@ -39,6 +41,10 @@ export interface ServerOptions {
  *
  * Port 0 lets the OS pick a free port, so tests never collide with a development
  * server or with each other. Logging is off because output would only add noise.
+ *
+ * The reconnect grace period defaults to 50ms in tests, short enough that the
+ * abandon happens without waiting but long enough that an intentional reconnect
+ * (tested separately) still lands.
  */
 export async function withServer<T>(
   run: (server: TestServer) => Promise<T>,
@@ -61,6 +67,7 @@ export async function withServer<T>(
         }),
     ...(options.trustProxy === undefined ? {} : { trustProxy: options.trustProxy }),
     ...(options.authTimeoutMs === undefined ? {} : { authTimeoutMs: options.authTimeoutMs }),
+    reconnectGraceMs: options.reconnectGraceMs ?? 50,
   });
 
   await app.listen({ host: '127.0.0.1', port: 0 });

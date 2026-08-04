@@ -62,6 +62,13 @@ export interface AppOptions {
    */
   authTimeoutMs?: number;
   /**
+   * How long the server waits after a CLI socket closes before abandoning its turns.
+   *
+   * Only set by tests, which cannot wait out the real one. The default lives with
+   * the constant in the CLI socket module.
+   */
+  reconnectGraceMs?: number;
+  /**
    * Where log lines go.
    *
    * Only set by tests, which have to read what was written to assert that a
@@ -214,6 +221,8 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
 
   const authTimeout =
     options.authTimeoutMs === undefined ? {} : { authTimeoutMs: options.authTimeoutMs };
+  const reconnectGrace =
+    options.reconnectGraceMs === undefined ? {} : { reconnectGraceMs: options.reconnectGraceMs };
 
   registerCliSocket(app, {
     devices,
@@ -226,6 +235,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     lifecycle,
     push,
     ...authTimeout,
+    ...reconnectGrace,
   });
   registerBrowserSocket(app, {
     devices,

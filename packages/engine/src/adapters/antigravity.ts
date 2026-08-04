@@ -115,6 +115,10 @@ interface StepUpdate {
   tool_name?: unknown;
   text_delta?: unknown;
   tool_info?: ToolInfo;
+  usage?: {
+    input_tokens?: unknown;
+    output_tokens?: unknown;
+  };
 }
 
 interface InitPayload {
@@ -281,6 +285,8 @@ export class AntigravityEngine implements Engine {
     const reportedOutputs = new Set<number>();
     const reportedFailures = new Set<number>();
     let sessionReported = false;
+    let totalInput = 0;
+    let totalOutput = 0;
 
     /**
      * Identifies a tool call.
@@ -349,6 +355,17 @@ export class AntigravityEngine implements Engine {
       }
 
       const events: EngineEvent[] = [];
+
+      // Accumulate token usage from steps that report it.
+      const usage = step.usage;
+      if (
+        usage !== undefined &&
+        typeof usage.input_tokens === 'number' &&
+        typeof usage.output_tokens === 'number'
+      ) {
+        totalInput += usage.input_tokens;
+        totalOutput += usage.output_tokens;
+      }
 
       // Every fragment is new text, on the DONE as much as on the ACTIVE before
       // it: a recorded answer of "ok\n" arrives as "ok" while the step is active
@@ -440,5 +457,9 @@ export class AntigravityEngine implements Engine {
       },
       mapLine,
     );
+
+    if (totalInput > 0 || totalOutput > 0) {
+      yield { type: 'usage', inputTokens: totalInput, outputTokens: totalOutput };
+    }
   }
 }

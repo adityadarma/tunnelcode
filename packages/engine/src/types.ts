@@ -137,6 +137,19 @@ export interface EnginePermissionRequest {
  */
 export type EnginePermissionDecision = 'once' | 'always' | 'reject';
 
+/**
+ * Token usage reported by the engine for this turn.
+ *
+ * Not every engine can report this, and not every turn carries it. Engines that
+ * do not report usage simply never emit this event, which the rest of the system
+ * treats as "unknown" rather than zero.
+ */
+export interface EngineUsage {
+  type: 'usage';
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export interface EngineDone {
   type: 'done';
   exitCode: number;
@@ -155,6 +168,7 @@ export type EngineEvent =
   | EngineActivityOutput
   | EngineSession
   | EngineBlocked
+  | EngineUsage
   | EngineDone
   | EngineFailure;
 

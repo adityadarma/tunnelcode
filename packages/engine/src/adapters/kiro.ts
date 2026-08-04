@@ -621,6 +621,20 @@ export class KiroEngine implements Engine {
               ? (result as { stopReason?: unknown }).stopReason
               : undefined;
 
+          // Token usage, when the agent reports it alongside the result.
+          const usage =
+            typeof result === 'object' && result !== null
+              ? (result as { usage?: { inputTokens?: unknown; outputTokens?: unknown } }).usage
+              : undefined;
+
+          if (
+            usage !== undefined &&
+            typeof usage.inputTokens === 'number' &&
+            typeof usage.outputTokens === 'number'
+          ) {
+            push({ type: 'usage', inputTokens: usage.inputTokens, outputTokens: usage.outputTokens });
+          }
+
           // Claimed before anything is reported, so the exit that follows a turn
           // ending normally is not announced as a turn that never finished.
           finished = true;

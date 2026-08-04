@@ -212,6 +212,18 @@ export const cliMessageSchema = z.discriminatedUnion('type', [
     turnId: turnIdSchema,
     // Full answer assembled by the CLI, stored as one message. See ADR-008.
     text: z.string().max(ENGINE_TEXT_MAX_LENGTH),
+    /**
+     * Token usage for this turn, when the engine reported it.
+     *
+     * Optional because not every engine can report it. Absent means unknown,
+     * not zero.
+     */
+    usage: z
+      .object({
+        inputTokens: z.number().int().min(0),
+        outputTokens: z.number().int().min(0),
+      })
+      .optional(),
   }),
   z.object({
     type: z.literal('turn_error'),
@@ -592,6 +604,17 @@ export const serverToBrowserMessageSchema = z.discriminatedUnion('type', [
     type: z.literal('turn_done'),
     conversationId: conversationIdSchema,
     turnId: turnIdSchema,
+    /**
+     * Token usage for this turn, when the engine reported it.
+     *
+     * Optional because not every engine reports it. Absent means unknown.
+     */
+    usage: z
+      .object({
+        inputTokens: z.number().int().min(0),
+        outputTokens: z.number().int().min(0),
+      })
+      .optional(),
   }),
   z.object({
     type: z.literal('pong'),
