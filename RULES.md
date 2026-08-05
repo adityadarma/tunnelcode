@@ -33,5 +33,5 @@
 - A release renames `[Unreleased]` to the new version with the date, leaves a fresh empty `[Unreleased]` above it, and adds the tag link at the bottom of the file. Nothing is written straight into a released section.
 - The version is raised only when a release is cut, and every `package.json` in the workspace moves to the same number in the same commit: the CLI and the server image share one version and ship from a single `v*` tag. Patch for fixes only, minor for anything added or changed in behaviour, major for a break.
 - A released section is never edited. A mistake in one is corrected by an entry in the next version.
-- After finishing a task, always run `pnpm typecheck && pnpm lint && pnpm build` from the workspace root to verify the whole project compiles cleanly before presenting the result.
+- After finishing a task, always run `pnpm typecheck && pnpm lint && pnpm format:check && pnpm build` from the workspace root to verify the whole project compiles cleanly before presenting the result.
 - After finishing a task, run `pnpm format:check` (or `prettier --write .`) to ensure all touched files pass the Prettier format check. CI rejects unformatted code.

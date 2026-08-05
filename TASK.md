@@ -873,3 +873,40 @@ A configured shorter idle timeout ends the local session early; no configuration
 extend the server's one-hour acceptance window.
 
 An old CLI continues to pair, and a browser can identify a server/CLI version mismatch.
+
+---
+
+# Milestone 27 — Antigravity Block Notifications and Grant & Retry
+
+## Goal
+
+Make blocked Antigravity tool calls visible as push notifications and let the user
+grant the refused permission and retry the prompt from the browser without switching
+to a terminal. Also raise the silence timeout so long-running builds and test suites
+are not mistaken for a hung engine.
+
+### Tasks
+
+- [x] Send a push notification (high urgency) when Antigravity refuses a tool call
+- [x] Add `'blocked'` to `NotificationKind` and set `requireInteraction: true` in the
+  service worker
+- [x] Add `grant_and_retry` message to browser→server and server→CLI protocol schemas
+- [x] Server handler: validate session, find last user message, create turn, forward to CLI
+- [x] CLI handler: grant the permission in Antigravity settings, then re-run the prompt
+- [x] Frontend: `sendGrantAndRetry` in the session socket hook
+- [x] Frontend: "Grant & Retry" button on blocked activities (Antigravity conversations only)
+- [x] Detect grant type (writes vs commands) from the refusal reason text
+- [x] Add `timeouts.silenceMinutes` to global config (default 15 minutes)
+- [x] Pass `silenceMs` from config through session to `PromptRunner`
+- [x] Add silence timeout to Setup → Timeouts menu (edit and reset to defaults)
+- [x] Raise hardcoded silence default from 5 to 15 minutes
+
+Acceptance
+
+A blocked Antigravity tool call produces a push notification that wakes the phone.
+
+Tapping "Grant & Retry" in the browser grants the permission and starts a new turn
+with the same prompt, without requiring a terminal.
+
+A build or test that runs for 10 minutes without output is not abandoned. The silence
+timeout is configurable from Setup.

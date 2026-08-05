@@ -14,7 +14,7 @@ const validConfig = {
   engine: 'opencode',
   // Timeouts have defaults, so a loaded config always carries them even when the
   // file on disk says nothing about them.
-  timeouts: { idleMinutes: 60, answerMinutes: 5 },
+  timeouts: { idleMinutes: 60, answerMinutes: 5, silenceMinutes: 15 },
   // The ceiling has a default, so a loaded config always carries one even when the
   // file on disk says nothing about it. See ADR-022.
   permission: { deny: [] },

@@ -8,7 +8,36 @@ The CLI and the server image share one version and ship from a single `v*` tag.
 Every change is written under `Unreleased` as it is made; a release renames that section
 to the version it ships as and leaves an empty one behind.
 
-## [0.3.10] - 2026-08-05
+## [Unreleased]
+
+## [0.3.12] - 2026-08-05
+
+### Added
+
+- Push notification when Antigravity refuses a tool call. The notification arrives with
+  high urgency so the phone wakes immediately, since a block typically ends the turn.
+
+- "Grant & Retry" button on blocked Antigravity activities. Tapping it grants the refused
+  permission on the CLI machine and re-sends the last prompt as a new turn, so the user
+  does not have to switch to a terminal and re-type anything.
+
+- Configurable silence timeout (`timeouts.silenceMinutes`, default 15 minutes). A turn is
+  abandoned only after this many minutes without engine output, up from the previous
+  hardcoded 5 minutes. Long-running builds and test suites no longer trigger a false
+  "answer stopped" when the engine is simply waiting for a command to finish.
+
+- Interactive timeout editing in the Setup menu: idle, answer, and silence timeouts can
+  each be changed or reset to defaults without editing `tunnelcode.json` by hand.
+
+### Changed
+
+- Docker runtime image optimised: production dependencies are isolated in a separate
+  layer, debug symbols are stripped, and the final image is smaller.
+
+- Health endpoint restructured and timeout configuration refactored for consistency
+  across server and CLI.
+
+## [0.3.11] - 2026-08-05
 
 ### Added
 
@@ -926,6 +955,11 @@ between the browser, a server, and a local agent.
   visible prompt rather than something the surrounding shell or a cloned repository
   can decide.
 
+[0.3.12]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.12
+[0.3.11]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.11
+[0.3.10]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.10
+[0.3.9]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.9
+[0.3.8]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.8
 [0.3.7]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.7
 [0.3.6]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.6
 [0.3.5]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.5
