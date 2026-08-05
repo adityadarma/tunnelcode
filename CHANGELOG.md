@@ -8,6 +8,33 @@ The CLI and the server image share one version and ship from a single `v*` tag.
 Every change is written under `Unreleased` as it is made; a release renames that section
 to the version it ships as and leaves an empty one behind.
 
+## [0.3.10] - 2026-08-05
+
+### Added
+
+- Codex CLI is available as an engine. It is driven through `codex app-server`, preserves
+  conversations by resuming threads, reports reasoning and token usage, and routes command
+  and file-change approvals to the paired browser. Codex threads always start with
+  `on-request` approval and a read-only sandbox; the user's local Codex approval and
+  sandbox settings are not used. See ADR-048.
+
+- Timeout settings in `tunnelcode.json`: `timeouts.idleMinutes` controls the local CLI
+  idle timer (default 60 minutes), and `timeouts.answerMinutes` controls how long a
+  permission request waits before it is refused (default 5 minutes). The server's
+  one-hour session-idle limit remains the upper bound.
+
+- The CLI version is recorded when a session pairs. The device panel shows both server
+  and CLI versions when they differ, helping identify a partial upgrade.
+
+### Changed
+
+- A background update notice is printed only after the interactive CLI menu has finished,
+  so it cannot corrupt terminal cursor rendering.
+
+- The File Changes page now reports `Device offline` when its browser socket is open but
+  the paired CLI is disconnected, and wide diffs remain readable without forced column
+  compression.
+
 ## [0.3.10] - 2026-08-04
 
 ### Added

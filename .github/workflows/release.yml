@@ -163,6 +163,12 @@ jobs:
             type=raw,value=latest,enable=${{ github.event_name == 'push' }}
 
       # The server ships only as an image, so this is its release artifact.
+      #
+      # provenance and sbom are disabled because buildx attaches them as separate
+      # untagged manifests in the registry. They show up in the package versions
+      # list as sha256 entries with no tag, which is confusing and serves nobody:
+      # the image is single-platform and the provenance is already covered by the
+      # npm package's own --provenance flag. See ADR-048 footnote.
       - uses: docker/build-push-action@v7
         with:
           context: .
@@ -170,3 +176,5 @@ jobs:
           load: ${{ github.event_name != 'push' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          sbom: false

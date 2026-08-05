@@ -320,7 +320,9 @@ Once used, the code cannot be used again.
 
 Idle Timeout
 
-1 hour without conversation.
+At most 1 hour without conversation. The global `timeouts.idleMinutes` setting can
+make the local CLI end the session sooner, but the server keeps the one-hour limit as
+the authority for accepting a session. See ADR-049.
 
 Activity that resets the timer:
 
@@ -465,7 +467,7 @@ Custom Engine
 
 Without changing business logic.
 
-Implemented so far: OpenCode, Claude Code, Antigravity CLI, Kiro CLI.
+Implemented so far: OpenCode, Claude Code, Antigravity CLI, Kiro CLI, Codex CLI.
 
 Token Usage
 
@@ -500,7 +502,10 @@ streaming-input mode with its asks routed over stdin. opencode is driven as a cl
 of a headless server started for the workspace, because `opencode run` answers asks
 itself and answers by refusing them. Kiro CLI is driven over the Agent Client
 Protocol, which has a request for the question, so an ask is answered on the request
-that raised it. See ADR-034.
+that raised it. See ADR-034. Codex CLI is driven over its app server for the same
+reason, and its approval policy and sandbox are set on the thread rather than read
+from the user's own config, because those are what decide whether a call is asked
+about at all. See ADR-048.
 
 Not every engine can be asked. Antigravity CLI runs headless and has no prompt of its
 own, so there is nothing to carry a question out and an answer back: a call it will not

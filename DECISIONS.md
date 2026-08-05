@@ -2088,3 +2088,162 @@ Platform-specific rather than a dependency, because every platform ships a way t
 this and none of them agree on what it is called. A no-op on an unknown platform is
 correct: the reconnect loop already handles recovery after a sleep/wake cycle, so
 failing to inhibit sleep is never fatal, only inconvenient.
+---
+
+# ADR-048
+
+## Codex Is Driven Over Its App Server, And Told Where Its Limits Are
+
+Amends ADR-022.
+
+Decision
+
+Codex CLI is driven through `codex app-server`, which speaks JSON-RPC over stdio:
+one object per line. Not `codex exec --json`.
+
+The JSON-RPC transport is shared with the Kiro adapter rather than copied. It is
+transport only, so what differs between two engines that agree on the framing stays
+in the adapter above it.
+
+`--dangerously-bypass-approvals-and-sandbox` is never passed.
+
+The approval policy and the sandbox are set on the thread by this adapter, not read
+from the user's `config.toml`. The policy is `on-request` and the sandbox is
+`read-only`.
+
+An ask arrives as `item/commandExecution/requestApproval` or
+`item/fileChange/requestApproval` and is answered on the request that raised it. The
+older spellings, `execCommandApproval` and `applyPatchApproval`, are answered too.
+Every other server request is refused rather than guessed at.
+
+A decision is answered as `accept` or `decline`. `acceptForSession` is never sent.
+
+No lasting grant is suggested to the caller. The operations an ask covers are
+reported instead, and the caller records what it decides to.
+
+A command ask reports the whole command line as what it would do, and the commands
+Codex parsed out of it as the operations it covers.
+
+A call refused through an ask is not reported as blocked by this adapter. A call
+Codex declined without asking is.
+
+An item is marked as asked about when the ask arrives, not when it is answered.
+
+A turn ends on `turn/completed`, which is a notification, not on the answer to
+`turn/start`.
+
+Token usage is the `last` figure summed across the turn, never the `tokenUsage`
+total beside it.
+
+A thread is continued with `thread/resume`. A stale thread id starts a new one.
+
+The login is read from the exit status of `codex login status`, not from what it
+printed.
+
+Reason
+
+`codex exec --json` cannot be asked at all. It has no channel to carry a question
+out and an answer back, so it decides every call from its sandbox and approval
+policy alone, and a call it will not make is refused with nobody asked. That is the
+Antigravity situation of ADR-031, and unlike Antigravity it is avoidable: the app
+server has a request for exactly this question, so Codex is the fourth engine that
+can be asked.
+
+The transport is shared because ACP over stdio and the app server agree on the
+framing down to the byte. A second copy of the same two hundred lines would be two
+places to fix the next bug in either.
+
+The policy and the sandbox are set here rather than left to the config file because
+they are the whole of what decides whether a call is asked about. Read from
+`config.toml` they would be a limit this project states and does not set: a user
+whose file says `approval_policy = "never"` would have an engine chosen in a browser
+deciding every call by itself, and one whose file says `danger-full-access` would
+have an agent that never asks about anything. Neither would be visible from the
+phone that thought it was in control.
+
+`read-only` rather than `workspace-write`, because writing to the workspace is the
+thing worth asking about. With `workspace-write` the engine changes files unasked and
+the permission card only ever appears for what lies outside, which is the narrower
+half of the risk. Commands that only read still run inside the sandbox without
+asking, which is the same latitude Claude Code takes with a read-only shell command,
+and is why the policy is `on-request` rather than `untrusted`: asking before every
+`ls` is how a person learns to approve without reading.
+
+`acceptForSession` is not sent for the reason ADR-022 already gives. It is a grant
+kept inside the engine, and here the engine is a process started and stopped per
+turn, so it would be forgotten immediately while also being invisible to Setup. The
+execpolicy amendment Codex offers instead is written in a language of its own, and a
+rule translated out of it would mean something other than what the user agreed to.
+With nothing suggested, the caller records the operations literally, which is the
+safe way to be wrong.
+
+The whole command line is reported because that is what runs and what a rule is
+judged against, which ADR-025 already settled. The parsed commands are reported
+beside it because one ask can cover several, and agreeing to one of them would mean
+agreeing to all.
+
+A refusal is reported once, by the side that knows the reason. Only the caller knows
+whether a person said no, a limit on this machine did, or nobody answered, and Codex
+words all three as the same declined item. A refusal it reached on its own is the
+one case nothing else saw, so that one is reported here.
+
+Marking an item when the ask arrives is not a detail. Deciding means waiting for
+someone, and the app server sends the declined item as soon as it has the answer, so
+the two race. Keyed on the decision, the same refusal was reported twice or not at
+all depending on which won, which is the kind of bug that passes every test run
+until it does not.
+
+The turn ends on a notification because `turn/start` answers as soon as the turn is
+accepted. Read as the end of the turn it would report an answer before the model had
+said anything.
+
+`last` rather than the total, because the total belongs to the thread and not to the
+answer. Reported as this turn's it would grow with the conversation, so a short reply
+in a long thread would be billed for every question before it. Summing `last` over
+the turn is what a turn that made several model requests actually cost.
+
+The login is read from the exit status because both answers are written to stderr.
+Matched against the wording on stdout there was nothing to compare, so every machine
+looked logged out and a machine with four models on it was offered none.
+
+---
+
+# ADR-049
+
+## Timeout Settings Can Tighten A Session, Not Extend Its Server Lifetime
+
+Amends ADR-011, ADR-022, and ADR-026.
+
+Decision
+
+The global config has a `timeouts` object. `idleMinutes` defaults to 60 and controls
+the idle timer held by the CLI. `answerMinutes` defaults to 5 and controls how long a
+pending permission ask from that device waits before it is rejected.
+
+The CLI sends `answerMinutes` when it registers. The server applies it only to asks
+from that connected device; a CLI too old to send it receives the server default.
+
+The server's one-hour session-idle limit remains authoritative. `idleMinutes` may end
+the local session earlier, but it never extends the period for which the server will
+accept the session.
+
+The CLI also sends its version at registration. The server stores the version when a
+session is paired, and the browser displays both versions only when they differ. An
+absent version means unknown, not a mismatch.
+
+Reason
+
+An approval deadline is a local-operational choice: a person close to the paired
+machine may need less waiting than someone relying on a notification. It is still
+safe to make configurable because every deadline resolves to rejection, never
+approval. Five minutes is the default because it matches the useful window for an
+approval notification without holding the single-device turn queue unnecessarily.
+
+The server owns credential validity. Letting a CLI configuration extend that limit
+would let a local setting silently widen the lifetime of a browser credential, and
+would make a restarted server unable to enforce the value unless it were persisted.
+A local timer may only tighten the limit it does not own.
+
+The version is a diagnostic snapshot, not an authorization input. Showing a mismatch
+helps identify a partial deployment while preserving compatibility with older CLIs
+that did not report a version.

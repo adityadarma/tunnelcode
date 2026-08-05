@@ -92,6 +92,7 @@ Run OpenCode through an adapter.
 - [x] Claude Code adapter
 - [x] Antigravity CLI adapter
 - [x] Kiro CLI adapter
+- [x] Codex CLI adapter
 - [x] Engine registry
 - [x] Spawn process
 - [x] Stream stdout
@@ -110,6 +111,11 @@ refuses is reported as blocked rather than run. See ADR-031.
 Kiro CLI can be started from the CLI. It answers, reports its tool calls, continues an
 earlier conversation, and raises a permission ask that reaches the browser. See
 ADR-034.
+
+Codex CLI can be started from the CLI. It answers, reports its tool calls, continues an
+earlier conversation, and raises a permission ask that reaches the browser. Its
+approval policy and sandbox are set on the thread rather than read from the user's own
+config. See ADR-048.
 
 ---
 
@@ -788,3 +794,82 @@ Each file's diff is rendered with line numbers and color, like a code review.
 The list updates within seconds of a file being saved on the paired machine.
 
 A workspace with no changes shows a clean state rather than an empty list.
+---
+
+# Milestone 25 — Codex Engine
+
+## Goal
+
+Add Codex CLI as an engine that can be asked, and pin it to what the real CLI does
+rather than to what its protocol allows. See ADR-048.
+
+### Tasks
+
+- [x] Codex adapter driven over `codex app-server`, not `codex exec --json`
+- [x] Share the JSON-RPC stdio transport with the Kiro adapter rather than copying it
+- [x] Register codex with its own models, appended so Setup answers by position still hold
+- [x] Set the approval policy and the sandbox on the thread, never read from `config.toml`
+- [x] Route an ask to the browser and answer it on the request that raised it
+- [x] Answer the older `execCommandApproval` and `applyPatchApproval` spellings too
+- [x] Refuse every other server request rather than guessing at a permission profile
+- [x] Report the whole command line as the target, with the parsed commands as details
+- [x] Take what a patch ask would do from the item that announced it, keyed by item id
+- [x] Suggest no lasting grant, so the caller records the operations literally
+- [x] Mark an item as asked about when the ask arrives, not when it is answered
+- [x] End the turn on `turn/completed`, not on the answer to `turn/start`
+- [x] Report reasoning from the thinking notifications, never as answer text
+- [x] Fall back to a finished item's text when nothing streamed
+- [x] Report a call Codex declined alone as blocked, and one refused through an ask not at all
+- [x] Sum `last` token usage over the turn, and ignore the thread total a resume reports
+- [x] Continue a thread with `thread/resume`, falling back to a new one when it is stale
+- [x] Read the login from the exit status of `codex login status`, not from its wording
+- [x] Interrupt the turn on abort rather than only dropping the stream
+
+Acceptance
+
+A conversation on Codex answers, reports what it did, and remembers what was said in
+earlier turns.
+
+A command Codex will not run alone reaches the phone as an ask, and a refusal is
+stated once.
+
+The approval policy and the sandbox are the ones this project sets, whatever the
+user's `config.toml` says.
+
+A short answer in a long conversation is not billed for every turn before it.
+
+A machine with a Codex login is offered its models, and one without is still offered
+its other engines.
+
+---
+
+# Milestone 26 — Timeout Settings and Version Visibility
+
+## Goal
+
+Make the local timeout policy configurable without weakening the server-owned session
+limit, and make a partial CLI/server upgrade visible to the paired browser. See ADR-049.
+
+### Tasks
+
+- [x] Add `timeouts.idleMinutes` and `timeouts.answerMinutes` to global config, with
+  defaults of 60 and 5 minutes
+- [x] Use `idleMinutes` for the CLI idle timer and state its effective duration when it ends
+- [x] Send `answerMinutes` to the server when the CLI registers and apply it to that
+  device's pending permission asks
+- [x] Keep the server's one-hour session-idle limit as the non-configurable upper bound
+- [x] Add optional CLI version to the registration protocol and persist it with the session
+- [x] Show a server/CLI version mismatch in the device panel
+- [x] Print a background update notice after, rather than during, the interactive menu
+- [ ] Unit: custom CLI idle timeout resets only on conversation activity
+- [ ] Integration: a device-specific approval timeout expires at its configured deadline
+- [ ] UI: an older CLI has no false version warning, while a differing version is visible
+
+Acceptance
+
+Existing config files retain a 60-minute CLI idle timer and a 5-minute approval deadline.
+
+A configured shorter idle timeout ends the local session early; no configuration can
+extend the server's one-hour acceptance window.
+
+An old CLI continues to pair, and a browser can identify a server/CLI version mismatch.

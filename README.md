@@ -2,7 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/tunnelcode)](https://www.npmjs.com/package/tunnelcode)
 [![CI](https://github.com/adityadarma/tunnelcode/actions/workflows/ci.yml/badge.svg)](https://github.com/adityadarma/tunnelcode/actions/workflows/ci.yml)
-[![Socket Badge](https://badge.socket.dev/npm/package/tunnelcode/0.3.10)](https://badge.socket.dev/npm/package/tunnelcode/0.3.10)
+[![Socket Badge](https://badge.socket.dev/npm/package/tunnelcode/0.3.11)](https://badge.socket.dev/npm/package/tunnelcode/0.3.11)
 [![license](https://img.shields.io/github/license/adityadarma/tunnelcode)](./LICENSE)
 
 Run an AI coding agent on your own machine and drive it from a browser.
@@ -81,8 +81,10 @@ The approval number never travels in a URL, so a leaked link is not enough to
 pair. The pairing code is single use and only valid while the CLI is running.
 
 A session ends after one hour without conversation, enforced by the server as well as
-by the CLI exiting, so a credential that leaked stops working rather than waiting for
-the next time the CLI runs in that directory. A prompt, an answer, work the engine
+by the CLI exiting. `timeouts.idleMinutes` in `tunnelcode.json` can make the CLI end
+an idle session sooner, but never later than the server's one-hour limit, so a
+credential that leaked stops working rather than waiting for the next time the CLI runs
+in that directory. A prompt, an answer, work the engine
 did, or a permission answered all count as conversation; a browser being open does
 not. A session also ends twelve hours after it was approved however busy it has been,
 because the idle hour slides for whoever is using it.
@@ -183,9 +185,10 @@ until it is answered:
 
 The card lists every operation the request covers, not only the first: one request
 from opencode can carry several commands, and agreeing to one of them would mean
-agreeing to all. A request nobody answers within 10 minutes is refused, never
-allowed, and a phone that locks mid-turn is shown the request again when it comes
-back.
+agreeing to all. A request nobody answers within 5 minutes by default is refused,
+never allowed, and a phone that locks mid-turn is shown the request again when it
+comes back. `timeouts.answerMinutes` in `tunnelcode.json` can change that approval
+deadline for the paired machine.
 
 A recorded rule answers for a command line only when it accounts for the whole of
 it. A line that runs a second command is asked about again even when the first one
