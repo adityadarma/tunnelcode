@@ -31,7 +31,7 @@ const BODY_MAX_LENGTH = 180;
 const SUBJECT = 'mailto:tunnelcode@localhost';
 
 /** What a notification is about, which is also what decides how it is presented. */
-export type NotificationKind = 'permission' | 'done' | 'failed';
+export type NotificationKind = 'permission' | 'done' | 'failed' | 'blocked';
 
 export interface Notification {
   kind: NotificationKind;
@@ -181,8 +181,9 @@ export class PushService {
           'content-type': 'application/octet-stream',
           ttl: String(TTL_SECONDS),
           // An approval is holding the agent still, so it is worth waking a sleeping
-          // phone for. A finished answer is not.
-          urgency: kind === 'permission' ? 'high' : 'normal',
+          // phone for. A blocked call stops the agent in the same way. A finished
+          // answer is not urgent.
+          urgency: kind === 'permission' || kind === 'blocked' ? 'high' : 'normal',
         },
         body,
       });

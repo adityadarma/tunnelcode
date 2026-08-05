@@ -335,6 +335,21 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
       await runner.run(turnId, text, engineName, model, resume);
     },
 
+    onGrantAndRetry: async (turnId, text, engineName, model, resume, grant) => {
+      // Grant the permission on this machine, then re-run the prompt.
+      const { allowWorkspaceWrites, allowCommands } = await import('@tunnelcode/engine');
+
+      if (grant === 'writes') {
+        await allowWorkspaceWrites(options.workspace);
+        writeOut('Granted write access from the browser.');
+      } else {
+        await allowCommands();
+        writeOut('Granted command access from the browser.');
+      }
+
+      await runner.run(turnId, text, engineName, model, resume);
+    },
+
     onPermissionResponse: (turnId, permissionId, decision, expired) => {
       runner.decide(turnId, permissionId, decision, expired);
     },

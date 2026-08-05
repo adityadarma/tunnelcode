@@ -33,6 +33,12 @@ export interface SessionSocket {
     decision: 'once' | 'always' | 'reject',
   ) => void;
   /**
+   * Grants the permission Antigravity was refused and retries the last prompt.
+   *
+   * The grant kind says what to allow: 'writes' or 'commands'.
+   */
+  sendGrantAndRetry: (conversationId: string, grant: 'writes' | 'commands') => void;
+  /**
    * Asks for the running answer to stop.
    *
    * The turn is named so a tap arriving just after one answer ended cannot end the
@@ -186,6 +192,19 @@ export function useSessionSocket({ sessionId, onMessage }: UseSessionSocketOptio
     [],
   );
 
+  const sendGrantAndRetry = useCallback(
+    (conversationId: string, grant: 'writes' | 'commands'): void => {
+      const socket = socketRef.current;
+
+      if (socket === undefined || socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+
+      socket.send(JSON.stringify({ type: 'grant_and_retry', conversationId, grant }));
+    },
+    [],
+  );
+
   const stopTurn = useCallback((turnId: string): void => {
     const socket = socketRef.current;
 
@@ -218,6 +237,7 @@ export function useSessionSocket({ sessionId, onMessage }: UseSessionSocketOptio
     resumeApprovalNumber,
     sendPrompt,
     sendPermissionResponse,
+    sendGrantAndRetry,
     stopTurn,
     disconnect,
   };

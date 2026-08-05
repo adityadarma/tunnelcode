@@ -6,6 +6,13 @@ interface ActivityItemProps {
   activity: Activity;
   /** The workspace path of the current session, used to shorten paths. */
   workspace: string | undefined;
+  /**
+   * Called when the user taps "Grant & Retry" on a blocked Antigravity activity.
+   *
+   * Present only when the engine is Antigravity and the block can be granted from
+   * the browser. Absent hides the button entirely.
+   */
+  onGrantAndRetry?: ((grant: 'writes' | 'commands') => void) | undefined;
 }
 
 /**
@@ -15,7 +22,7 @@ interface ActivityItemProps {
  * because a command prints more than the whole conversation around it and a
  * transcript that pastes it inline stops being readable on a phone. See ADR-024.
  */
-export function ActivityItem({ activity, workspace }: ActivityItemProps): React.JSX.Element {
+export function ActivityItem({ activity, workspace, onGrantAndRetry }: ActivityItemProps): React.JSX.Element {
   const [expanded, setExpanded] = useState(false);
 
   // Checked by type rather than against undefined: the transcript endpoint returns
@@ -40,6 +47,16 @@ export function ActivityItem({ activity, workspace }: ActivityItemProps): React.
     typeof activity.output === 'string' && activity.output.length > 0 ? activity.output : undefined;
   const hasOutput = output !== undefined;
   const reason = typeof activity.reason === 'string' ? activity.reason : undefined;
+
+  // Determine the grant type from the reason text for Antigravity blocked activities.
+  const grantType: 'writes' | 'commands' | undefined =
+    activity.blocked === true && reason !== undefined
+      ? /write_file\(/.test(reason)
+        ? 'writes'
+        : /command\(/.test(reason)
+          ? 'commands'
+          : undefined
+      : undefined;
 
   return (
     <div className="activity-pill-wrapper">
@@ -112,6 +129,17 @@ export function ActivityItem({ activity, workspace }: ActivityItemProps): React.
                 does not, and reads as part of the line it labels. */}
             <pre className="activity-output-content">{withoutNumberSeparators(output)}</pre>
           </div>
+        )}
+        {onGrantAndRetry !== undefined && grantType !== undefined && (
+          <button
+            type="button"
+            className="grant-retry-button"
+            onClick={() => {
+              onGrantAndRetry(grantType);
+            }}
+          >
+            Grant &amp; Retry
+          </button>
         )}
       </div>
     </div>

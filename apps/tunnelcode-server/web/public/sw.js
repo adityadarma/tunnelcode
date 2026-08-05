@@ -147,7 +147,7 @@ self.addEventListener('push', (event) => {
 
   const title = typeof payload.title === 'string' ? payload.title : 'TunnelCode';
   const body = typeof payload.body === 'string' ? payload.body : 'The agent needs you.';
-  const kind = payload.kind === 'permission' ? 'permission' : 'turn';
+  const kind = payload.kind === 'permission' || payload.kind === 'blocked' ? payload.kind : 'turn';
 
   event.waitUntil(
     self.registration.showNotification(title, {
@@ -157,9 +157,10 @@ self.addEventListener('push', (event) => {
       // One notification per kind per conversation, so a long session does not
       // stack up a screenful of them.
       tag: typeof payload.conversationId === 'string' ? `${kind}-${payload.conversationId}` : kind,
-      // An approval holds the agent still until it is answered, so it stays on
-      // screen. A finished answer does not need to be dismissed by hand.
-      requireInteraction: kind === 'permission',
+      // An approval holds the agent still until it is answered, and a blocked call
+      // ended the work, so both stay on screen. A finished answer does not need to
+      // be dismissed by hand.
+      requireInteraction: kind === 'permission' || kind === 'blocked',
       data: { url: CONVERSATION_PATH },
     }),
   );

@@ -35,6 +35,11 @@ interface MessageListProps {
    * it still wants the end of it.
    */
   conversationId?: string | undefined;
+  /**
+   * Called when the user taps "Grant & Retry" on a blocked Antigravity activity.
+   * Absent hides the button on every blocked activity.
+   */
+  onGrantAndRetry?: ((grant: 'writes' | 'commands') => void) | undefined;
 }
 
 function formatTime(value: number): string {
@@ -53,6 +58,7 @@ export function MessageList({
   reasoningStream,
   workspace,
   conversationId,
+  onGrantAndRetry,
 }: MessageListProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const liveRef = useRef<HTMLDivElement>(null);
@@ -128,7 +134,7 @@ export function MessageList({
                     {...(item.live === true ? { live: true } : {})}
                   />
                 ) : (
-                  <ActivityItem key={item.id} activity={item.activity} workspace={workspace} />
+                  <ActivityItem key={item.id} activity={item.activity} workspace={workspace} onGrantAndRetry={onGrantAndRetry} />
                 ),
               )}
               {turn.isStreaming && (

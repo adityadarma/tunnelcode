@@ -67,6 +67,20 @@ export interface PairingClientOptions {
     /** True when the refusal is a deadline passing rather than a choice. */
     expired: boolean,
   ) => void;
+  /**
+   * Called when the browser grants a permission and asks to retry the last prompt.
+   *
+   * Antigravity cannot ask mid-turn, so a block ends the work. This grants the
+   * rule on this machine then re-runs the prompt as a new turn.
+   */
+  onGrantAndRetry: (
+    turnId: string,
+    text: string,
+    engine: string,
+    model: string | undefined,
+    resume: string | undefined,
+    grant: 'writes' | 'commands',
+  ) => Promise<void>;
 }
 
 /**
@@ -221,6 +235,17 @@ export class PairingClient {
           message.permissionId,
           message.decision,
           message.expired ?? false,
+        );
+        return;
+
+      case 'grant_and_retry':
+        await this.options.onGrantAndRetry(
+          message.turnId,
+          message.text,
+          message.engine,
+          message.model,
+          message.resume,
+          message.grant,
         );
         return;
 

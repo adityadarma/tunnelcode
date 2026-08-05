@@ -247,6 +247,13 @@ export class TurnRelay {
       ...(stored.reason !== null ? { reason: stored.reason } : {}),
       createdAt: stored.createdAt,
     });
+
+    this.notify(turn.sessionId, {
+      kind: 'blocked',
+      title: 'Tool call refused',
+      body: `${tool}: ${reason}`,
+      conversationId: turn.conversationId,
+    });
   }
 
   /**

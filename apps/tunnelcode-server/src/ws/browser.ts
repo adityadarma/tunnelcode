@@ -405,6 +405,126 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
       });
     };
 
+    /**
+     * Grants a permission Antigravity was refused, then re-sends the last prompt.
+     *
+     * Antigravity cannot ask mid-turn, so a block ends the work. This lets the
+     * user grant from the browser and have the CLI retry without re-typing. The
+     * grant is written by the CLI (it owns the settings file) and the prompt is
+     * re-sent as a new turn in the same conversation.
+     */
+    const grantAndRetry = (
+      message: Extract<BrowserMessage, { type: 'grant_and_retry' }>,
+    ): void => {
+      if (sessionId === undefined || deviceId === undefined) {
+        reply({ type: 'error', message: 'Not attached to a session.' });
+        return;
+      }
+
+      if (!runs.isAllowed(deviceId, sessionId)) {
+        reply({ type: 'error', message: 'Waiting for approval in the terminal.' });
+        return;
+      }
+
+      const caller = sessionRepository.findSessionDetail(sessionId);
+
+      if (caller === undefined) {
+        reply({ type: 'error', message: 'Unknown session.' });
+        return;
+      }
+
+      const owner = sessionRepository.findSessionForConversation(message.conversationId);
+
+      if (
+        owner === undefined ||
+        owner.deviceId !== caller.deviceId ||
+        owner.workspace !== caller.workspace
+      ) {
+        reply({ type: 'error', message: 'Unknown conversation.' });
+        return;
+      }
+
+      const conversation = conversationRepository.findById(message.conversationId);
+
+      if (conversation === undefined) {
+        reply({ type: 'error', message: 'Unknown conversation.' });
+        return;
+      }
+
+      const device = devices.findById(deviceId);
+
+      if (device === undefined || !registry.isConnected(deviceId)) {
+        reply({ type: 'error', message: 'The device is offline.' });
+        return;
+      }
+
+      const engineName =
+        conversation.engine ?? sessionRepository.findSessionDetail(sessionId)?.engine;
+      const engine =
+        engineName === undefined ? undefined : devices.findEngine(deviceId, engineName);
+
+      if (engine === undefined) {
+        reply({
+          type: 'error',
+          message: `Engine ${engineName ?? 'unknown'} is no longer available on this device.`,
+        });
+        return;
+      }
+
+      if (turns.hasActiveForDevice(deviceId)) {
+        reply({
+          type: 'error',
+          message: 'The previous answer is still running. It will appear here when it finishes.',
+        });
+        return;
+      }
+
+      // Find the last user message in the conversation to retry.
+      const messages = conversationRepository.listMessages(message.conversationId);
+      const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user');
+
+      if (lastUserMessage === undefined) {
+        reply({ type: 'error', message: 'No prompt to retry.' });
+        return;
+      }
+
+      const model =
+        conversation.model !== null && engine.models.includes(conversation.model)
+          ? conversation.model
+          : undefined;
+
+      sessionRepository.touch(sessionId);
+
+      const turn = turns.start({
+        sessionId,
+        deviceId,
+        conversationId: message.conversationId,
+        engine: engine.name,
+      });
+
+      browsers.broadcast(sessionId, {
+        type: 'turn_started',
+        conversationId: message.conversationId,
+        turnId: turn.id,
+      });
+
+      const engineSession = conversationRepository.findEngineSession(message.conversationId);
+      const resume =
+        engineSession !== undefined && engineSession.engine === engine.name
+          ? engineSession.id
+          : undefined;
+
+      registry.send(deviceId, {
+        type: 'grant_and_retry',
+        turnId: turn.id,
+        text: lastUserMessage.content,
+        engine: engine.name,
+        ...(model !== undefined ? { model } : {}),
+        ...(resume !== undefined ? { resume } : {}),
+        grant: message.grant,
+      });
+    };
+
     socket.on('message', (raw: Buffer) => {
       const message = parseBrowserMessage(raw.toString('utf8'));
 
@@ -425,6 +545,9 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
           return;
         case 'permission_response':
           decidePermission(message);
+          return;
+        case 'grant_and_retry':
+          grantAndRetry(message);
           return;
         case 'disconnect':
           endSession();

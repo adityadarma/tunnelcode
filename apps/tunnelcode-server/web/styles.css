@@ -839,6 +839,10 @@
   @apply border-[var(--danger)];
 }
 
+.grant-retry-button {
+  @apply mx-2.5 mb-2 px-3 py-1 text-xs font-medium rounded bg-[var(--accent)] text-white border-none cursor-pointer hover:opacity-90 transition-opacity;
+}
+
 .activity {
   @apply flex items-center gap-2 px-2.5 py-1 text-xs text-[var(--muted)] w-full m-0 select-none;
 }

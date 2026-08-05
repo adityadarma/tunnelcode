@@ -370,6 +370,22 @@ export const serverToCliMessageSchema = z.discriminatedUnion('type', [
      */
     expired: z.boolean().optional(),
   }),
+  /**
+   * Grants the permission Antigravity was refused and re-sends the last prompt.
+   *
+   * The CLI writes the rule to Antigravity's settings file, then starts a new turn
+   * with the same prompt text. The turn id names the new turn, not the one that was
+   * refused.
+   */
+  z.object({
+    type: z.literal('grant_and_retry'),
+    turnId: turnIdSchema,
+    text: z.string().min(1).max(PROMPT_MAX_LENGTH),
+    engine: z.string().min(1),
+    model: z.string().min(1).optional(),
+    resume: z.string().min(1).optional(),
+    grant: z.enum(['writes', 'commands']),
+  }),
 ]);
 
 /**
@@ -424,6 +440,19 @@ export const browserMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('stop_turn'),
     turnId: turnIdSchema,
+  }),
+  /**
+   * Grants the permission Antigravity was refused, then retries the last prompt.
+   *
+   * Antigravity cannot ask mid-turn, so a block ends the work. This lets the user
+   * grant from the browser and have the prompt re-sent without typing it again.
+   * The grant kind says what to allow: 'writes' adds a workspace write rule,
+   * 'commands' adds the command rule. See ADR-031.
+   */
+  z.object({
+    type: z.literal('grant_and_retry'),
+    conversationId: conversationIdSchema,
+    grant: z.enum(['writes', 'commands']),
   }),
   // The user ended the session from the browser. The agent runs on the paired
   // machine, so ending it has to reach the CLI, not just clear the browser.

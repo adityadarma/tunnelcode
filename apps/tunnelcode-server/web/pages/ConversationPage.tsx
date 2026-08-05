@@ -1053,6 +1053,13 @@ export function ConversationPage({
           reasoningStream={reasoningStream}
           workspace={session?.workspace}
           conversationId={activeId}
+          onGrantAndRetry={
+            activeEngine === 'antigravity' && activeId !== undefined
+              ? (grant) => {
+                  socket.sendGrantAndRetry(activeId, grant);
+                }
+              : undefined
+          }
         />
 
         <div className="permissions" aria-live="polite">
