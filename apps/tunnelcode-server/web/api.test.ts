@@ -69,6 +69,6 @@ describe('api', () => {
     await createConversation('a/../b');
 
     // A raw id would let a crafted session id reach another route.
-    expect(calls.at(0)?.url).toBe('/sessions/a%2F..%2Fb/conversations');
+    expect(calls.at(0)?.url).toBe('/api/sessions/a%2F..%2Fb/conversations');
   });
 });

@@ -69,7 +69,7 @@ async function pair(
   cli.send(registration(code, deviceId, workspace));
   await cli.waitFor((events) => events.some((event) => event.type === 'registered'));
 
-  const request = await postJson(baseUrl, '/pair', { code });
+  const request = await postJson(baseUrl, '/api/pair', { code });
   await cli.waitFor((events) => events.some((event) => event.type === 'pair_request'));
   cli.send({ type: 'approve', requestId: request.body['requestId'] });
   await cli.waitFor((events) => events.some((event) => event.type === 'paired'));

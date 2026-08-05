@@ -73,7 +73,7 @@ async function pair(baseUrl: string, code: string, deviceId: string): Promise<st
   });
   await cli.waitFor((events) => events.some((event) => event.type === 'registered'));
 
-  const request = await postJson(baseUrl, '/pair', { code });
+  const request = await postJson(baseUrl, '/api/pair', { code });
   await cli.waitFor((events) => events.some((event) => event.type === 'pair_request'));
   cli.send({ type: 'approve', requestId: request.body['requestId'] });
   await cli.waitFor((events) => events.some((event) => event.type === 'paired'));
@@ -87,7 +87,7 @@ async function pair(baseUrl: string, code: string, deviceId: string): Promise<st
 
 /** Subscribes the session whose cookie is in play. */
 async function subscribe(baseUrl: string, subscription: Subscription): Promise<{ status: number }> {
-  return postJson(baseUrl, '/push/subscribe', {
+  return postJson(baseUrl, '/api/push/subscribe', {
     endpoint: subscription.endpoint,
     keys: { p256dh: subscription.p256dh, auth: subscription.auth },
   });
@@ -143,12 +143,12 @@ const settle = async (): Promise<void> => {
 
 test('the signing key is only offered to a paired browser, and never changes', async () => {
   await withServer(async ({ baseUrl }) => {
-    const anonymous = await getJson(baseUrl, '/push/key');
+    const anonymous = await getJson(baseUrl, '/api/push/key');
     assert.equal(anonymous.status, 401);
 
     await pair(baseUrl, 'ABCDEFGH', 'device-1');
 
-    const first = await getJson(baseUrl, '/push/key');
+    const first = await getJson(baseUrl, '/api/push/key');
     assert.equal(first.status, 200);
 
     // Uncompressed P-256, which is 65 bytes, and the form a browser subscribes with.
@@ -157,7 +157,7 @@ test('the signing key is only offered to a paired browser, and never changes', a
 
     // Stored rather than generated per request: a subscription is made against one
     // key, and a second key would retire it. See ADR-045.
-    const second = await getJson(baseUrl, '/push/key');
+    const second = await getJson(baseUrl, '/api/push/key');
     assert.equal(String(second.body['publicKey']), key);
   });
 });
@@ -178,7 +178,7 @@ test('a subscription is refused without a session, and unless it is https', asyn
     });
     assert.equal(plain.status, 400);
 
-    const missingKeys = await postJson(baseUrl, '/push/subscribe', {
+    const missingKeys = await postJson(baseUrl, '/api/push/subscribe', {
       endpoint: subscription.endpoint,
     });
     assert.equal(missingKeys.status, 400);
@@ -201,7 +201,7 @@ test('one session cannot turn off the notifications of another', async () => {
     // it over. An endpoint travels in a request body, so nothing about it is secret.
     await pair(baseUrl, 'IJKLMNOP', 'device-2');
 
-    const refused = await postJson(baseUrl, '/push/unsubscribe', {
+    const refused = await postJson(baseUrl, '/api/push/unsubscribe', {
       endpoint: subscription.endpoint,
     });
     // Answered the same either way, so a reply never reports whether an endpoint is
@@ -210,7 +210,7 @@ test('one session cannot turn off the notifications of another', async () => {
     assert.equal(countSubscriptions(databaseFile), 1);
 
     useCookie(baseUrl, ownerCookie);
-    const given = await postJson(baseUrl, '/push/unsubscribe', {
+    const given = await postJson(baseUrl, '/api/push/unsubscribe', {
       endpoint: subscription.endpoint,
     });
     assert.equal(given.status, 204);

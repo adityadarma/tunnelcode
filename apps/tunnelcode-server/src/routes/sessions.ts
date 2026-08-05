@@ -18,7 +18,7 @@ interface SessionRoutesOptions {
 export function registerSessionRoutes(app: FastifyInstance, options: SessionRoutesOptions): void {
   const { sessionRepository, devices } = options;
 
-  app.get('/sessions/:sessionId', (request, reply) => {
+  app.get('/api/sessions/:sessionId', (request, reply) => {
     const params = request.params as { sessionId?: string };
     const sessionId = params.sessionId;
 

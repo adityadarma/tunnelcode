@@ -31,7 +31,7 @@ export function registerPairRoutes(app: FastifyInstance, options: PairRoutesOpti
   const { devices, sessions, registry } = options;
 
   app.post(
-    '/pair',
+    '/api/pair',
     {
       config: {
         rateLimit: {
@@ -75,7 +75,7 @@ export function registerPairRoutes(app: FastifyInstance, options: PairRoutesOpti
   );
 
   app.get(
-    '/pair/:requestId/status',
+    '/api/pair/:requestId/status',
     {
       config: {
         rateLimit: {

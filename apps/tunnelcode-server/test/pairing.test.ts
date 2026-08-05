@@ -22,7 +22,7 @@ const register = {
 
 test('health reports the database is reachable', async () => {
   await withServer(async ({ baseUrl }) => {
-    const { status, body } = await getJson(baseUrl, '/health');
+    const { status, body } = await getJson(baseUrl, '/api/health');
 
     assert.equal(status, 200);
     assert.equal(body['status'], 'ok');
@@ -35,7 +35,7 @@ test('a correct code only creates a pending approval', async () => {
     cli.send(register);
     await cli.waitFor((events) => events.some((event) => event.type === 'registered'));
 
-    const pair = await postJson(baseUrl, '/pair', { code: 'ABCDEFGH' });
+    const pair = await postJson(baseUrl, '/api/pair', { code: 'ABCDEFGH' });
 
     assert.equal(pair.status, 202);
     assert.equal(pair.body['status'], 'pending');
@@ -54,7 +54,7 @@ test('the browser and the terminal see the same approval number', async () => {
     cli.send(register);
     await cli.waitFor((events) => events.some((event) => event.type === 'registered'));
 
-    const pair = await postJson(baseUrl, '/pair', { code: 'ABCDEFGH' });
+    const pair = await postJson(baseUrl, '/api/pair', { code: 'ABCDEFGH' });
     await cli.waitFor((events) => events.some((event) => event.type === 'pair_request'));
 
     const request = cli.events.find((event) => event.type === 'pair_request');
@@ -72,7 +72,7 @@ test('approving opens a session', async () => {
     cli.send(register);
     await cli.waitFor((events) => events.some((event) => event.type === 'registered'));
 
-    const pair = await postJson(baseUrl, '/pair', { code: 'ABCDEFGH' });
+    const pair = await postJson(baseUrl, '/api/pair', { code: 'ABCDEFGH' });
     await cli.waitFor((events) => events.some((event) => event.type === 'pair_request'));
 
     cli.send({ type: 'approve', requestId: pair.body['requestId'] });
@@ -92,7 +92,7 @@ test('rejecting never pairs', async () => {
     cli.send(register);
     await cli.waitFor((events) => events.some((event) => event.type === 'registered'));
 
-    const pair = await postJson(baseUrl, '/pair', { code: 'ABCDEFGH' });
+    const pair = await postJson(baseUrl, '/api/pair', { code: 'ABCDEFGH' });
     await cli.waitFor((events) => events.some((event) => event.type === 'pair_request'));
 
     cli.send({ type: 'reject', requestId: pair.body['requestId'] });
@@ -116,13 +116,13 @@ test('a code cannot be used twice', async () => {
     cli.send(register);
     await cli.waitFor((events) => events.some((event) => event.type === 'registered'));
 
-    const pair = await postJson(baseUrl, '/pair', { code: 'ABCDEFGH' });
+    const pair = await postJson(baseUrl, '/api/pair', { code: 'ABCDEFGH' });
     await cli.waitFor((events) => events.some((event) => event.type === 'pair_request'));
     cli.send({ type: 'approve', requestId: pair.body['requestId'] });
     await cli.waitFor((events) => events.some((event) => event.type === 'paired'));
 
     // The code is single use, so a second browser must not get in.
-    const second = await postJson(baseUrl, '/pair', { code: 'ABCDEFGH' });
+    const second = await postJson(baseUrl, '/api/pair', { code: 'ABCDEFGH' });
     assert.equal(second.status, 404);
 
     cli.close();
@@ -131,7 +131,7 @@ test('a code cannot be used twice', async () => {
 
 test('an unknown code is indistinguishable from a used one', async () => {
   await withServer(async ({ baseUrl }) => {
-    const unknown = await postJson(baseUrl, '/pair', { code: 'ZZZZZZZZ' });
+    const unknown = await postJson(baseUrl, '/api/pair', { code: 'ZZZZZZZZ' });
 
     // Same status and message, so the response cannot be used to find valid codes.
     assert.equal(unknown.status, 404);
@@ -142,7 +142,7 @@ test('an unknown code is indistinguishable from a used one', async () => {
 test('a malformed code is refused by validation', async () => {
   await withServer(async ({ baseUrl }) => {
     for (const code of ['abcdefgh', 'ABC', 'ABCDEFGHI', '']) {
-      const response = await postJson(baseUrl, '/pair', { code });
+      const response = await postJson(baseUrl, '/api/pair', { code });
       assert.equal(response.status, 400, `expected 400 for ${JSON.stringify(code)}`);
     }
   });
@@ -158,7 +158,7 @@ test('only the owning CLI can approve', async () => {
     other.send({ ...register, code: 'QQQQQQQQ', deviceId: 'device-2' });
     await other.waitFor((events) => events.some((event) => event.type === 'registered'));
 
-    const pair = await postJson(baseUrl, '/pair', { code: 'ABCDEFGH' });
+    const pair = await postJson(baseUrl, '/api/pair', { code: 'ABCDEFGH' });
     await owner.waitFor((events) => events.some((event) => event.type === 'pair_request'));
 
     other.send({ type: 'approve', requestId: pair.body['requestId'] });
@@ -222,7 +222,7 @@ test('a code is freed when its CLI disconnects', async () => {
     let status = 202;
 
     while (Date.now() < deadline && status === 202) {
-      const response = await postJson(baseUrl, '/pair', { code: 'ABCDEFGH' });
+      const response = await postJson(baseUrl, '/api/pair', { code: 'ABCDEFGH' });
       status = response.status;
     }
 
@@ -248,7 +248,7 @@ test('a reconnect survives the old socket closing', async () => {
     first.close();
     await wait(200);
 
-    const pair = await postJson(baseUrl, '/pair', { code: 'ABCDEFGH' });
+    const pair = await postJson(baseUrl, '/api/pair', { code: 'ABCDEFGH' });
     assert.equal(pair.status, 202);
 
     // The request has to reach the surviving connection, not the closed one.
@@ -260,7 +260,7 @@ test('a reconnect survives the old socket closing', async () => {
 
 test('an unknown request id is not found', async () => {
   await withServer(async ({ baseUrl }) => {
-    const status = await getJson(baseUrl, '/pair/does-not-exist/status');
+    const status = await getJson(baseUrl, '/api/pair/does-not-exist/status');
     assert.equal(status.status, 404);
   });
 });

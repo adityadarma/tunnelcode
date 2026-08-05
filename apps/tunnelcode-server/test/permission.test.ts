@@ -79,7 +79,7 @@ async function waitingOnAnAsk(baseUrl: string): Promise<Waiting> {
   cli.send(register);
   await cli.waitFor((events) => events.some((event) => event.type === 'registered'));
 
-  const request = await postJson(baseUrl, '/pair', { code: 'ABCDEFGH' });
+  const request = await postJson(baseUrl, '/api/pair', { code: 'ABCDEFGH' });
   await cli.waitFor((events) => events.some((event) => event.type === 'pair_request'));
 
   cli.send({ type: 'approve', requestId: request.body['requestId'] });
@@ -438,7 +438,7 @@ test('another workspace cannot read or change this conversation', async () => {
     other.send({ ...register, code: 'ZZZZZZZZ', deviceId: 'device-2', workspace: '/other' });
     await other.waitFor((events) => events.some((event) => event.type === 'registered'));
 
-    const request = await postJson(baseUrl, '/pair', { code: 'ZZZZZZZZ' });
+    const request = await postJson(baseUrl, '/api/pair', { code: 'ZZZZZZZZ' });
     await other.waitFor((events) => events.some((event) => event.type === 'pair_request'));
     other.send({ type: 'approve', requestId: request.body['requestId'] });
     await other.waitFor((events) => events.some((event) => event.type === 'paired'));

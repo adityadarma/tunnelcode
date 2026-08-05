@@ -148,7 +148,7 @@ async function pair(baseUrl: string): Promise<{
   cli.send(register);
   await cli.waitFor((events) => events.some((event) => event.type === 'registered'));
 
-  const request = await postJson(baseUrl, '/pair', { code: 'ABCDEFGH' });
+  const request = await postJson(baseUrl, '/api/pair', { code: 'ABCDEFGH' });
   await cli.waitFor((events) => events.some((event) => event.type === 'pair_request'));
 
   cli.send({ type: 'approve', requestId: request.body['requestId'] });

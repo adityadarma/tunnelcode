@@ -81,7 +81,7 @@ export function registerConversationRoutes(
     return { ok: true, caller };
   };
 
-  app.get('/sessions/:sessionId/conversations', (request, reply) => {
+  app.get('/api/sessions/:sessionId/conversations', (request, reply) => {
     const params = request.params as { sessionId?: string };
     const sessionId = params.sessionId;
 
@@ -113,7 +113,7 @@ export function registerConversationRoutes(
    * session; moving a conversation between engines would abandon it. The model is
    * optional and can be changed later. See ADR-020.
    */
-  app.post('/sessions/:sessionId/conversations', (request, reply) => {
+  app.post('/api/sessions/:sessionId/conversations', (request, reply) => {
     const params = request.params as { sessionId?: string };
     const sessionId = params.sessionId;
 
@@ -169,7 +169,7 @@ export function registerConversationRoutes(
    * Only the model: the engine is fixed for the life of the conversation, and a
    * different model of the same engine still understands its session.
    */
-  app.patch('/conversations/:conversationId', (request, reply) => {
+  app.patch('/api/conversations/:conversationId', (request, reply) => {
     const params = request.params as { conversationId?: string };
     const conversationId = params.conversationId;
 
@@ -221,7 +221,7 @@ export function registerConversationRoutes(
     return reply.send({ ...conversation, model: parsed.data.model ?? null });
   });
 
-  app.get('/conversations/:conversationId/messages', (request, reply) => {
+  app.get('/api/conversations/:conversationId/messages', (request, reply) => {
     const params = request.params as { conversationId?: string };
     const conversationId = params.conversationId;
 
@@ -249,7 +249,7 @@ export function registerConversationRoutes(
     });
   });
 
-  app.delete('/conversations/:conversationId', (request, reply) => {
+  app.delete('/api/conversations/:conversationId', (request, reply) => {
     const params = request.params as { conversationId?: string };
     const conversationId = params.conversationId;
 

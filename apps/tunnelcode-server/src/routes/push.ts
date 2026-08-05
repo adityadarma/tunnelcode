@@ -27,7 +27,7 @@ export function registerPushRoutes(app: FastifyInstance, options: PushRoutesOpti
    * all. Still behind the cookie, because nothing else on this server answers to an
    * unpaired caller and there is no reason for this to be the exception.
    */
-  app.get('/push/key', (request, reply) => {
+  app.get('/api/push/key', (request, reply) => {
     if (authenticate(sessionRepository, request.headers.cookie) === undefined) {
       return reply.code(401).send({ error: 'Not signed in.' });
     }
@@ -35,7 +35,7 @@ export function registerPushRoutes(app: FastifyInstance, options: PushRoutesOpti
     return reply.send({ publicKey: push.publicKey() });
   });
 
-  app.post('/push/subscribe', (request, reply) => {
+  app.post('/api/push/subscribe', (request, reply) => {
     const caller = authenticate(sessionRepository, request.headers.cookie);
 
     if (caller === undefined) {
@@ -64,7 +64,7 @@ export function registerPushRoutes(app: FastifyInstance, options: PushRoutesOpti
    * notifications off has nothing to do with the answer, and a reply that
    * distinguished the two would report whether an endpoint is known.
    */
-  app.post('/push/unsubscribe', (request, reply) => {
+  app.post('/api/push/unsubscribe', (request, reply) => {
     const caller = authenticate(sessionRepository, request.headers.cookie);
 
     if (caller === undefined) {

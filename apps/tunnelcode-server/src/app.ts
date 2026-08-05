@@ -205,7 +205,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
    * reachable, so a container that cannot read its volume reports unhealthy
    * instead of accepting traffic it cannot serve.
    */
-  app.get('/health', (_request, reply) => {
+  app.get('/api/health', (_request, reply) => {
     try {
       const knownDevices = sessionRepository.countDevices();
 
@@ -255,8 +255,8 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   registerPairRoutes(app, { devices, sessions, registry });
   registerSessionRoutes(app, { sessionRepository, devices });
   registerPushRoutes(app, { push, sessionRepository });
-  await registerWeb(app);
   registerConversationRoutes(app, { conversationRepository, sessionRepository, devices });
+  await registerWeb(app);
 
   return app;
 }

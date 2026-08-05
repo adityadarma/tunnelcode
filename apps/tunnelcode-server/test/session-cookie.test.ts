@@ -40,7 +40,7 @@ async function pair(baseUrl: string): Promise<{
   cli.send(register);
   await cli.waitFor((events) => events.some((event) => event.type === 'registered'));
 
-  const request = await postJson(baseUrl, '/pair', { code: 'ABCDEFGH' });
+  const request = await postJson(baseUrl, '/api/pair', { code: 'ABCDEFGH' });
   await cli.waitFor((events) => events.some((event) => event.type === 'pair_request'));
 
   cli.send({ type: 'approve', requestId: request.body['requestId'] });
@@ -145,7 +145,7 @@ test('neither the token nor the cookie reaches the log', async () => {
       const { cli, setCookie } = await pair(baseUrl);
       const token = (setCookie ?? '').split(';')[0]?.split('=')[1] ?? '';
 
-      await getJson(baseUrl, '/health');
+      await getJson(baseUrl, '/api/health');
 
       // A log outlives the session it describes and can end up somewhere the user
       // does not control, which is the same reason the pairing code is kept out.

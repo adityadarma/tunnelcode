@@ -12,7 +12,7 @@ test('the pair endpoint stops accepting after the limit', async () => {
     // Every code is wrong, which is exactly the case a guesser would produce.
     for (let i = 0; i < PAIR_MAX_ATTEMPTS + 3; i += 1) {
       const code = `AAAAAAA${String.fromCharCode(65 + i)}`;
-      const response = await postJson(baseUrl, '/pair', { code });
+      const response = await postJson(baseUrl, '/api/pair', { code });
       statuses.push(response.status);
     }
 
@@ -30,7 +30,7 @@ test('a rejected request explains itself', async () => {
     let body: Record<string, unknown> = {};
 
     for (let i = 0; i < PAIR_MAX_ATTEMPTS + 1; i += 1) {
-      const response = await postJson(baseUrl, '/pair', { code: 'ZZZZZZZZ' });
+      const response = await postJson(baseUrl, '/api/pair', { code: 'ZZZZZZZZ' });
       body = response.body;
     }
 
@@ -45,7 +45,7 @@ test('a malformed code still counts against the limit', async () => {
     const statuses: number[] = [];
 
     for (let i = 0; i < PAIR_MAX_ATTEMPTS + 2; i += 1) {
-      const response = await postJson(baseUrl, '/pair', { code: 'nope' });
+      const response = await postJson(baseUrl, '/api/pair', { code: 'nope' });
       statuses.push(response.status);
     }
 
@@ -57,11 +57,11 @@ test('a malformed code still counts against the limit', async () => {
 test('the limit is per server, not per code', async () => {
   await withServer(async ({ baseUrl }) => {
     for (let i = 0; i < PAIR_MAX_ATTEMPTS; i += 1) {
-      await postJson(baseUrl, '/pair', { code: `BBBBBBB${String.fromCharCode(65 + i)}` });
+      await postJson(baseUrl, '/api/pair', { code: `BBBBBBB${String.fromCharCode(65 + i)}` });
     }
 
     // Switching to a fresh code must not reset the budget.
-    const next = await postJson(baseUrl, '/pair', { code: 'CCCCCCCC' });
+    const next = await postJson(baseUrl, '/api/pair', { code: 'CCCCCCCC' });
     assert.equal(next.status, 429);
   });
 });
@@ -76,7 +76,7 @@ test('a forwarded address cannot reset the limit', async () => {
     for (let i = 0; i < PAIR_MAX_ATTEMPTS + 3; i += 1) {
       const response = await postJson(
         baseUrl,
-        '/pair',
+        '/api/pair',
         { code: 'ZZZZZZZZ' },
         { 'x-forwarded-for': `203.0.113.${String(i + 1)}` },
       );
@@ -95,7 +95,7 @@ test('a trusted proxy can still tell its clients apart', async () => {
       for (let i = 0; i < PAIR_MAX_ATTEMPTS + 3; i += 1) {
         const response = await postJson(
           baseUrl,
-          '/pair',
+          '/api/pair',
           { code: 'ZZZZZZZZ' },
           { 'x-forwarded-for': `203.0.113.${String(i + 1)}` },
         );

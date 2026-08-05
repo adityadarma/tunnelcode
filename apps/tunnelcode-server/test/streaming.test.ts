@@ -69,7 +69,7 @@ async function pair(baseUrl: string): Promise<Paired> {
   cli.send(register);
   await cli.waitFor((events) => events.some((event) => event.type === 'registered'));
 
-  const request = await postJson(baseUrl, '/pair', { code: 'ABCDEFGH' });
+  const request = await postJson(baseUrl, '/api/pair', { code: 'ABCDEFGH' });
   await cli.waitFor((events) => events.some((event) => event.type === 'pair_request'));
 
   cli.send({ type: 'approve', requestId: request.body['requestId'] });
@@ -1053,7 +1053,7 @@ test('a conversation is created without a body', async () => {
 
 test('a conversation is not created for an unknown session', async () => {
   await withServer(async ({ baseUrl }) => {
-    const created = await postEmpty(baseUrl, '/sessions/does-not-exist/conversations');
+    const created = await postEmpty(baseUrl, '/api/sessions/does-not-exist/conversations');
 
     // Nobody is signed in, so there is nothing to weigh the path against. A guessed
     // session id must not get a conversation to write into.
@@ -1086,7 +1086,7 @@ async function repair(
   cli.send({ ...register, code });
   await cli.waitFor((events) => events.some((event) => event.type === 'registered'));
 
-  const request = await postJson(baseUrl, '/pair', { code });
+  const request = await postJson(baseUrl, '/api/pair', { code });
   await cli.waitFor((events) => events.some((event) => event.type === 'pair_request'));
 
   cli.send({ type: 'approve', requestId: request.body['requestId'] });
@@ -1176,7 +1176,7 @@ test('another workspace on the same machine keeps its own list', async () => {
     other.send({ ...register, code: 'QQQQQQQQ', deviceId: 'device-2', workspace: '/other' });
     await other.waitFor((events) => events.some((event) => event.type === 'registered'));
 
-    const request = await postJson(baseUrl, '/pair', { code: 'QQQQQQQQ' });
+    const request = await postJson(baseUrl, '/api/pair', { code: 'QQQQQQQQ' });
     await other.waitFor((events) => events.some((event) => event.type === 'pair_request'));
     other.send({ type: 'approve', requestId: request.body['requestId'] });
     await other.waitFor((events) => events.some((event) => event.type === 'paired'));
@@ -1204,7 +1204,7 @@ test('another workspace on the same machine keeps its own list', async () => {
 
 test('conversations are not listed for an unknown session', async () => {
   await withServer(async ({ baseUrl }) => {
-    const listed = await getJson(baseUrl, '/sessions/does-not-exist/conversations');
+    const listed = await getJson(baseUrl, '/api/sessions/does-not-exist/conversations');
 
     // Widening the list to a workspace must not widen who can read it.
     assert.equal(listed.status, 401);

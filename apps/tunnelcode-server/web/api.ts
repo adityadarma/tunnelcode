@@ -158,23 +158,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function startPairing(code: string): Promise<PairPendingResponse> {
-  return request<PairPendingResponse>('/pair', {
+  return request<PairPendingResponse>('/api/pair', {
     method: 'POST',
     body: JSON.stringify({ code }),
   });
 }
 
 export async function readPairStatus(requestId: string): Promise<PairStatusResponse> {
-  return request<PairStatusResponse>(`/pair/${encodeURIComponent(requestId)}/status`);
+  return request<PairStatusResponse>(`/api/pair/${encodeURIComponent(requestId)}/status`);
 }
 
 export async function readSession(sessionId: string): Promise<SessionDetail> {
-  return request<SessionDetail>(`/sessions/${encodeURIComponent(sessionId)}`);
+  return request<SessionDetail>(`/api/sessions/${encodeURIComponent(sessionId)}`);
 }
 
 export async function listConversations(sessionId: string): Promise<Conversation[]> {
   const body = await request<{ conversations: Conversation[] }>(
-    `/sessions/${encodeURIComponent(sessionId)}/conversations`,
+    `/api/sessions/${encodeURIComponent(sessionId)}/conversations`,
   );
   return body.conversations;
 }
@@ -201,7 +201,7 @@ export async function createConversation(
   // terminal named.
   const hasChoice = Object.keys(choice).length > 0;
 
-  return request<Conversation>(`/sessions/${encodeURIComponent(sessionId)}/conversations`, {
+  return request<Conversation>(`/api/sessions/${encodeURIComponent(sessionId)}/conversations`, {
     method: 'POST',
     ...(hasChoice ? { body: JSON.stringify(choice) } : {}),
   });
@@ -217,7 +217,7 @@ export async function updateConversationModel(
   conversationId: string,
   model: string | undefined,
 ): Promise<Conversation> {
-  return request<Conversation>(`/conversations/${encodeURIComponent(conversationId)}`, {
+  return request<Conversation>(`/api/conversations/${encodeURIComponent(conversationId)}`, {
     method: 'PATCH',
     body: JSON.stringify({ model: model ?? null }),
   });
@@ -235,7 +235,7 @@ export async function readTranscript(conversationId: string): Promise<Transcript
     messages: Message[];
     activities?: Activity[];
     reasonings?: Reasoning[];
-  }>(`/conversations/${encodeURIComponent(conversationId)}/messages`);
+  }>(`/api/conversations/${encodeURIComponent(conversationId)}/messages`);
 
   return {
     messages: body.messages,
@@ -245,7 +245,7 @@ export async function readTranscript(conversationId: string): Promise<Transcript
 }
 
 export async function deleteConversation(conversationId: string): Promise<void> {
-  await request<{ success: boolean }>(`/conversations/${encodeURIComponent(conversationId)}`, {
+  await request<{ success: boolean }>(`/api/conversations/${encodeURIComponent(conversationId)}`, {
     method: 'DELETE',
   });
 }
@@ -257,7 +257,7 @@ export async function deleteConversation(conversationId: string): Promise<void> 
  * made against a different one is refused by the push service. See ADR-045.
  */
 export async function readPushKey(): Promise<string> {
-  const body = await request<{ publicKey: string }>('/push/key');
+  const body = await request<{ publicKey: string }>('/api/push/key');
   return body.publicKey;
 }
 
@@ -269,7 +269,7 @@ export interface PushSubscriptionPayload {
 
 /** Tells the server where to reach this browser while it is closed. */
 export async function savePushSubscription(subscription: PushSubscriptionPayload): Promise<void> {
-  await request<Record<string, never>>('/push/subscribe', {
+  await request<Record<string, never>>('/api/push/subscribe', {
     method: 'POST',
     body: JSON.stringify(subscription),
   });
@@ -277,7 +277,7 @@ export async function savePushSubscription(subscription: PushSubscriptionPayload
 
 /** Tells the server to stop, which it does whether or not it knew the endpoint. */
 export async function deletePushSubscription(endpoint: string): Promise<void> {
-  await request<Record<string, never>>('/push/unsubscribe', {
+  await request<Record<string, never>>('/api/push/unsubscribe', {
     method: 'POST',
     body: JSON.stringify({ endpoint }),
   });
