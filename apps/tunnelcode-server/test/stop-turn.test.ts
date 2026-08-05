@@ -74,9 +74,9 @@ async function pair(
   cli.send({ type: 'approve', requestId: request.body['requestId'] });
   await cli.waitFor((events) => events.some((event) => event.type === 'paired'));
 
-  const status = await getJson(baseUrl, `/pair/${String(request.body['requestId'])}/status`);
+  const status = await getJson(baseUrl, `/api/pair/${String(request.body['requestId'])}/status`);
   const sessionId = String(status.body['sessionId']);
-  const conversation = await postEmpty(baseUrl, `/sessions/${sessionId}/conversations`);
+  const conversation = await postEmpty(baseUrl, `/api/sessions/${sessionId}/conversations`);
 
   const browser = await connect<BrowserEvent>(baseUrl, '/ws/browser');
   browser.send({ type: 'attach', sessionId });
@@ -171,7 +171,7 @@ test('what the answer had already said is kept, marked as stopped', async () => 
 
     // The user watched this arrive, so a reload that made it disappear would look
     // like the work never happened. See ADR-033.
-    const stored = await getJson(baseUrl, `/conversations/${paired.conversationId}/messages`);
+    const stored = await getJson(baseUrl, `/api/conversations/${paired.conversationId}/messages`);
     const messages = stored.body['messages'] as {
       role: string;
       content: string;
@@ -207,7 +207,7 @@ test('anything the engine reports after a stop is dropped', async () => {
 
     // The turn is gone here, so its late reports have nowhere to land: an answer the
     // user stopped must not appear in the transcript afterwards.
-    const stored = await getJson(baseUrl, `/conversations/${paired.conversationId}/messages`);
+    const stored = await getJson(baseUrl, `/api/conversations/${paired.conversationId}/messages`);
     const messages = stored.body['messages'] as { content: string }[];
 
     assert.deepEqual(

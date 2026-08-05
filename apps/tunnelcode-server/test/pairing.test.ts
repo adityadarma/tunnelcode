@@ -41,7 +41,7 @@ test('a correct code only creates a pending approval', async () => {
     assert.equal(pair.body['status'], 'pending');
 
     // Nothing is paired until the terminal approves.
-    const status = await getJson(baseUrl, `/pair/${String(pair.body['requestId'])}/status`);
+    const status = await getJson(baseUrl, `/api/pair/${String(pair.body['requestId'])}/status`);
     assert.equal(status.body['status'], 'pending');
 
     cli.close();
@@ -78,7 +78,7 @@ test('approving opens a session', async () => {
     cli.send({ type: 'approve', requestId: pair.body['requestId'] });
     await cli.waitFor((events) => events.some((event) => event.type === 'paired'));
 
-    const status = await getJson(baseUrl, `/pair/${String(pair.body['requestId'])}/status`);
+    const status = await getJson(baseUrl, `/api/pair/${String(pair.body['requestId'])}/status`);
     assert.equal(status.body['status'], 'approved');
     assert.equal(typeof status.body['sessionId'], 'string');
 
@@ -101,7 +101,7 @@ test('rejecting never pairs', async () => {
     let outcome = 'pending';
 
     while (Date.now() < deadline && outcome === 'pending') {
-      const status = await getJson(baseUrl, `/pair/${String(pair.body['requestId'])}/status`);
+      const status = await getJson(baseUrl, `/api/pair/${String(pair.body['requestId'])}/status`);
       outcome = String(status.body['status']);
     }
 
@@ -164,7 +164,7 @@ test('only the owning CLI can approve', async () => {
     other.send({ type: 'approve', requestId: pair.body['requestId'] });
     await other.waitFor((events) => events.some((event) => event.type === 'error'));
 
-    const status = await getJson(baseUrl, `/pair/${String(pair.body['requestId'])}/status`);
+    const status = await getJson(baseUrl, `/api/pair/${String(pair.body['requestId'])}/status`);
     assert.equal(status.body['status'], 'pending');
 
     owner.close();

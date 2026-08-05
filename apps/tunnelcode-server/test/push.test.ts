@@ -78,7 +78,7 @@ async function pair(baseUrl: string, code: string, deviceId: string): Promise<st
   cli.send({ type: 'approve', requestId: request.body['requestId'] });
   await cli.waitFor((events) => events.some((event) => event.type === 'paired'));
 
-  const status = await getJson(baseUrl, `/pair/${String(request.body['requestId'])}/status`);
+  const status = await getJson(baseUrl, `/api/pair/${String(request.body['requestId'])}/status`);
 
   cli.close();
 

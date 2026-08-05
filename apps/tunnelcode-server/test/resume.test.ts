@@ -69,9 +69,9 @@ async function pair(baseUrl: string, code: string): Promise<Paired> {
   cli.send({ type: 'approve', requestId: request.body['requestId'] });
   await cli.waitFor((events) => events.some((event) => event.type === 'paired'));
 
-  const status = await getJson(baseUrl, `/pair/${String(request.body['requestId'])}/status`);
+  const status = await getJson(baseUrl, `/api/pair/${String(request.body['requestId'])}/status`);
   const sessionId = String(status.body['sessionId']);
-  const conversation = await postEmpty(baseUrl, `/sessions/${sessionId}/conversations`);
+  const conversation = await postEmpty(baseUrl, `/api/sessions/${sessionId}/conversations`);
 
   return { cli, sessionId, conversationId: String(conversation.body['id']) };
 }
@@ -95,7 +95,7 @@ async function restart(
   runId = 'a-later-run-of-the-cli',
 ): Promise<Recorder<CliEvent>> {
   await waitUntil(async () => {
-    const session = await getJson(baseUrl, `/sessions/${sessionId}`);
+    const session = await getJson(baseUrl, `/api/sessions/${sessionId}`);
     return session.body['online'] === false;
   }, 'the previous agent to go offline');
 
@@ -210,7 +210,7 @@ test('a refused reconnect retires the session', async () => {
     // Refusing answers "should this browser still have my machine", so it holds from
     // now on rather than only for this connection: the credential resolves to
     // nothing afterwards.
-    const detail = await getJson(baseUrl, `/sessions/${first.sessionId}`);
+    const detail = await getJson(baseUrl, `/api/sessions/${first.sessionId}`);
     assert.equal(detail.status, 401);
 
     browser.close();

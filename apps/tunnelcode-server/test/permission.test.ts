@@ -85,9 +85,9 @@ async function waitingOnAnAsk(baseUrl: string): Promise<Waiting> {
   cli.send({ type: 'approve', requestId: request.body['requestId'] });
   await cli.waitFor((events) => events.some((event) => event.type === 'paired'));
 
-  const status = await getJson(baseUrl, `/pair/${String(request.body['requestId'])}/status`);
+  const status = await getJson(baseUrl, `/api/pair/${String(request.body['requestId'])}/status`);
   const sessionId = String(status.body['sessionId']);
-  const conversation = await postEmpty(baseUrl, `/sessions/${sessionId}/conversations`);
+  const conversation = await postEmpty(baseUrl, `/api/sessions/${sessionId}/conversations`);
   const conversationId = String(conversation.body['id']);
 
   const browser = await connect<BrowserEvent>(baseUrl, '/ws/browser');
@@ -381,10 +381,10 @@ test('an ended session is gone from the http surface too', async () => {
     // The cookie is still in the browser, and it now resolves to nothing: an ended
     // session cannot authenticate at all. Returning detail here would let a browser
     // present it as live and go on creating conversations in it.
-    const detail = await getJson(baseUrl, `/sessions/${sessionId}`);
+    const detail = await getJson(baseUrl, `/api/sessions/${sessionId}`);
     assert.equal(detail.status, 401);
 
-    const created = await postEmpty(baseUrl, `/sessions/${sessionId}/conversations`);
+    const created = await postEmpty(baseUrl, `/api/sessions/${sessionId}/conversations`);
     assert.equal(created.status, 401);
 
     browser.close();
@@ -402,22 +402,22 @@ test('a conversation id alone does not open a transcript', async () => {
     const owned = currentCookie(baseUrl);
 
     useCookie(baseUrl, undefined);
-    const anonymous = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
+    const anonymous = await getJson(baseUrl, `/api/conversations/${conversationId}/messages`);
     assert.equal(anonymous.status, 401);
 
     // A token nobody issued, which is what a guess looks like.
     useCookie(baseUrl, 'tunnelcode_session=not-a-token-this-server-ever-made');
-    const invented = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
+    const invented = await getJson(baseUrl, `/api/conversations/${conversationId}/messages`);
     assert.equal(invented.status, 401);
 
     useCookie(baseUrl, owned);
-    const owner = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
+    const owner = await getJson(baseUrl, `/api/conversations/${conversationId}/messages`);
     assert.equal(owner.status, 200);
 
     // The session id on its own opens nothing, which is the point of moving the
     // credential out of the page.
     useCookie(baseUrl, `tunnelcode_session=${sessionId}`);
-    const idAsToken = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
+    const idAsToken = await getJson(baseUrl, `/api/conversations/${conversationId}/messages`);
     assert.equal(idAsToken.status, 401);
 
     useCookie(baseUrl, owned);
@@ -445,23 +445,23 @@ test('another workspace cannot read or change this conversation', async () => {
 
     // Collecting the status is what sets the second session's cookie, so every
     // request that follows is made as that machine's browser.
-    await getJson(baseUrl, `/pair/${String(request.body['requestId'])}/status`);
+    await getJson(baseUrl, `/api/pair/${String(request.body['requestId'])}/status`);
 
-    const read = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
+    const read = await getJson(baseUrl, `/api/conversations/${conversationId}/messages`);
     assert.equal(read.status, 404);
 
-    const patched = await patchJson(baseUrl, `/conversations/${conversationId}`, {
+    const patched = await patchJson(baseUrl, `/api/conversations/${conversationId}`, {
       model: 'haiku',
     });
     assert.equal(patched.status, 404);
 
     // Refused before the delete runs, so a refusal never destroys anything on its
     // way out.
-    const removed = await deleteJson(baseUrl, `/conversations/${conversationId}`);
+    const removed = await deleteJson(baseUrl, `/api/conversations/${conversationId}`);
     assert.equal(removed.status, 404);
 
     useCookie(baseUrl, undefined);
-    const survived = await getJson(baseUrl, `/conversations/${conversationId}/messages`);
+    const survived = await getJson(baseUrl, `/api/conversations/${conversationId}/messages`);
     assert.equal(survived.status, 401, 'still refused without a session');
 
     other.close();

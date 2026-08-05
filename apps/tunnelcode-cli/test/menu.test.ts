@@ -93,10 +93,11 @@ const EXIT = '3';
 const SERVER_URL = '1';
 const DEVICE_NAME = '2';
 const ENGINE = '3';
-const NEVER_ALLOW = '4';
-const GRANTS = '5';
-const ANTIGRAVITY_ACCESS = '6';
-const BACK = '8';
+const TIMEOUTS = '4';
+const NEVER_ALLOW = '5';
+const GRANTS = '6';
+const ANTIGRAVITY_ACCESS = '7';
+const BACK = '9';
 
 /** Answers inside the Antigravity submenu, where each item toggles one grant. */
 const ALLOW_WRITES = '1';
@@ -381,3 +382,76 @@ function stripDeny(stored: Record<string, unknown> | undefined): unknown {
     ? (permission as { deny?: unknown }).deny
     : undefined;
 }
+
+/** Answers inside the Timeouts submenu. */
+const TIMEOUT_IDLE = '1';
+const TIMEOUT_ANSWER = '2';
+const TIMEOUT_SILENCE = '3';
+const TIMEOUT_DEFAULTS = '4';
+const TIMEOUT_BACK = '5';
+
+test('the setup menu shows all three timeouts', async () => {
+  await withTempHome(async (home) => {
+    const { output } = await runMenu(home, [SETUP, TIMEOUTS, TIMEOUT_BACK, BACK, EXIT]);
+
+    assert.match(output, /idle/i);
+    assert.match(output, /answer/i);
+    assert.match(output, /silence/i);
+  });
+});
+
+test('the idle timeout is changed from the timeouts submenu', async () => {
+  await withTempHome(async (home) => {
+    await runMenu(home, [SETUP, TIMEOUTS, TIMEOUT_IDLE, '30', BACK, EXIT]);
+
+    const stored = await readStoredConfig(home);
+    const timeouts = stored?.['timeouts'] as { idleMinutes?: number } | undefined;
+    assert.equal(timeouts?.idleMinutes, 30);
+  });
+});
+
+test('the answer timeout is changed from the timeouts submenu', async () => {
+  await withTempHome(async (home) => {
+    await runMenu(home, [SETUP, TIMEOUTS, TIMEOUT_ANSWER, '10', BACK, EXIT]);
+
+    const stored = await readStoredConfig(home);
+    const timeouts = stored?.['timeouts'] as { answerMinutes?: number } | undefined;
+    assert.equal(timeouts?.answerMinutes, 10);
+  });
+});
+
+test('the silence timeout is changed from the timeouts submenu', async () => {
+  await withTempHome(async (home) => {
+    await runMenu(home, [SETUP, TIMEOUTS, TIMEOUT_SILENCE, '25', BACK, EXIT]);
+
+    const stored = await readStoredConfig(home);
+    const timeouts = stored?.['timeouts'] as { silenceMinutes?: number } | undefined;
+    assert.equal(timeouts?.silenceMinutes, 25);
+  });
+});
+
+test('timeouts can be reset to defaults', async () => {
+  await withTempHome(async (home) => {
+    // Set a custom value first.
+    await runMenu(home, [SETUP, TIMEOUTS, TIMEOUT_SILENCE, '45', BACK, EXIT]);
+
+    const before = await readStoredConfig(home);
+    const beforeTimeouts = before?.['timeouts'] as { silenceMinutes?: number } | undefined;
+    assert.equal(beforeTimeouts?.silenceMinutes, 45);
+
+    // Reset to defaults.
+    await runMenu(home, [SETUP, TIMEOUTS, TIMEOUT_DEFAULTS, BACK, EXIT]);
+
+    const after = await readStoredConfig(home);
+    const afterTimeouts = after?.['timeouts'] as
+      | {
+          idleMinutes?: number;
+          answerMinutes?: number;
+          silenceMinutes?: number;
+        }
+      | undefined;
+    assert.equal(afterTimeouts?.idleMinutes, 60);
+    assert.equal(afterTimeouts?.answerMinutes, 5);
+    assert.equal(afterTimeouts?.silenceMinutes, 15);
+  });
+});

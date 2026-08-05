@@ -47,7 +47,7 @@ async function pair(baseUrl: string): Promise<{
   await cli.waitFor((events) => events.some((event) => event.type === 'paired'));
 
   const requestId = String(request.body['requestId']);
-  const response = await fetch(`${baseUrl}/pair/${requestId}/status`);
+  const response = await fetch(`${baseUrl}/api/pair/${requestId}/status`);
   const body = (await response.json()) as { sessionId?: string };
   const setCookie = response.headers.get('set-cookie');
 

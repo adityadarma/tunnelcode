@@ -70,7 +70,7 @@ test('a refused request carries the headers too', async () => {
   await withServer(async ({ baseUrl }) => {
     // A refusal is a response a browser renders, so it needs the same policy as a
     // page.
-    const missing = await fetch(`${baseUrl}/conversations/nope/messages`);
+    const missing = await fetch(`${baseUrl}/api/conversations/nope/messages`);
 
     assert.equal(missing.status, 401);
     assert.match(missing.headers.get('content-security-policy') ?? '', /frame-ancestors 'none'/);

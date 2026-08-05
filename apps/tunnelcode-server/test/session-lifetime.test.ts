@@ -154,9 +154,9 @@ async function pair(baseUrl: string): Promise<{
   cli.send({ type: 'approve', requestId: request.body['requestId'] });
   await cli.waitFor((events) => events.some((event) => event.type === 'paired'));
 
-  const status = await getJson(baseUrl, `/pair/${String(request.body['requestId'])}/status`);
+  const status = await getJson(baseUrl, `/api/pair/${String(request.body['requestId'])}/status`);
   const sessionId = String(status.body['sessionId']);
-  const conversation = await postEmpty(baseUrl, `/sessions/${sessionId}/conversations`);
+  const conversation = await postEmpty(baseUrl, `/api/sessions/${sessionId}/conversations`);
 
   return { cli, sessionId, conversationId: String(conversation.body['id']) };
 }
