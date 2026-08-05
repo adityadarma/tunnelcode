@@ -18,7 +18,7 @@ const CACHE = 'tunnelcode-shell-v1';
 const SHELL = '/';
 
 /** Paths the server owns. A response from any of them is state, never a file. */
-const API_PREFIXES = ['/pair', '/sessions', '/conversations', '/health', '/push', '/ws'];
+const API_PREFIXES = ['/api', '/ws'];
 
 /** Where the notification lands when tapped. */
 const CONVERSATION_PATH = '/conversation';

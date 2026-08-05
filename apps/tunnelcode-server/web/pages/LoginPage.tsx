@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { readPairStatus, startPairing } from '../api.js';
 
 const POLL_INTERVAL_MS = 1000;
@@ -52,8 +52,13 @@ export function LoginPage({ initialCode, onPaired }: LoginPageProps): React.JSX.
   };
 
   // Coming from a QR link, the code is already known, so pairing starts at once.
+  // A ref guards against StrictMode re-running the effect, which would create a
+  // second pending request on the server while the browser only polls the last one.
+  const submitted = useRef(false);
+
   useEffect(() => {
-    if (initialCode !== undefined) {
+    if (initialCode !== undefined && !submitted.current) {
+      submitted.current = true;
       void submit(initialCode);
     }
   }, [initialCode]);

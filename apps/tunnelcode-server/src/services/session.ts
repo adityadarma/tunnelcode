@@ -160,6 +160,18 @@ export class SessionService {
     this.sessions.set(session.id, session);
     const outcome: ApprovalOutcome = { status: 'approved', session };
     this.resolved.set(requestId, outcome);
+
+    // Any other pending pairing requests for the same device are answered by the
+    // same approval: a browser that submitted the code twice (e.g. React StrictMode
+    // double-firing an effect) polls one of them, and the terminal only answered
+    // once. Without this, the duplicate stays pending forever.
+    for (const [id, other] of this.pending) {
+      if (other.deviceId === deviceId && other.sessionId === undefined) {
+        this.pending.delete(id);
+        this.resolved.set(id, outcome);
+      }
+    }
+
     return outcome;
   }
 
