@@ -10,6 +10,29 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+## [0.3.13] - 2026-08-05
+
+### Fixed
+
+- Pairing stuck on "Waiting for approval" after the terminal approves. The service
+  worker cached the polling response (`/api/pair/:id/status`) because `API_PREFIXES`
+  still listed the old path prefix (`/pair`) rather than the current one (`/api`).
+  Every poll after the first was answered from cache with `pending`, so the browser
+  never learned the request was approved.
+
+- React StrictMode double-firing the initial pairing effect, which created two pending
+  requests on the server. The terminal approved one, but the browser polled the other.
+  A `useRef` guard now prevents the duplicate submission.
+
+- As a server-side safety net, approving any pairing request for a device now resolves
+  all other pending requests for the same device, so a duplicate can no longer stay
+  stuck forever.
+
+### Changed
+
+- Service worker `API_PREFIXES` cleaned up to `['/api', '/ws']`, reflecting that all
+  HTTP endpoints now live under `/api` and the old bare prefixes are unused.
+
 ## [0.3.12] - 2026-08-05
 
 ### Added
