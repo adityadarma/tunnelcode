@@ -46,7 +46,29 @@ RUN find /deploy/node_modules/@tunnelcode -maxdepth 1 -type l | while read link;
       cp -rL "$target" "$link"; \
     done
 
-FROM node:24-alpine AS runtime
+# Strip debug symbols from native bindings and remove files unused at runtime.
+# Prebuilds for other platforms (darwin, win32) are deleted; the linuxmusl prebuild
+# is what the runtime actually loads. The deps/ and src/ directories are compile-time
+# only. node-addon-api headers and @types are not needed at runtime either.
+RUN find /deploy -path "*/prebuilds/darwin-*" -delete && \
+    find /deploy -path "*/prebuilds/win32-*" -delete && \
+    find /deploy -path "*/prebuilds/linux-x64*" -delete && \
+    find /deploy -path "*/better-sqlite3/deps" -type d -exec rm -rf {} + && \
+    find /deploy -path "*/better-sqlite3/src" -type d -exec rm -rf {} + && \
+    find /deploy -path "*/better-sqlite3/binding.gyp" -delete && \
+    find /deploy -path "*/@types" -type d -exec rm -rf {} + && \
+    find /deploy -path "*/node-addon-api" -type d -exec rm -rf {} + && \
+    find /deploy -name "*.node" -exec strip --strip-all {} \; 2>/dev/null || true && \
+    find /deploy/node_modules \( \
+      -name "*.md" -o -name "*.ts" -o -name "*.map" \
+      -o -name "LICENSE*" -o -name "CHANGELOG*" \
+      -o -name "*.d.ts" -o -name "*.d.ts.map" \
+    \) -delete
+
+# ─── Runtime: minimal Alpine with only the node binary ───────────────────────
+FROM alpine:3.24 AS runtime
+
+RUN apk add --no-cache nodejs
 
 # Links the image to the repository, which is what makes GITHUB_TOKEN allowed to
 # push it and lets the package inherit the repository's public visibility.
@@ -58,19 +80,20 @@ ENV NODE_ENV=production
 # Listens on every interface because access is controlled by the published port.
 ENV HOST=0.0.0.0
 ENV PORT=3000
-ENV DATABASE_FILE=/data/tunnelcode.sqlite
+ENV DATABASE_FILE=/app/data/tunnelcode.sqlite
 
 WORKDIR /app
 
-COPY --from=build /deploy ./
+COPY --from=build --chown=nobody:nobody /deploy ./
 
-# The database lives on a volume so conversations survive a new image.
-RUN mkdir -p /data && chown -R node:node /data /app
+# The database directory is created inside /app so everything belongs to one user
+# and one volume mount covers both code and data.
+RUN mkdir -p /app/data && chown nobody:nobody /app/data
 
-USER node
+USER nobody
 
 EXPOSE 3000
-VOLUME ["/data"]
+VOLUME ["/app/data"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT??3000)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
