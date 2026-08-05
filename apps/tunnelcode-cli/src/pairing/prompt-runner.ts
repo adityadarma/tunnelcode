@@ -32,7 +32,7 @@ function clamp(text: string): string {
  * is not coming back. Without a limit an engine that hangs holds the device
  * forever, because a device answers one prompt at a time.
  */
-const SILENCE_TIMEOUT_MS = 5 * 60 * 1000;
+const SILENCE_TIMEOUT_MS = 15 * 60 * 1000;
 
 export interface PromptRunnerOptions {
   /**
@@ -52,7 +52,7 @@ export interface PromptRunnerOptions {
    */
   policy?: PermissionPolicy;
   /** Overridden in tests, which cannot wait minutes for a real timeout. */
-  silenceTimeoutMs?: number;
+  silenceTimeoutMs?: number | undefined;
 }
 
 /** Told to the user when they refused an ask themselves. */

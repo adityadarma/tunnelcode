@@ -32,6 +32,7 @@ export interface PairingSessionOptions {
   timeouts?: {
     idleMs?: number;
     answerMs?: number;
+    silenceMs?: number;
   };
 }
 
@@ -213,6 +214,7 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
     // Reads this machine's ceiling and its granted rules, so an ask the machine can
     // already answer never reaches the phone. See ADR-022.
     policy: createPermissionPolicy(),
+    silenceTimeoutMs: options.timeouts?.silenceMs,
   });
 
   /**

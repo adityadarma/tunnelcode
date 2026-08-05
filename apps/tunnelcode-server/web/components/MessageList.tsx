@@ -134,7 +134,12 @@ export function MessageList({
                     {...(item.live === true ? { live: true } : {})}
                   />
                 ) : (
-                  <ActivityItem key={item.id} activity={item.activity} workspace={workspace} onGrantAndRetry={onGrantAndRetry} />
+                  <ActivityItem
+                    key={item.id}
+                    activity={item.activity}
+                    workspace={workspace}
+                    onGrantAndRetry={onGrantAndRetry}
+                  />
                 ),
               )}
               {turn.isStreaming && (

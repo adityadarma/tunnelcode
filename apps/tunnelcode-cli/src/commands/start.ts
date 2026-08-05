@@ -111,6 +111,7 @@ export async function runStart(cwd: string): Promise<number> {
     timeouts: {
       idleMs: ready.config.timeouts.idleMinutes * 60 * 1000,
       answerMs: ready.config.timeouts.answerMinutes * 60 * 1000,
+      silenceMs: ready.config.timeouts.silenceMinutes * 60 * 1000,
     },
   });
 }

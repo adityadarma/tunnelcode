@@ -22,7 +22,11 @@ interface ActivityItemProps {
  * because a command prints more than the whole conversation around it and a
  * transcript that pastes it inline stops being readable on a phone. See ADR-024.
  */
-export function ActivityItem({ activity, workspace, onGrantAndRetry }: ActivityItemProps): React.JSX.Element {
+export function ActivityItem({
+  activity,
+  workspace,
+  onGrantAndRetry,
+}: ActivityItemProps): React.JSX.Element {
   const [expanded, setExpanded] = useState(false);
 
   // Checked by type rather than against undefined: the transcript endpoint returns

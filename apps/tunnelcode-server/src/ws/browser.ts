@@ -413,9 +413,7 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
      * grant is written by the CLI (it owns the settings file) and the prompt is
      * re-sent as a new turn in the same conversation.
      */
-    const grantAndRetry = (
-      message: Extract<BrowserMessage, { type: 'grant_and_retry' }>,
-    ): void => {
+    const grantAndRetry = (message: Extract<BrowserMessage, { type: 'grant_and_retry' }>): void => {
       if (sessionId === undefined || deviceId === undefined) {
         reply({ type: 'error', message: 'Not attached to a session.' });
         return;

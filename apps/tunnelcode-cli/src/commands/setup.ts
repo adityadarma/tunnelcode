@@ -43,7 +43,7 @@ function draftFrom(stored: GlobalConfig | undefined): GlobalConfig {
       server: { url: resolveDefaultServerUrl() },
       device: { name: hostname() },
       engine: DEFAULT_ENGINE,
-      timeouts: { idleMinutes: 60, answerMinutes: 5 },
+      timeouts: { idleMinutes: 60, answerMinutes: 5, silenceMinutes: 15 },
       permission: { deny: [] },
     }
   );
@@ -120,6 +120,7 @@ async function editEngine(draft: GlobalConfig): Promise<void> {
 
 const DEFAULT_IDLE_MINUTES = 60;
 const DEFAULT_ANSWER_MINUTES = 5;
+const DEFAULT_SILENCE_MINUTES = 15;
 
 async function editTimeouts(draft: GlobalConfig): Promise<void> {
   const current = draft.timeouts;
@@ -135,17 +136,23 @@ async function editTimeouts(draft: GlobalConfig): Promise<void> {
       `  answerMinutes: permission ask times out after this many minutes (default: ${String(DEFAULT_ANSWER_MINUTES)})`,
     ),
   );
+  writeOut(
+    dim(
+      `  silenceMinutes: turn abandoned after this many minutes without engine output (default: ${String(DEFAULT_SILENCE_MINUTES)})`,
+    ),
+  );
   writeOut('');
 
-  type TimeoutChoice = 'idle' | 'answer' | 'defaults' | 'back';
+  type TimeoutChoice = 'idle' | 'answer' | 'silence' | 'defaults' | 'back';
 
   const choice = await select('Timeouts', [
     { value: 'idle', label: 'Idle timeout', hint: `${String(current.idleMinutes)} min` },
     { value: 'answer', label: 'Answer timeout', hint: `${String(current.answerMinutes)} min` },
+    { value: 'silence', label: 'Silence timeout', hint: `${String(current.silenceMinutes)} min` },
     {
       value: 'defaults',
       label: 'Reset to defaults',
-      hint: `${String(DEFAULT_IDLE_MINUTES)}/${String(DEFAULT_ANSWER_MINUTES)} min`,
+      hint: `${String(DEFAULT_IDLE_MINUTES)}/${String(DEFAULT_ANSWER_MINUTES)}/${String(DEFAULT_SILENCE_MINUTES)} min`,
     },
     { value: 'back', label: 'Back' },
   ] satisfies Choice<TimeoutChoice>[]);
@@ -157,19 +164,28 @@ async function editTimeouts(draft: GlobalConfig): Promise<void> {
   if (choice === 'defaults') {
     await writeGlobalConfig({
       ...draft,
-      timeouts: { idleMinutes: DEFAULT_IDLE_MINUTES, answerMinutes: DEFAULT_ANSWER_MINUTES },
+      timeouts: {
+        idleMinutes: DEFAULT_IDLE_MINUTES,
+        answerMinutes: DEFAULT_ANSWER_MINUTES,
+        silenceMinutes: DEFAULT_SILENCE_MINUTES,
+      },
     });
     writeOut(
       green(
-        `Timeouts reset to defaults (idle: ${cyan(`${String(DEFAULT_IDLE_MINUTES)} min`)}, answer: ${cyan(`${String(DEFAULT_ANSWER_MINUTES)} min`)})`,
+        `Timeouts reset to defaults (idle: ${cyan(`${String(DEFAULT_IDLE_MINUTES)} min`)}, answer: ${cyan(`${String(DEFAULT_ANSWER_MINUTES)} min`)}, silence: ${cyan(`${String(DEFAULT_SILENCE_MINUTES)} min`)})`,
       ),
     );
     return;
   }
 
-  const isIdle = choice === 'idle';
-  const label = isIdle ? 'Idle minutes' : 'Answer minutes';
-  const currentValue = isIdle ? current.idleMinutes : current.answerMinutes;
+  const label =
+    choice === 'idle' ? 'Idle minutes' : choice === 'answer' ? 'Answer minutes' : 'Silence minutes';
+  const currentValue =
+    choice === 'idle'
+      ? current.idleMinutes
+      : choice === 'answer'
+        ? current.answerMinutes
+        : current.silenceMinutes;
 
   const answer = await ask({ label, current: String(currentValue) });
 
@@ -184,12 +200,15 @@ async function editTimeouts(draft: GlobalConfig): Promise<void> {
     return;
   }
 
-  if (isIdle) {
+  if (choice === 'idle') {
     await writeGlobalConfig({ ...draft, timeouts: { ...current, idleMinutes: value } });
     writeOut(green(`Idle timeout set to ${cyan(`${String(value)} min`)}`));
-  } else {
+  } else if (choice === 'answer') {
     await writeGlobalConfig({ ...draft, timeouts: { ...current, answerMinutes: value } });
     writeOut(green(`Answer timeout set to ${cyan(`${String(value)} min`)}`));
+  } else {
+    await writeGlobalConfig({ ...draft, timeouts: { ...current, silenceMinutes: value } });
+    writeOut(green(`Silence timeout set to ${cyan(`${String(value)} min`)}`));
   }
 }
 
@@ -299,7 +318,7 @@ export async function runSetupMenu(): Promise<void> {
       {
         value: 'timeouts',
         label: 'Timeouts',
-        hint: `idle ${String(draft.timeouts.idleMinutes)}m, answer ${String(draft.timeouts.answerMinutes)}m`,
+        hint: `idle ${String(draft.timeouts.idleMinutes)}m, answer ${String(draft.timeouts.answerMinutes)}m, silence ${String(draft.timeouts.silenceMinutes)}m`,
       },
       {
         value: 'ceiling',

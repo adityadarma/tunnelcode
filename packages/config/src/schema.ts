@@ -25,8 +25,15 @@ export const globalConfigSchema = z.object({
       idleMinutes: z.number().positive().default(60),
       /** Minutes a tool-run approval waits before being auto-refused. Default: 5. */
       answerMinutes: z.number().positive().default(5),
+      /**
+       * Minutes without engine output before the turn is abandoned. Default: 15.
+       *
+       * Antigravity can run long commands (tests, builds) that produce no streaming
+       * output until they finish. Set higher if builds routinely take longer.
+       */
+      silenceMinutes: z.number().positive().default(15),
     })
-    .default({ idleMinutes: 60, answerMinutes: 5 }),
+    .default({ idleMinutes: 60, answerMinutes: 5, silenceMinutes: 15 }),
   /**
    * Limit on what this machine will ever agree to do, whatever the browser
    * answers.
