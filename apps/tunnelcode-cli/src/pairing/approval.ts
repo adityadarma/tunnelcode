@@ -1,4 +1,5 @@
 import { writeOut } from '../output.js';
+import { bold, green, greenBold } from '../style.js';
 
 /**
  * What is being asked for.
@@ -21,14 +22,18 @@ export async function askApproval(
   writeOut('');
 
   if (purpose === 'resume') {
-    writeOut(`Reconnect request  ${approvalNumber}`);
-    writeOut('A browser paired earlier wants to keep using this workspace.');
-    writeOut('Approve only if that browser shows this same number.');
-    writeOut('Press y to approve, n to end its session.');
+    writeOut(
+      `${green('✔')} ${bold('Reconnect request! Approval Number:')} ${greenBold(approvalNumber)}`,
+    );
+    writeOut('  A browser paired earlier wants to keep using this workspace.');
+    writeOut('  Approve only if that browser shows this same number.');
+    writeOut('  Press y to approve, n to end its session.');
   } else {
-    writeOut(`Pairing request  ${approvalNumber}`);
-    writeOut('Approve only if the browser shows this same number.');
-    writeOut('Press y to approve, n to reject.');
+    writeOut(
+      `${green('✔')} ${bold('Connection requested! Approval Number:')} ${greenBold(approvalNumber)}`,
+    );
+    writeOut('  Approve only if the browser shows this same number.');
+    writeOut('  Press y to approve, n to reject.');
   }
 
   const stdin = process.stdin;

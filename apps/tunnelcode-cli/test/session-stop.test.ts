@@ -171,7 +171,7 @@ test('Ctrl+C ends a CLI that is waiting to pair', async () => {
       const child = startCli(fixture);
 
       try {
-        await waitForOutput(child, /Waiting for a browser to pair/);
+        await waitForOutput(child, /Waiting for browser connection/);
 
         child.kill('SIGINT');
         const code = await waitForExit(child, 15000);
@@ -232,7 +232,7 @@ test('the CLI releases its connection when stopped', async () => {
       const child = startCli(fixture);
 
       try {
-        await waitForOutput(child, /Waiting for a browser to pair/);
+        await waitForOutput(child, /Waiting for browser connection/);
         child.kill('SIGINT');
 
         // The server frees a pairing code when the socket closes, so a CLI that

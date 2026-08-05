@@ -1,20 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ConversationPage } from './pages/ConversationPage.js';
 import { FileChangesPage } from './pages/FileChangesPage.js';
+import { IndexPage } from './pages/IndexPage.js';
 import { LoginPage } from './pages/LoginPage.js';
 import { clearStoredSession, readStoredSession, storeSession, takeCodeFromUrl } from './storage.js';
 import { useRoute } from './useRoute.js';
 
 /**
- * Chooses between pairing and conversation.
- *
- * The code is read from the URL once at startup and removed from the address
- * bar, so it does not stay in browser history.
+ * Main App component choosing between Landing, Login/Pairing, Conversation, and FileChanges.
  */
 export function App(): React.JSX.Element {
   const [codeFromUrl, setCodeFromUrl] = useState(takeCodeFromUrl);
   const [sessionId, setSessionId] = useState<string | undefined>(readStoredSession);
-  const { route, goToConversation, goToFileChanges, goToLogin } = useRoute();
+  const { route, goToLanding, goToConversation, goToFileChanges, goToLogin } = useRoute();
 
   const handlePaired = useCallback(
     (id: string): void => {
@@ -28,8 +26,6 @@ export function App(): React.JSX.Element {
   );
 
   const handleSessionLost = useCallback((): void => {
-    // Dropped as well: the code that opened this session cannot open another, and
-    // reusing it would put the pairing screen straight into a failed attempt.
     setCodeFromUrl(undefined);
     clearStoredSession();
     setSessionId(undefined);
@@ -50,10 +46,21 @@ export function App(): React.JSX.Element {
   // A returning visitor already has a session, so the pairing screen would only
   // be in the way. A code in the URL means pairing was asked for on purpose.
   useEffect(() => {
-    if (route.name === 'login' && sessionId !== undefined && codeFromUrl === undefined) {
+    if (
+      (route.name === 'login' || route.name === 'index') &&
+      sessionId !== undefined &&
+      codeFromUrl === undefined
+    ) {
       goToConversation();
     }
   }, [route, sessionId, codeFromUrl, goToConversation]);
+
+  const handleNavigateLanding = useCallback((): void => {
+    // A code in the URL is single use. Clearing it here prevents the login page
+    // from being shown again when the user returns to the landing page via the back button.
+    setCodeFromUrl(undefined);
+    goToLanding();
+  }, [goToLanding]);
 
   if (route.name === 'conversation' && sessionId !== undefined) {
     return (
@@ -69,5 +76,22 @@ export function App(): React.JSX.Element {
     return <FileChangesPage sessionId={sessionId} onBack={goToConversation} />;
   }
 
-  return <LoginPage initialCode={codeFromUrl} onPaired={handlePaired} />;
+  // Landing route always wins — even if codeFromUrl is still set.
+  if (route.name === 'index') {
+    return <IndexPage onNavigateLogin={goToLogin} />;
+  }
+
+  // If on login route or coming from QR link with a code, show the standalone centered LoginPage
+  if (route.name === 'login' || codeFromUrl !== undefined) {
+    return (
+      <LoginPage
+        initialCode={codeFromUrl}
+        onPaired={handlePaired}
+        onNavigateLanding={handleNavigateLanding}
+      />
+    );
+  }
+
+  // Default index route (/) renders the modern IndexPage
+  return <IndexPage onNavigateLogin={goToLogin} />;
 }

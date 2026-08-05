@@ -5,6 +5,8 @@ import type { AvailableEngine } from '@tunnelcode/engine';
 import { runPairingSession } from '../pairing/session.js';
 import { writeErr, writeOut } from '../output.js';
 import { withSpinner } from '../spinner.js';
+import { dim } from '../style.js';
+import { readVersion } from '../version.js';
 
 /**
  * Configuration plus the engines this machine can run, or undefined when
@@ -41,13 +43,13 @@ async function prepare(cwd: string): Promise<Ready | undefined> {
   // the terminal is blank for as long as the slowest engine takes to answer.
   const engines = await withSpinner('Generating...', () => discoverEngines());
 
+  const version = readVersion();
+  writeOut(`${dim(`[TunnelCode v${version}]`)} Initializing device...`);
+  writeOut(`${dim('[TunnelCode]')} Workspace: ${cwd}`);
   writeOut('');
-  writeOut(`workspace  ${cwd}`);
-  writeOut(`server     ${config.server.url}`);
-  writeOut(`device     ${config.device.name}`);
 
   if (engines.length === 0) {
-    writeOut(`engines    ${ENGINE_NAMES.join(', ')} (none found on PATH)`);
+    writeOut(`${dim('engines')}    ${ENGINE_NAMES.join(', ')} (none found on PATH)`);
     writeOut('');
     writeErr(
       `Cannot find any engine on PATH. Install one of: ${ENGINE_NAMES.join(', ')}, then try again.`,
@@ -55,10 +57,8 @@ async function prepare(cwd: string): Promise<Ready | undefined> {
     return undefined;
   }
 
-  // The preferred one is marked, since that is what a new conversation starts
-  // with unless the browser picks another.
   writeOut(
-    `engines    ${engines
+    `${dim('engines')}    ${engines
       .map((engine) => (engine.name === config.engine ? `${engine.name} (default)` : engine.name))
       .join(', ')}`,
   );

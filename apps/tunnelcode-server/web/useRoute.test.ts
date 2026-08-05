@@ -7,7 +7,15 @@ describe('useRoute', () => {
     window.history.replaceState({}, '', '/');
   });
 
-  test('the root path is the pairing screen', () => {
+  test('the root path is the landing screen', () => {
+    const { result } = renderHook(() => useRoute());
+
+    expect(result.current.route.name).toBe('index');
+  });
+
+  test('the login path is the pairing screen', () => {
+    window.history.replaceState({}, '', '/login');
+
     const { result } = renderHook(() => useRoute());
 
     expect(result.current.route.name).toBe('login');
@@ -33,7 +41,7 @@ describe('useRoute', () => {
     expect(result.current.route.name).toBe('conversation');
   });
 
-  test('going back returns to pairing', async () => {
+  test('going back returns to landing', async () => {
     const { result } = renderHook(() => useRoute());
 
     act(() => {
@@ -50,7 +58,7 @@ describe('useRoute', () => {
     });
 
     expect(window.location.pathname).toBe('/');
-    expect(result.current.route.name).toBe('login');
+    expect(result.current.route.name).toBe('index');
   });
 
   test('a lost session leaves no conversation entry in history', () => {
@@ -63,7 +71,7 @@ describe('useRoute', () => {
       result.current.goToLogin();
     });
 
-    expect(window.location.pathname).toBe('/');
+    expect(window.location.pathname).toBe('/login');
 
     // replaceState means back cannot return to a conversation that will not load.
     act(() => {

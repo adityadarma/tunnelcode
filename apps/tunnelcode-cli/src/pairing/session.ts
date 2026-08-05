@@ -10,6 +10,7 @@ import { createPermissionPolicy } from './permission-policy.js';
 import { PromptRunner } from './prompt-runner.js';
 import { renderQr } from './qr.js';
 import { writeErr, writeOut } from '../output.js';
+import { bold, cyanBold, dim, green, greenBold, red, yellow } from '../style.js';
 import { withSpinner } from '../spinner.js';
 import { readVersion } from '../version.js';
 
@@ -105,10 +106,10 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
   const socketUrl = buildCliSocketUrl(options.serverUrl);
 
   writeOut(await withSpinner('Generating...', () => renderQr(loginUrl)));
-  writeOut(`Scan the QR or open  ${loginUrl}`);
-  writeOut(`Pairing code         ${code}`);
+  writeOut(`ℹ Pairing Code Generated: ${cyanBold(` ${code} `)}`);
+  writeOut(`${dim('[Pairing]')} Open ${loginUrl}`);
   writeOut('');
-  writeOut('Waiting for a browser to pair.');
+  writeOut(`${yellow('⏳')} ${bold('Waiting for browser connection request...')}`);
 
   // Held in an object because these are only ever written from callbacks, which
   // the compiler cannot narrow through.
@@ -326,7 +327,7 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
       idle.start();
 
       if (state.paired) {
-        writeOut('Reconnected.');
+        writeOut(`${green('✔')} Reconnected.`);
         // Ensure the file watcher is running after a reconnect, since onPaired
         // does not fire again for sessions that were already paired.
         fileWatcher.start();
@@ -365,7 +366,11 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
 
     onPairRequest: async (approvalNumber) => {
       const approved = await askApproval(approvalNumber);
-      writeOut(approved ? 'Approved.' : 'Rejected.');
+      writeOut(
+        approved
+          ? `${green('✔')} ${greenBold('Approved! Session established.')}`
+          : `${red('✗')} Rejected.`,
+      );
       return approved;
     },
 
@@ -374,7 +379,11 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
     // See ADR-040.
     onResumeRequest: async (approvalNumber) => {
       const approved = await askApproval(approvalNumber, 'resume');
-      writeOut(approved ? 'Approved.' : 'Rejected. That browser has to pair again.');
+      writeOut(
+        approved
+          ? `${green('✔')} ${greenBold('Approved! Session resumed.')}`
+          : `${red('✗')} Rejected. That browser has to pair again.`,
+      );
       return approved;
     },
 
@@ -394,8 +403,8 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
       idle.reset();
       fileWatcher.start();
       writeOut('');
-      writeOut('Device connected.');
-      writeOut('Prompts from the browser now run here. Press Ctrl+C to stop.');
+      writeOut(`${green('✔')} ${greenBold('Device connected.')}`);
+      writeOut(`  Prompts from the browser now run here. Press ${bold('Ctrl+C')} to stop.`);
     },
 
     onError: (message, fatal) => {

@@ -58,7 +58,14 @@ describe('App', () => {
     vi.unstubAllGlobals();
   });
 
-  test('a fresh visitor sees the pairing screen', () => {
+  test('a fresh visitor sees the landing page', () => {
+    render(<App />);
+
+    expect(screen.getByRole('heading', { name: 'Ready to pair?' })).toBeDefined();
+  });
+
+  test('a visitor on /login sees the pairing screen', () => {
+    window.history.replaceState({}, '', '/login');
     render(<App />);
 
     expect(screen.getByLabelText('Pairing code')).toBeDefined();
@@ -113,13 +120,13 @@ describe('App', () => {
     expect(screen.queryByLabelText('Message')).toBeNull();
   });
 
-  test('landing on the conversation url without a session goes back to pairing', async () => {
+  test('landing on the conversation url without a session goes back to login', async () => {
     window.history.replaceState({}, '', '/conversation');
 
     render(<App />);
 
     await waitFor(() => {
-      expect(window.location.pathname).toBe('/');
+      expect(window.location.pathname).toBe('/login');
     });
 
     expect(screen.getByLabelText('Pairing code')).toBeDefined();

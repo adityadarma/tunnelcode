@@ -131,21 +131,30 @@ export class FileWatcher {
           });
           diff = stdout.slice(0, MAX_DIFF_LENGTH);
         } else if (file.status !== 'D') {
-          // Modified: get the full file diff with all context lines
+          // Modified: try working tree diff first, then staged diff
           const { stdout } = await exec('git', ['diff', '-U9999', '--', file.path], {
             cwd: this.options.cwd,
             timeout: 5000,
           });
 
-          if (!stdout.trim()) {
-            // Might be staged
+          if (stdout.trim()) {
+            diff = stdout.slice(0, MAX_DIFF_LENGTH);
+          } else {
+            // Might be staged — try cached diff
             const staged = await exec('git', ['diff', '--cached', '-U9999', '--', file.path], {
               cwd: this.options.cwd,
               timeout: 5000,
             });
-            diff = staged.stdout.slice(0, MAX_DIFF_LENGTH);
-          } else {
-            diff = stdout.slice(0, MAX_DIFF_LENGTH);
+            if (staged.stdout.trim()) {
+              diff = staged.stdout.slice(0, MAX_DIFF_LENGTH);
+            } else {
+              // Last resort: diff HEAD to catch both staged and unstaged changes combined
+              const head = await exec('git', ['diff', 'HEAD', '-U9999', '--', file.path], {
+                cwd: this.options.cwd,
+                timeout: 5000,
+              });
+              diff = head.stdout.slice(0, MAX_DIFF_LENGTH) || undefined;
+            }
           }
         }
       } catch {

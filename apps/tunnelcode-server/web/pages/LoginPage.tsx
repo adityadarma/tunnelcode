@@ -13,16 +13,19 @@ type Phase =
 interface LoginPageProps {
   initialCode: string | undefined;
   onPaired: (sessionId: string) => void;
+  onNavigateLanding?: () => void;
 }
 
 /**
- * Pairing screen.
+ * Pairing screen (previous standalone centered design).
  *
- * The approval number is shown here and has to match what the terminal shows.
- * Nothing is paired until the user approves there, so this screen only ever
- * waits. See PROJECT.md (Pairing Approval).
+ * Displays the approval number and handles pairing verification with the CLI terminal.
  */
-export function LoginPage({ initialCode, onPaired }: LoginPageProps): React.JSX.Element {
+export function LoginPage({
+  initialCode,
+  onPaired,
+  onNavigateLanding,
+}: LoginPageProps): React.JSX.Element {
   const [code, setCode] = useState(initialCode ?? '');
   const [phase, setPhase] = useState<Phase>({ name: 'form' });
   const [error, setError] = useState<string | undefined>(undefined);
@@ -52,8 +55,6 @@ export function LoginPage({ initialCode, onPaired }: LoginPageProps): React.JSX.
   };
 
   // Coming from a QR link, the code is already known, so pairing starts at once.
-  // A ref guards against StrictMode re-running the effect, which would create a
-  // second pending request on the server while the browser only polls the last one.
   const submitted = useRef(false);
 
   useEffect(() => {
@@ -178,6 +179,16 @@ export function LoginPage({ initialCode, onPaired }: LoginPageProps): React.JSX.
     <main className="centered">
       <div className="login-bg-glow" />
       <section className="card login-card">
+        {onNavigateLanding !== undefined && (
+          <button
+            type="button"
+            className="back-to-landing-btn"
+            onClick={onNavigateLanding}
+            title="Back to Landing Page"
+          >
+            ← Back to Overview
+          </button>
+        )}
         <div className="login-header">
           <div className="brand-badge">
             <img src="/icon-192.png" alt="TunnelCode" width="24" height="24" />
@@ -202,8 +213,6 @@ export function LoginPage({ initialCode, onPaired }: LoginPageProps): React.JSX.
               value={code}
               onChange={(event) => {
                 setCode(event.target.value);
-                // Editing means the user is answering the complaint, so keeping the
-                // old message on screen would only describe a code that is gone.
                 setError(undefined);
               }}
               placeholder="ABCDEFGH"
