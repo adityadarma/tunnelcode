@@ -20,7 +20,7 @@ import { cyan, dim, green } from '../style.js';
 const DEFAULT_ENGINE: EngineName = 'opencode';
 
 type Field =
-  'server' | 'device' | 'engine' | 'ceiling' | 'grants' | 'antigravity' | 'doctor' | 'back';
+  'server' | 'device' | 'engine' | 'timeouts' | 'ceiling' | 'grants' | 'antigravity' | 'doctor' | 'back';
 
 /** Separator for the deny list, which is read and written as one line. */
 const RULE_SEPARATOR = ',';
@@ -108,6 +108,77 @@ async function editEngine(draft: GlobalConfig): Promise<void> {
 
   await writeGlobalConfig({ ...draft, engine: choice });
   writeOut(green(`Engine set to ${cyan(choice)}`));
+}
+
+const DEFAULT_IDLE_MINUTES = 60;
+const DEFAULT_ANSWER_MINUTES = 5;
+
+async function editTimeouts(draft: GlobalConfig): Promise<void> {
+  const current = draft.timeouts;
+
+  writeOut('');
+  writeOut(dim(`  idleMinutes: session ends after this many minutes without activity (default: ${String(DEFAULT_IDLE_MINUTES)})`));
+  writeOut(dim(`  answerMinutes: permission ask times out after this many minutes (default: ${String(DEFAULT_ANSWER_MINUTES)})`));
+  writeOut('');
+
+  type TimeoutChoice = 'idle' | 'answer' | 'defaults' | 'back';
+
+  const choice = await select('Timeouts', [
+    { value: 'idle', label: 'Idle timeout', hint: `${String(current.idleMinutes)} min` },
+    { value: 'answer', label: 'Answer timeout', hint: `${String(current.answerMinutes)} min` },
+    { value: 'defaults', label: 'Reset to defaults', hint: `${String(DEFAULT_IDLE_MINUTES)}/${String(DEFAULT_ANSWER_MINUTES)} min` },
+    { value: 'back', label: 'Back' },
+  ] satisfies Choice<TimeoutChoice>[]);
+
+  if (choice === CANCELLED || choice === 'back') {
+    return;
+  }
+
+  if (choice === 'defaults') {
+    await writeGlobalConfig({
+      ...draft,
+      timeouts: { idleMinutes: DEFAULT_IDLE_MINUTES, answerMinutes: DEFAULT_ANSWER_MINUTES },
+    });
+    writeOut(green(`Timeouts reset to defaults (idle: ${cyan(`${String(DEFAULT_IDLE_MINUTES)} min`)}, answer: ${cyan(`${String(DEFAULT_ANSWER_MINUTES)} min`)})`));
+    return;
+  }
+
+  if (choice === 'idle') {
+    const answer = await ask({ label: 'Idle minutes', current: String(current.idleMinutes) });
+
+    if (answer === CANCELLED) {
+      return;
+    }
+
+    const value = Number(answer);
+
+    if (!Number.isFinite(value) || value <= 0) {
+      writeErr('Must be a positive number.');
+      return;
+    }
+
+    await writeGlobalConfig({ ...draft, timeouts: { ...current, idleMinutes: value } });
+    writeOut(green(`Idle timeout set to ${cyan(`${String(value)} min`)}`));
+    return;
+  }
+
+  if (choice === 'answer') {
+    const answer = await ask({ label: 'Answer minutes', current: String(current.answerMinutes) });
+
+    if (answer === CANCELLED) {
+      return;
+    }
+
+    const value = Number(answer);
+
+    if (!Number.isFinite(value) || value <= 0) {
+      writeErr('Must be a positive number.');
+      return;
+    }
+
+    await writeGlobalConfig({ ...draft, timeouts: { ...current, answerMinutes: value } });
+    writeOut(green(`Answer timeout set to ${cyan(`${String(value)} min`)}`));
+  }
 }
 
 /**
@@ -214,6 +285,11 @@ export async function runSetupMenu(): Promise<void> {
       { value: 'device', label: 'Device name', hint: draft.device.name },
       { value: 'engine', label: 'Engine', hint: draft.engine },
       {
+        value: 'timeouts',
+        label: 'Timeouts',
+        hint: `idle ${String(draft.timeouts.idleMinutes)}m, answer ${String(draft.timeouts.answerMinutes)}m`,
+      },
+      {
         value: 'ceiling',
         label: 'Never allow',
         hint:
@@ -248,6 +324,9 @@ export async function runSetupMenu(): Promise<void> {
         break;
       case 'engine':
         await editEngine(draft);
+        break;
+      case 'timeouts':
+        await editTimeouts(draft);
         break;
       case 'ceiling':
         await editCeiling(draft);
