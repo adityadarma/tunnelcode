@@ -1145,11 +1145,11 @@
    its shape and spacing, and only the colour changes. A single-class selector ties
    the outcome to which rule the stylesheet happens to emit last. */
 .btn-send.btn-stop {
-  @apply border-0 bg-[var(--danger)] text-white shadow-md;
+  @apply border-0 bg-red-500/70 text-white/90 shadow-sm;
 }
 
 .btn-send.btn-stop:hover {
-  @apply bg-red-600;
+  @apply bg-red-500/85 text-white;
 }
 
 /* The square reads as the button's meaning, so it follows the text rather than

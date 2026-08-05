@@ -1,7 +1,7 @@
 import { readActivityTarget } from '../activity.js';
 import { captureOutput, isOnPath } from '../which.js';
-import { AcpError, startAcp } from './kiro-acp.js';
-import type { AcpConnection, RpcRequest } from './kiro-acp.js';
+import { RpcFailure, startJsonRpc } from './json-rpc.js';
+import type { RpcConnection, RpcRequest } from './json-rpc.js';
 import type {
   Engine,
   EngineEvent,
@@ -506,10 +506,10 @@ export class KiroEngine implements Engine {
       return { outcome: { outcome: 'selected', optionId } };
     };
 
-    let connection: AcpConnection | undefined;
+    let connection: RpcConnection | undefined;
 
     try {
-      connection = await startAcp(COMMAND, ['acp'], options.cwd, {
+      connection = await startJsonRpc(COMMAND, ['acp'], options.cwd, {
         onRequest: async (request) => {
           if (request.method === 'session/request_permission') {
             return decide(request);
@@ -665,7 +665,7 @@ export class KiroEngine implements Engine {
         finished = true;
         const authFailed =
           needsLogin ||
-          (error instanceof AcpError &&
+          (error instanceof RpcFailure &&
             error.code === AUTH_REQUIRED &&
             AUTH_MESSAGE.test(error.message));
 
@@ -719,7 +719,7 @@ export class KiroEngine implements Engine {
  * answers, which is why the caller stops relaying updates until it returns.
  */
 async function openSession(
-  connection: AcpConnection,
+  connection: RpcConnection,
   options: PromptOptions,
   resume: string | undefined,
 ): Promise<string> {
@@ -766,7 +766,7 @@ async function openSession(
  * it would be worse than answering on the default.
  */
 async function chooseModel(
-  connection: AcpConnection,
+  connection: RpcConnection,
   sessionId: string,
   model: string,
 ): Promise<string | undefined> {

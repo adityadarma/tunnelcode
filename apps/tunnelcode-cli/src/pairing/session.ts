@@ -164,7 +164,9 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
     onExpired: () => {
       const minutes = Math.round((options.timeouts?.idleMs ?? 60 * 60 * 1000) / 60 / 1000);
       writeOut('');
-      writeOut(`No conversation for ${String(minutes)} minute${minutes === 1 ? '' : 's'}. Ending the session.`);
+      writeOut(
+        `No conversation for ${String(minutes)} minute${minutes === 1 ? '' : 's'}. Ending the session.`,
+      );
       stop();
     },
   });

@@ -35,6 +35,36 @@ if (process.argv[2] === 'chat' && process.argv.includes('--list-models')) {
 process.exit(0);
 `;
 
+/**
+ * Fake codex. Discovery asks it for a login first, then lists models over the app
+ * server, which speaks JSON-RPC on stdio.
+ */
+const CODEX = `#!/usr/bin/env node
+if (process.argv[2] === 'login') {
+  // On stderr, which is where the real CLI writes it either way, so the login is
+  // read from the exit status rather than from the wording.
+  process.stderr.write('Logged in using ChatGPT\\n');
+  process.exit(0);
+}
+const send = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+let buffer = '';
+process.stdin.on('data', (chunk) => {
+  buffer += chunk;
+  const lines = buffer.split('\\n');
+  buffer = lines.pop() ?? '';
+  for (const line of lines) {
+    if (line.trim() === '') continue;
+    const msg = JSON.parse(line);
+    if (msg.method === 'initialize') {
+      send({ jsonrpc: '2.0', id: msg.id, result: { userAgent: 'fake' } });
+    }
+    if (msg.method === 'model/list') {
+      send({ jsonrpc: '2.0', id: msg.id, result: { data: [{ id: 'gpt-5.6-terra', hidden: false }, { id: 'internal-eval', hidden: true }] } });
+    }
+  }
+});
+`;
+
 test('an engine that is not installed is never offered', async () => {
   await withEmptyPath(async () => {
     // Supported but absent is the same as unusable: a browser offered it would
@@ -106,6 +136,23 @@ test('kiro is discovered under the name its binary does not share', async () => 
       );
       assert.equal(found[0]?.command, 'kiro-cli');
       assert.deepEqual(found[0]?.models, ['claude-sonnet-4.5']);
+    });
+  });
+});
+
+test('codex is discovered, and its models come from its app server', async () => {
+  await withEmptyPath(async () => {
+    await withFakeEngine('codex', CODEX, async () => {
+      const found = await discoverEngines();
+
+      // Configured and spawned under the same name, unlike antigravity and kiro.
+      assert.deepEqual(
+        found.map((engine) => engine.name),
+        ['codex'],
+      );
+      assert.equal(found[0]?.command, 'codex');
+      // The hidden model is left out: Codex keeps it out of its own picker.
+      assert.deepEqual(found[0]?.models, ['gpt-5.6-terra']);
     });
   });
 });

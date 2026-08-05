@@ -16,8 +16,8 @@ not an IDE and not an AI provider. See `PROJECT.md` for the full specification a
 - Node.js 24 or newer
 - pnpm 11
 - An engine on PATH: [OpenCode](https://opencode.ai), [Claude Code](https://claude.com/product/claude-code),
-  [Antigravity CLI](https://antigravity.google/product/antigravity-cli), or
-  [Kiro CLI](https://kiro.dev)
+  [Antigravity CLI](https://antigravity.google/product/antigravity-cli),
+  [Kiro CLI](https://kiro.dev), or [Codex CLI](https://developers.openai.com/codex/cli)
 
 ## Platforms
 
@@ -121,6 +121,27 @@ discards a change. Arrow keys and Enter move through the lists, Escape goes back
 
 ## Engines
 
+| Engine                                                             | Binary     | macOS | Linux            | Windows          |
+| ------------------------------------------------------------------ | ---------- | ----- | ---------------- | ---------------- |
+| [OpenCode](https://opencode.ai)                                    | `opencode` | ✅    | ⚠️ needs a tester | ⚠️ needs a tester |
+| [Claude Code](https://claude.com/product/claude-code)              | `claude`   | ✅    | ⚠️ needs a tester | ⚠️ needs a tester |
+| [Antigravity CLI](https://antigravity.google/product/antigravity-cli) | `agy`      | ✅    | ⚠️ needs a tester | ⚠️ needs a tester |
+| [Kiro CLI](https://kiro.dev)                                       | `kiro-cli` | ✅    | ⚠️ needs a tester | ⚠️ needs a tester |
+| [Codex CLI](https://developers.openai.com/codex/cli)               | `codex`    | ✅    | ⚠️ needs a tester | ⚠️ needs a tester |
+
+✅ means the adapter has been driven against the real CLI on that platform, prompt to
+answer, with its tool calls reported and an earlier conversation continued. ⚠️ means
+nobody has done that yet — not that it is known to fail. The adapters are written for
+all three: the lookup goes through the platform's own tool, a batch shim is launched
+through `cmd.exe`, and nothing depends on a shell. Reports are welcome.
+
+Permission asks are covered by the test suite for every engine that raises them, on
+whatever platform the suite runs. The table is about the real binaries.
+
+That is a narrower claim than the one under Platforms, which is about the CLI itself.
+An engine adapter talks to somebody else's binary, so it can break on a platform the
+CLI is fine on.
+
 The CLI offers every engine that is both supported here and installed on your
 machine. Nothing else is offered, so a choice made in the browser can always be
 served. If no engine is installed, the session does not start.
@@ -210,6 +231,23 @@ and is read every time it runs, so granting it affects your own terminal session
 That is why it is a menu item you choose rather than something done for you. Nothing
 else in that file is touched, and settings that cannot be parsed are refused rather
 than overwritten. See ADR-031.
+
+### Codex asks from inside a sandbox
+
+Codex does show cards, and it decides when to raise one from a sandbox rather than
+per tool call. TunnelCode starts every Codex thread read-only, so the engine reads the
+workspace and runs commands that only read without asking, and everything that writes
+a file or reaches the network becomes an ask.
+
+Those two settings are set here, on every thread, and not read from your
+`~/.codex/config.toml`. An `approval_policy` of `never` in that file would otherwise
+let the engine decide every call by itself, and a `danger-full-access` sandbox would
+let it do anything, neither of which the phone holding the session could see. What is
+in your config file still applies to your own `codex` sessions. See ADR-048.
+
+Always allow is recorded on this machine as it is for the other engines, not with
+Codex's own `acceptForSession` or its execpolicy rules, so Setup can list it and clear
+it.
 
 ## Install it as an app
 

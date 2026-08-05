@@ -8,7 +8,7 @@ const exec = promisify(execFile);
 const POLL_INTERVAL_MS = 5000;
 
 /** Maximum diff size per file before truncating. */
-const MAX_DIFF_LENGTH = 50_000;
+const MAX_DIFF_LENGTH = 500_000;
 
 interface FileChange {
   path: string;

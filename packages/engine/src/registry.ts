@@ -1,5 +1,6 @@
 import { AntigravityEngine } from './adapters/antigravity.js';
 import { ClaudeEngine } from './adapters/claude.js';
+import { CodexEngine } from './adapters/codex.js';
 import { KiroEngine } from './adapters/kiro.js';
 import { OpenCodeEngine } from './adapters/opencode.js';
 import type { Engine } from './types.js';
@@ -10,7 +11,7 @@ import type { Engine } from './types.js';
  * The order is the order Setup offers them in, so a name is appended rather than
  * inserted: the menu is answered by position when stdin is not a terminal.
  */
-export const ENGINE_NAMES = ['opencode', 'claude', 'antigravity', 'kiro'] as const;
+export const ENGINE_NAMES = ['opencode', 'claude', 'antigravity', 'kiro', 'codex'] as const;
 
 export type EngineName = (typeof ENGINE_NAMES)[number];
 
@@ -36,6 +37,8 @@ export function createEngine(name: string): Engine | undefined {
       return new AntigravityEngine();
     case 'kiro':
       return new KiroEngine();
+    case 'codex':
+      return new CodexEngine();
   }
 }
 

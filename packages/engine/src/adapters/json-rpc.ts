@@ -23,7 +23,7 @@ export interface RpcRequest {
   params: unknown;
 }
 
-export interface AcpHandlers {
+export interface RpcHandlers {
   /**
    * Answers a call from the agent. Returning a value answers it; throwing
    * refuses it.
@@ -37,7 +37,7 @@ export interface AcpHandlers {
   onExit(code: number): void;
 }
 
-export interface AcpConnection {
+export interface RpcConnection {
   /** Calls the agent and waits for its answer. Rejects when the agent refuses. */
   request(method: string, params: unknown): Promise<unknown>;
   /** Tells the agent something without waiting. */
@@ -58,12 +58,12 @@ interface Pending {
 }
 
 /** A JSON-RPC failure carrying the code, so a caller can tell auth from the rest. */
-export class AcpError extends Error {
+export class RpcFailure extends Error {
   readonly code: number;
 
   constructor(error: RpcError) {
     super(error.message);
-    this.name = 'AcpError';
+    this.name = 'RpcFailure';
     this.code = error.code;
   }
 }
@@ -77,22 +77,24 @@ interface Envelope {
 }
 
 /**
- * Speaks ACP to a child process over stdio.
+ * Speaks JSON-RPC to a child process over stdio.
  *
- * The framing is one JSON object per line, which is what ACP uses over stdio.
- * Deliberately not the Content-Length header framing of the Language Server
- * Protocol: the two look similar from a distance and are not interchangeable.
+ * The framing is one JSON object per line, which is what ACP uses over stdio and
+ * what Codex's app server uses too. Deliberately not the Content-Length header
+ * framing of the Language Server Protocol: the two look similar from a distance and
+ * are not interchangeable.
  *
- * This is transport only. It knows nothing about sessions, prompts or
- * permissions, so the adapter above it can be read as the protocol it implements
- * rather than as plumbing.
+ * Shared by every adapter driven this way rather than copied per engine. It is
+ * transport only: it knows nothing about sessions, prompts or permissions, so what
+ * differs between two engines that agree on the framing stays in the adapter above
+ * it rather than being duplicated underneath.
  */
-export async function startAcp(
+export async function startJsonRpc(
   command: string,
   args: readonly string[],
   cwd: string,
-  handlers: AcpHandlers,
-): Promise<AcpConnection> {
+  handlers: RpcHandlers,
+): Promise<RpcConnection> {
   const resolved = await resolveCommand(command);
 
   if (resolved === undefined) {
@@ -192,7 +194,7 @@ export async function startAcp(
       const code = typeof message.error.code === 'number' ? message.error.code : 0;
       const text =
         typeof message.error.message === 'string' ? message.error.message : 'The agent refused.';
-      waiting.reject(new AcpError({ code, message: text }));
+      waiting.reject(new RpcFailure({ code, message: text }));
       return;
     }
 
@@ -215,7 +217,7 @@ export async function startAcp(
    */
   const abandon = (message: string): void => {
     for (const [, waiting] of pending) {
-      waiting.reject(new AcpError({ code: CONNECTION_CLOSED, message }));
+      waiting.reject(new RpcFailure({ code: CONNECTION_CLOSED, message }));
     }
     pending.clear();
   };
@@ -236,7 +238,7 @@ export async function startAcp(
     request: async (method, params) =>
       new Promise<unknown>((resolve, reject) => {
         if (closed) {
-          reject(new AcpError({ code: CONNECTION_CLOSED, message: 'The agent is not running.' }));
+          reject(new RpcFailure({ code: CONNECTION_CLOSED, message: 'The agent is not running.' }));
           return;
         }
 

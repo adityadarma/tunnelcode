@@ -95,7 +95,9 @@ export class PairingClient {
         workspace: options.workspace,
         engines: options.engines,
         version: options.version,
-        ...(options.answerTimeoutMs === undefined ? {} : { answerTimeoutMs: options.answerTimeoutMs }),
+        ...(options.answerTimeoutMs === undefined
+          ? {}
+          : { answerTimeoutMs: options.answerTimeoutMs }),
       });
       this.pingTimer = setInterval(() => {
         this.send({ type: 'ping' });
