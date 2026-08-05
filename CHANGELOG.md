@@ -8,7 +8,22 @@ The CLI and the server image share one version and ship from a single `v*` tag.
 Every change is written under `Unreleased` as it is made; a release renames that section
 to the version it ships as and leaves an empty one behind.
 
-## [Unreleased]
+## [0.3.14] - 2026-08-06
+
+### Fixed
+
+- File-changes page showing "No diff available" for staged files. The diff lookup now
+  falls back to `git diff HEAD` when both the working-tree and the cached diff come
+  back empty, which is the case for a file that is fully staged.
+
+### Changed
+
+- CLI terminal output restyled: the pairing code and approval number are highlighted,
+  each stage of the pairing flow carries a status indicator, and the version and
+  workspace are printed as a header.
+
+- Service worker cache version bumped to `v2`, so an existing install retires the
+  stale shell cache on update rather than keeping the previous bundle.
 
 ## [0.3.13] - 2026-08-05
 
