@@ -467,7 +467,8 @@ Custom Engine
 
 Without changing business logic.
 
-Implemented so far: OpenCode, Claude Code, Antigravity CLI, Kiro CLI, Codex CLI.
+Implemented so far: OpenCode, Claude Code, Antigravity CLI, Kiro CLI, Codex CLI,
+GitHub Copilot CLI.
 
 Token Usage
 
@@ -505,7 +506,9 @@ Protocol, which has a request for the question, so an ask is answered on the req
 that raised it. See ADR-034. Codex CLI is driven over its app server for the same
 reason, and its approval policy and sandbox are set on the thread rather than read
 from the user's own config, because those are what decide whether a call is asked
-about at all. See ADR-048.
+about at all. See ADR-048. GitHub Copilot CLI is driven over the Agent Client
+Protocol as well, chosen over its own non-interactive mode because that one requires
+a flag which approves every call on the agent's behalf.
 
 Not every engine can be asked. Antigravity CLI runs headless and has no prompt of its
 own, so there is nothing to carry a question out and an answer back: a call it will not

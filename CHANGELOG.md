@@ -8,6 +8,34 @@ The CLI and the server image share one version and ship from a single `v*` tag.
 Every change is written under `Unreleased` as it is made; a release renames that section
 to the version it ships as and leaves an empty one behind.
 
+## [Unreleased]
+
+## [0.3.15] - 2026-08-06
+
+### Added
+
+- GitHub Copilot CLI as an engine. It is offered wherever `copilot` is installed, and
+  is driven over the Agent Client Protocol so a tool call it will not make on its own
+  reaches the phone as an ask and the answer returns to the turn that raised it. Its
+  non-interactive mode was not used: that one needs a flag which approves every call
+  on the agent's behalf, which is what the limits set on this machine exist to
+  prevent. Copilot's own models are offered per conversation, and an earlier
+  conversation is continued rather than restarted.
+
+- An Update entry in the main menu when a newer CLI version is available, so upgrading
+  no longer means remembering `tunnelcode update`. The notice that used to print after
+  the menu closed is gone, since the menu itself now carries it.
+
+- The New Conversation modal uses searchable dropdowns for Engine and Model selection,
+  matching the composer ModelPicker. Long lists can be filtered by typing, and the
+  selected value shows a check mark.
+
+### Changed
+
+- Server log timestamps are written as `yyyy-mm-dd HH:mm:ss` in 24-hour form rather
+  than as `yyyy/mm/dd hh:mmAM`, so a log line reads unambiguously and sorts by time
+  as text.
+
 ## [0.3.14] - 2026-08-06
 
 ### Fixed

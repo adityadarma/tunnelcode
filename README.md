@@ -2,7 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/tunnelcode)](https://www.npmjs.com/package/tunnelcode)
 [![CI](https://github.com/adityadarma/tunnelcode/actions/workflows/ci.yml/badge.svg)](https://github.com/adityadarma/tunnelcode/actions/workflows/ci.yml)
-[![Socket Badge](https://badge.socket.dev/npm/package/tunnelcode/0.3.14)](https://badge.socket.dev/npm/package/tunnelcode/0.3.14)
+[![Socket Badge](https://badge.socket.dev/npm/package/tunnelcode/0.3.15)](https://badge.socket.dev/npm/package/tunnelcode/0.3.15)
 [![license](https://img.shields.io/github/license/adityadarma/tunnelcode)](./LICENSE)
 
 Run an AI coding agent on your own machine and drive it from a browser.
@@ -130,6 +130,7 @@ discards a change. Arrow keys and Enter move through the lists, Escape goes back
 | [Antigravity CLI](https://antigravity.google/product/antigravity-cli) | `agy`      | ✅    | ⚠️ needs a tester | ⚠️ needs a tester |
 | [Kiro CLI](https://kiro.dev)                                       | `kiro-cli` | ✅    | ⚠️ needs a tester | ⚠️ needs a tester |
 | [Codex CLI](https://developers.openai.com/codex/cli)               | `codex`    | ✅    | ⚠️ needs a tester | ⚠️ needs a tester |
+| [GitHub Copilot CLI](https://docs.github.com/copilot/how-tos/copilot-cli) | `copilot`  | ✅    | ⚠️ needs a tester | ⚠️ needs a tester |
 
 ✅ means the adapter has been driven against the real CLI on that platform, prompt to
 answer, with its tool calls reported and an earlier conversation continued. ⚠️ means

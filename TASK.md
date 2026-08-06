@@ -910,3 +910,62 @@ with the same prompt, without requiring a terminal.
 
 A build or test that runs for 10 minutes without output is not abandoned. The silence
 timeout is configurable from Setup.
+
+
+---
+
+# Milestone 28 — Copilot Engine
+
+## Goal
+
+Add GitHub Copilot CLI as an engine driven over the Agent Client Protocol, so a tool
+call it will not make alone reaches the phone as an ask and the answer returns to
+the turn that raised it.
+
+### Tasks
+
+- [x] Copilot adapter driven over ACP, with the JSON-RPC transport shared with Kiro
+- [x] Register copilot with its own models, appended so Setup answers by position still hold
+- [x] Route an ask to the browser and answer it on the request that raised it
+- [x] Continue a conversation with the load method the CLI implements
+- [x] Unit: streaming, tool calls, asks, load, model listing, and failures
+- [x] Discovery: copilot reported only when installed on PATH
+
+Acceptance
+
+A conversation on Copilot answers, reports what it did, and remembers what was said in
+earlier turns.
+
+A tool call Copilot will not run alone reaches the phone as an ask.
+
+---
+
+# Milestone 29 — Searchable Picker Components
+
+## Goal
+
+Replace native `<select>` elements with a searchable dropdown that matches the
+existing ModelPicker in the composer, giving a consistent searchable UI for engine
+and model selection everywhere.
+
+### Tasks
+
+- [x] Extract `SearchableSelect` as the shared searchable dropdown component with
+      `pill` and `field` variants
+- [x] `ModelPicker` wraps `SearchableSelect` in pill variant (composer) and accepts a
+      `variant` prop for field usage in modals
+- [x] `EnginePicker` wraps `SearchableSelect` in field variant for engine selection
+- [x] New Conversation modal uses `EnginePicker` and `ModelPicker` instead of native
+      selects
+- [x] CSS for `modal-combo-trigger` and `modal-combo-dropdown` matching existing design
+- [x] Update test: combobox interaction replaces `selectOptions` on native select
+
+Acceptance
+
+The New Conversation modal presents engine and model in searchable dropdowns identical
+in behaviour to the composer model picker.
+
+A list with many entries can be filtered by typing, and the selected item shows a
+check mark.
+
+All existing ModelPicker tests continue to pass unchanged.
