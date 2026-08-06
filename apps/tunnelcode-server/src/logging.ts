@@ -93,6 +93,7 @@ interface RequestLog {
 
 interface LoggerOptions {
   level: Level;
+  timestamp: () => string;
   redact: {
     paths: string[];
     censor: string;
@@ -100,6 +101,19 @@ interface LoggerOptions {
   serializers: {
     req: (request: FastifyRequest) => RequestLog;
   };
+}
+
+/** Formats the current time as yyyy-mm-dd HH:mm:ss for log output. */
+function formatTimestamp(): string {
+  const now = new Date();
+  const year = String(now.getFullYear());
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const seconds = String(now.getSeconds()).padStart(2, '0');
+
+  return `,"time":"${year}-${month}-${day} ${hours}:${minutes}:${seconds}"`;
 }
 
 /**
@@ -112,6 +126,7 @@ interface LoggerOptions {
 export function buildLoggerOptions(): LoggerOptions {
   return {
     level: readLevel(),
+    timestamp: formatTimestamp,
     redact: {
       paths: [
         'req.headers.authorization',

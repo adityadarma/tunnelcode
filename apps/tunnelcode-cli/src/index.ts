@@ -2,7 +2,6 @@
 import { run } from './cli.js';
 import { runUpdate } from './commands/update.js';
 import { writeErr, writeOut } from './output.js';
-import { checkForUpdate } from './update-check.js';
 import { readVersion } from './version.js';
 
 const args = process.argv.slice(2);
@@ -35,20 +34,7 @@ if (args[0] === 'update') {
   }
 } else {
   try {
-    // Fire the update check in the background — it never blocks or throws.
-    const updateCheck = checkForUpdate();
-
     process.exitCode = await run();
-
-    // Wait for the check to finish so the notice prints after the interactive
-    // menu is done. Printing during the menu would break ANSI cursor movement.
-    const notice = await updateCheck;
-
-    if (notice !== undefined) {
-      writeOut('');
-      writeOut(notice);
-      writeOut('');
-    }
   } catch (error) {
     writeErr(error instanceof Error ? error.message : 'Unexpected error.');
     process.exitCode = 1;
