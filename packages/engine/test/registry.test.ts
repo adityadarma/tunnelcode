@@ -39,6 +39,34 @@ process.exit(0);
  * Fake codex. Discovery asks it for a login first, then lists models over the app
  * server, which speaks JSON-RPC on stdio.
  */
+/**
+ * Fake copilot. Discovery opens an ACP session and reads the models from it, which
+ * is the only surface that reports them: the CLI has no listing command.
+ */
+const COPILOT = `#!/usr/bin/env node
+const send = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+let buffer = '';
+process.stdin.on('data', (chunk) => {
+  buffer += chunk;
+  const lines = buffer.split('\\n');
+  buffer = lines.pop() ?? '';
+  for (const line of lines) {
+    if (line.trim() === '') continue;
+    const msg = JSON.parse(line);
+    if (msg.method === 'initialize') {
+      send({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: 1, agentInfo: { name: 'Copilot', version: '1.0.78' } } });
+    }
+    if (msg.method === 'session/new') {
+      send({ jsonrpc: '2.0', id: msg.id, result: { sessionId: 'f0e1d2c3', models: { currentModelId: 'claude-sonnet-5', availableModels: [{ modelId: 'auto', name: 'Auto' }, { modelId: 'claude-sonnet-5', name: 'Claude Sonnet 5' }] } } });
+    }
+  }
+});
+`;
+
+/**
+ * Fake codex. Discovery asks it for a login first, then lists models over the app
+ * server, which speaks JSON-RPC on stdio.
+ */
 const CODEX = `#!/usr/bin/env node
 if (process.argv[2] === 'login') {
   // On stderr, which is where the real CLI writes it either way, so the login is
@@ -153,6 +181,23 @@ test('codex is discovered, and its models come from its app server', async () =>
       assert.equal(found[0]?.command, 'codex');
       // The hidden model is left out: Codex keeps it out of its own picker.
       assert.deepEqual(found[0]?.models, ['gpt-5.6-terra']);
+    });
+  });
+});
+
+test('copilot is discovered, and its models come from an ACP session', async () => {
+  await withEmptyPath(async () => {
+    await withFakeEngine('copilot', COPILOT, async () => {
+      const found = await discoverEngines();
+
+      assert.deepEqual(
+        found.map((engine) => engine.name),
+        ['copilot'],
+      );
+      assert.equal(found[0]?.command, 'copilot');
+      // Read from the session rather than from a listing command, because the CLI
+      // has none and initialize answers without models.
+      assert.deepEqual(found[0]?.models, ['auto', 'claude-sonnet-5']);
     });
   });
 });

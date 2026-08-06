@@ -13,6 +13,7 @@ export {
 } from './adapters/antigravity-settings.js';
 export { ClaudeEngine } from './adapters/claude.js';
 export { CodexEngine } from './adapters/codex.js';
+export { CopilotEngine } from './adapters/copilot.js';
 export { KiroEngine } from './adapters/kiro.js';
 export { OpenCodeEngine } from './adapters/opencode.js';
 export { createEngine, discoverEngines, isEngineName, ENGINE_NAMES } from './registry.js';
