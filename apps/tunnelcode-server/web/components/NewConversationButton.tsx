@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { DeviceEngine } from '../api.js';
+import { EnginePicker } from './EnginePicker.js';
+import { ModelPicker } from './ModelPicker.js';
 
 interface NewConversationButtonProps {
   engines: DeviceEngine[];
@@ -16,6 +18,10 @@ interface NewConversationButtonProps {
 
 /**
  * Starts a conversation with a Modal dialog to choose Engine and Model.
+ *
+ * Both fields present their options in a SearchableSelect dropdown, matching the
+ * composer ModelPicker, rather than a native select. This keeps the experience
+ * consistent and allows filtering when the list is long.
  *
  * The device default is the preselected engine, since that is the one the user
  * configured for this machine and the sidebar no longer states it anywhere else.
@@ -47,10 +53,15 @@ export function NewConversationButton({
   const currentEngineObj = engines.find((e) => e.name === selectedEngine) ?? engines[0];
   const availableModels = currentEngineObj?.models ?? [];
 
-  const handleEngineChange = (engineName: string): void => {
-    setSelectedEngine(engineName);
-    const targetEngine = engines.find((e) => e.name === engineName);
+  const handleEngineChange = (engineName: string | undefined): void => {
+    const name = engineName ?? '';
+    setSelectedEngine(name);
+    const targetEngine = engines.find((e) => e.name === name);
     setSelectedModel(targetEngine?.models[0] ?? '');
+  };
+
+  const handleModelChange = (model: string | undefined): void => {
+    setSelectedModel(model ?? '');
   };
 
   const handleConfirm = (): void => {
@@ -102,44 +113,21 @@ export function NewConversationButton({
             </div>
 
             <div className="modal-body space-y-4">
-              <div className="form-group">
-                <label htmlFor="modal-engine">Engine</label>
-                <select
-                  id="modal-engine"
-                  value={selectedEngine}
-                  onChange={(e) => {
-                    handleEngineChange(e.target.value);
-                  }}
-                >
-                  {engines.map((engine) => (
-                    <option key={engine.name} value={engine.name}>
-                      {engine.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <EnginePicker
+                engines={engines.map((engine) => engine.name)}
+                selected={selectedEngine !== '' ? selectedEngine : undefined}
+                disabled={engines.length === 0}
+                onChange={handleEngineChange}
+              />
 
-              <div className="form-group">
-                <label htmlFor="modal-model">Model</label>
-                <select
-                  id="modal-model"
-                  value={selectedModel}
-                  disabled={availableModels.length === 0}
-                  onChange={(e) => {
-                    setSelectedModel(e.target.value);
-                  }}
-                >
-                  {availableModels.length === 0 ? (
-                    <option value="">Engine default</option>
-                  ) : (
-                    availableModels.map((model) => (
-                      <option key={model} value={model}>
-                        {model}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
+              <ModelPicker
+                id="modal-model"
+                models={availableModels}
+                selected={selectedModel !== '' ? selectedModel : undefined}
+                disabled={availableModels.length === 0}
+                onChange={handleModelChange}
+                variant="field"
+              />
             </div>
 
             <div className="modal-footer">

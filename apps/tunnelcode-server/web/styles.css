@@ -1209,6 +1209,36 @@
   @apply w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-3 py-2 text-xs md:text-sm text-[var(--text)] outline-none focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-glow)] transition-all cursor-pointer;
 }
 
+/* Searchable combo trigger inside a modal form-group, replacing native select. */
+.modal-combo-trigger {
+  @apply relative w-full inline-flex items-center justify-between gap-2 bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-3 py-2.5 text-xs md:text-sm text-[var(--text)] outline-none focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-glow)] transition-all cursor-pointer text-left;
+}
+
+.modal-combo-trigger:disabled {
+  @apply opacity-60 cursor-not-allowed;
+}
+
+.modal-combo-value {
+  @apply truncate flex-1;
+}
+
+.modal-combo-chevron {
+  @apply text-[var(--muted)] shrink-0 transition-transform duration-200;
+}
+
+.modal-combo-container {
+  @apply relative w-full;
+}
+
+.modal-combo-dropdown {
+  @apply mt-0 w-full bg-[var(--surface)] border border-[var(--border)] rounded-b-xl border-t-0 shadow-xl z-50 flex flex-col overflow-hidden box-border max-h-64;
+}
+
+/* When dropdown is open, flatten the trigger's bottom corners so they connect. */
+.modal-combo-container .modal-combo-trigger[aria-expanded='true'] {
+  @apply rounded-b-none border-b-0;
+}
+
 .modal-footer {
   @apply flex items-center justify-end gap-2.5 pt-3 border-t border-[var(--border)];
 }

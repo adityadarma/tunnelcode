@@ -142,7 +142,8 @@ describe('ConversationList', () => {
     );
 
     await userEvent.click(screen.getByRole('button', { name: 'New' }));
-    await userEvent.selectOptions(screen.getByLabelText('Engine'), 'claude');
+    await userEvent.click(screen.getByRole('combobox', { name: 'Engine' }));
+    await userEvent.click(screen.getByRole('option', { name: 'claude' }));
     await userEvent.click(screen.getByRole('button', { name: 'Start Conversation' }));
 
     expect(onCreate).toHaveBeenCalledWith('claude', 'sonnet');
