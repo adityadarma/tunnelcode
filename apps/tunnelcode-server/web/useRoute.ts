@@ -23,7 +23,6 @@ function routeFromPath(pathname: string): Route {
  */
 export function useRoute(): {
   route: Route;
-  goToLanding: () => void;
   goToConversation: () => void;
   goToFileChanges: () => void;
   goToLogin: () => void;
@@ -42,11 +41,6 @@ export function useRoute(): {
     };
   }, []);
 
-  const goToLanding = useCallback((): void => {
-    window.history.pushState({}, '', '/');
-    setRoute({ name: 'index' });
-  }, []);
-
   const goToConversation = useCallback((): void => {
     window.history.pushState({}, '', CONVERSATION_PATH);
     setRoute({ name: 'conversation' });
@@ -62,5 +56,5 @@ export function useRoute(): {
     setRoute({ name: 'file-changes' });
   }, []);
 
-  return { route, goToLanding, goToConversation, goToFileChanges, goToLogin };
+  return { route, goToConversation, goToFileChanges, goToLogin };
 }

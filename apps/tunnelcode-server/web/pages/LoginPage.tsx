@@ -13,19 +13,14 @@ type Phase =
 interface LoginPageProps {
   initialCode: string | undefined;
   onPaired: (sessionId: string) => void;
-  onNavigateLanding?: () => void;
 }
 
 /**
- * Pairing screen (previous standalone centered design).
+ * Pairing screen.
  *
  * Displays the approval number and handles pairing verification with the CLI terminal.
  */
-export function LoginPage({
-  initialCode,
-  onPaired,
-  onNavigateLanding,
-}: LoginPageProps): React.JSX.Element {
+export function LoginPage({ initialCode, onPaired }: LoginPageProps): React.JSX.Element {
   const [code, setCode] = useState(initialCode ?? '');
   const [phase, setPhase] = useState<Phase>({ name: 'form' });
   const [error, setError] = useState<string | undefined>(undefined);
@@ -179,16 +174,6 @@ export function LoginPage({
     <main className="centered">
       <div className="login-bg-glow" />
       <section className="card login-card">
-        {onNavigateLanding !== undefined && (
-          <button
-            type="button"
-            className="back-to-landing-btn"
-            onClick={onNavigateLanding}
-            title="Back to Landing Page"
-          >
-            ← Back to Overview
-          </button>
-        )}
         <div className="login-header">
           <div className="brand-badge">
             <img src="/icon-192.png" alt="TunnelCode" width="24" height="24" />

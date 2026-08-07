@@ -1,9 +1,7 @@
 # TunnelCode
 
-[![npm](https://img.shields.io/npm/v/tunnelcode)](https://www.npmjs.com/package/tunnelcode)
-[![CI](https://github.com/adityadarma/tunnelcode/actions/workflows/ci.yml/badge.svg)](https://github.com/adityadarma/tunnelcode/actions/workflows/ci.yml)
-[![Socket Badge](https://badge.socket.dev/npm/package/tunnelcode/0.3.16)](https://badge.socket.dev/npm/package/tunnelcode/0.3.16)
-[![license](https://img.shields.io/github/license/adityadarma/tunnelcode)](./LICENSE)
+[![gh-workflow-image]][gh-workflow-url] [![npm-image]][npm-url] [![npm-downloads]][npm-downloads] ![][typescript-image] [![license-image]][license-url]
+
 
 Run an AI coding agent on your own machine and drive it from a browser.
 
@@ -519,3 +517,17 @@ which is the only way to catch a manifest that cannot actually be installed. It
 asserts on behaviour rather than on anything printed: the binary has to report the
 version baked into it at bundle time and the menu has to open and exit cleanly.
 Asserting on a menu label is what broke a release once, when the label was renamed.
+
+## License
+
+This package is open-sourced software licensed under the [MIT license](LICENSE.md).
+
+[gh-workflow-image]: https://img.shields.io/github/actions/workflow/status/adityadarma/tunnelcode/release.yml?style=for-the-badge
+[gh-workflow-url]: https://github.com/adityadarma/tunnelcode/actions/workflows/release.yml 'Github action'
+[npm-image]: https://img.shields.io/npm/v/tunnelcode/latest.svg?style=for-the-badge&logo=npm
+[npm-url]: https://www.npmjs.com/package/tunnelcode/v/latest 'npm'
+[typescript-image]: https://img.shields.io/badge/Typescript-294E80.svg?style=for-the-badge&logo=typescript
+[license-url]: LICENSE.md
+[license-image]: https://img.shields.io/github/license/adityadarma/tunnelcode?style=for-the-badge
+[npm-downloads]: https://img.shields.io/npm/dm/tunnelcode.svg?style=for-the-badge
+[count-downloads]: https://npmcharts.com/compare/tunnelcode?minimal=true

@@ -58,10 +58,10 @@ describe('App', () => {
     vi.unstubAllGlobals();
   });
 
-  test('a fresh visitor sees the landing page', () => {
+  test('a fresh visitor sees the pairing screen', () => {
     render(<App />);
 
-    expect(screen.getByRole('heading', { name: 'Ready to pair?' })).toBeDefined();
+    expect(screen.getByLabelText('Pairing code')).toBeDefined();
   });
 
   test('a visitor on /login sees the pairing screen', () => {
