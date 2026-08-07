@@ -13,15 +13,30 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "pnpm build && pnpm -r test"
+    "test": "pnpm build && pnpm -r test",
+    "prepare": "simple-git-hooks"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "pnpm lint-staged"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml,css,html}": [
+      "prettier --write"
+    ]
   },
   "devDependencies": {
-    "tunnelcode": "workspace:*",
     "@eslint/js": "10.0.1",
     "@types/node": "26.1.2",
     "eslint": "10.8.0",
     "eslint-config-prettier": "10.1.8",
+    "lint-staged": "^17.3.0",
     "prettier": "3.9.6",
+    "simple-git-hooks": "^2.13.1",
+    "tunnelcode": "workspace:*",
     "typescript": "6.0.3",
     "typescript-eslint": "8.65.0"
   }

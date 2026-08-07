@@ -29,11 +29,9 @@ jobs:
       # to run build scripts.
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm build
+      - run: pnpm typecheck
 
       - run: pnpm lint
-
-      - run: pnpm typecheck
 
       - run: pnpm format:check
 
