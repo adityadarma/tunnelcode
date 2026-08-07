@@ -43,6 +43,11 @@ export async function run(): Promise<number> {
   const updateNotice = await checkForUpdate();
   let updateAvailable = updateNotice !== undefined;
 
+  if (updateNotice !== undefined) {
+    writeOut(updateNotice);
+    writeOut('');
+  }
+
   for (;;) {
     const action = await menu(updateAvailable);
 

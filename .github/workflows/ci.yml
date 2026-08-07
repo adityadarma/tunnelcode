@@ -29,6 +29,10 @@ jobs:
       # to run build scripts.
       - run: pnpm install --frozen-lockfile
 
+      # Catch known vulnerabilities before anything else runs. Moderate and above
+      # fail the build; low-severity advisories are visible but not blocking.
+      - run: pnpm audit --audit-level=moderate
+
       - run: pnpm build
 
       - run: pnpm lint
@@ -105,13 +109,16 @@ jobs:
       - uses: docker/setup-buildx-action@v4
 
       # Building the image is the only way to catch a broken Dockerfile before a
-      # deployment does.
+      # deployment does. Layer caching avoids recompiling the native binding when
+      # only source files changed.
       - uses: docker/build-push-action@v7
         with:
           context: .
           push: false
           load: true
           tags: tunnelcode:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Start the container
         run: |

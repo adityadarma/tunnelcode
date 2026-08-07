@@ -178,3 +178,5 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           provenance: false
           sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

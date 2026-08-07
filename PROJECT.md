@@ -1,9 +1,9 @@
 # TunnelCode
 
-Version: 1.0.0
+Version: 0.3.15
 
 Status:
-Architecture Freeze
+Architecture Freeze — targeting 1.0
 
 ---
 

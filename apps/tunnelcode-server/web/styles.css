@@ -945,7 +945,7 @@
 }
 
 .permission {
-  @apply flex flex-col gap-2 p-3 md:p-4 rounded-2xl bg-[var(--surface-2)] border border-[var(--accent)] shadow-md w-full min-w-0 box-border break-words [overflow-wrap:anywhere];
+  @apply flex flex-col gap-2 p-3 md:p-4 rounded-2xl bg-[var(--surface-2)] border border-[var(--accent)] shadow-md w-full min-w-0 box-border break-words [overflow-wrap:anywhere] max-h-[70vh] overflow-y-auto;
 }
 
 .permission-head {
@@ -969,15 +969,15 @@
 }
 
 .permission-target {
-  @apply m-0 text-xs md:text-sm px-2 py-1.5 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] min-w-0 break-words [overflow-wrap:anywhere];
+  @apply m-0 text-xs md:text-sm px-2 py-1.5 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] min-w-0 break-words [overflow-wrap:anywhere] max-h-[200px] overflow-y-auto;
 }
 
 .permission-details {
-  @apply m-0 pl-4 list-disc space-y-1 text-xs text-[var(--muted)] min-w-0 break-words [overflow-wrap:anywhere];
+  @apply m-0 pl-4 list-disc space-y-1 text-xs text-[var(--muted)] min-w-0 break-words [overflow-wrap:anywhere] max-h-[150px] overflow-y-auto;
 }
 
 .permission-actions {
-  @apply flex flex-wrap gap-2 min-w-0;
+  @apply flex flex-wrap gap-2 min-w-0 sticky bottom-0 bg-[var(--surface-2)] pt-2;
 }
 
 .permission-actions button {
