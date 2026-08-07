@@ -1,5 +1,6 @@
 import { buildApp } from './app.js';
 import { loadEnvFile } from '@tunnelcode/shared';
+import type { VapidKeys } from './services/web-push.js';
 
 // Before anything reads process.env, so a .env file can shape host, port,
 // database location, and log level.
@@ -65,11 +66,40 @@ function readTrustProxy(): boolean | string | undefined {
   return raw === 'false' ? undefined : raw;
 }
 
+/**
+ * The VAPID signing identity for web push notifications.
+ *
+ * Required: without these keys, push subscriptions cannot be created and
+ * notifications cannot be sent. Generate a keypair once per deployment and keep
+ * it stable, because every existing subscription is bound to the public key it
+ * was created with. A changed key silently retires every subscription.
+ *
+ * Generate with: node -e "import('./dist/services/web-push.js').then(m => console.log(JSON.stringify(m.generateVapidKeys(), null, 2)))"
+ */
+function readVapidKeys(): VapidKeys {
+  const publicKey = process.env['VAPID_PUBLIC_KEY'];
+  const privateKey = process.env['VAPID_PRIVATE_KEY'];
+
+  if (!publicKey || !privateKey) {
+    process.stderr.write(
+      'VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY must be set.\n' +
+        'Generate a keypair with:\n' +
+        '  node -e "import(\'./dist/services/web-push.js\').then(m => console.log(JSON.stringify(m.generateVapidKeys(), null, 2)))"\n' +
+        'Then add both values to your .env file.\n',
+    );
+    process.exit(1);
+  }
+
+  return { publicKey, privateKey };
+}
+
 const trustProxy = readTrustProxy();
+const vapidKeys = readVapidKeys();
 
 const app = await buildApp({
   logger: true,
   databaseFile: readDatabaseFile(),
+  vapidKeys,
   ...(trustProxy === undefined ? {} : { trustProxy }),
 });
 

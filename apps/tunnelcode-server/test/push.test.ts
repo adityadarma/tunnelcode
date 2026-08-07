@@ -5,6 +5,7 @@ import DatabaseConstructor from 'better-sqlite3';
 import { PushRepository } from '../dist/db/push-repository.js';
 import { SessionRepository } from '../dist/db/session-repository.js';
 import { PushService } from '../dist/services/push.js';
+import { generateVapidKeys } from '../dist/services/web-push.js';
 import { BrowserRegistry } from '../dist/ws/browser-registry.js';
 import { withTempDb } from './db-helpers.ts';
 import type { DbHandle } from '../dist/db/client.js';
@@ -51,7 +52,7 @@ function countSubscriptions(databaseFile: string): number {
   const db = new DatabaseConstructor(databaseFile, { readonly: true });
 
   try {
-    const row = db.prepare('select count(*) as total from push_subscriptions').get() as {
+    const row = db.prepare('select count(*) as total from subscriptions').get() as {
       total: number;
     };
     return row.total;
@@ -247,7 +248,12 @@ test('nothing is sent while a browser is watching', async () => {
     const browsers = new BrowserRegistry();
     const repository = new PushRepository(handle.db);
     const sent: string[] = [];
-    const push = new PushService({ repository, browsers, log: () => undefined });
+    const push = new PushService({
+      keys: generateVapidKeys(),
+      repository,
+      browsers,
+      log: () => undefined,
+    });
 
     // Written straight to the repository: this is about what the service decides,
     // not about how a browser came to be subscribed.
@@ -275,7 +281,12 @@ test('a closed browser is reached, and a dead endpoint is forgotten', async () =
     const browsers = new BrowserRegistry();
     const repository = new PushRepository(handle.db);
     const requests: { url: string; headers: Headers }[] = [];
-    const push = new PushService({ repository, browsers, log: () => undefined });
+    const push = new PushService({
+      keys: generateVapidKeys(),
+      repository,
+      browsers,
+      log: () => undefined,
+    });
 
     seedSession(handle, 'session-1');
     repository.save({

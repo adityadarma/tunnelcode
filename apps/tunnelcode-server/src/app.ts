@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 import websocket from '@fastify/websocket';
 import { ENGINE_TEXT_MAX_LENGTH } from '@tunnelcode/protocol';
+import type { VapidKeys } from './services/web-push.js';
 import { openDb } from './db/client.js';
 import { runMigrations } from './db/migrate.js';
 import { ConversationRepository } from './db/conversation-repository.js';
@@ -47,6 +48,8 @@ export interface AppOptions {
   /** False in tests, where log output would only add noise. */
   logger: boolean;
   databaseFile: string;
+  /** The VAPID signing identity for web push notifications. */
+  vapidKeys: VapidKeys;
   /**
    * Whose forwarded headers to believe about the client address.
    *
@@ -108,7 +111,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   registerSecurityHeaders(app, { webRoot: webRoot() });
 
   const handle = openDb(options.databaseFile);
-  runMigrations(handle.db);
+  runMigrations(handle.db, options.databaseFile);
 
   const sessionRepository = new SessionRepository(handle.db);
   const conversationRepository = new ConversationRepository(handle.db);
@@ -131,6 +134,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   // Only reaches a browser that is not connected, which is why it is given the
   // registry: a page that is open shows an ask on the page. See ADR-045.
   const push = new PushService({
+    keys: options.vapidKeys,
     repository: pushRepository,
     browsers,
     log: (message, error) => {

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
 import { buildApp } from '../dist/app.js';
+import { generateVapidKeys } from '../dist/services/web-push.js';
 import type { FastifyInstance } from 'fastify';
 
 export interface TestServer {
@@ -56,6 +57,7 @@ export async function withServer<T>(
   const app = await buildApp({
     logger: lines !== undefined,
     databaseFile,
+    vapidKeys: generateVapidKeys(),
     ...(lines === undefined
       ? {}
       : {

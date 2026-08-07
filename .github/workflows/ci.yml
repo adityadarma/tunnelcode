@@ -116,9 +116,12 @@ jobs:
 
       - name: Start the container
         run: |
-          docker run -d --name tunnelcode-ci -p 3000:3000 tunnelcode:ci
+          docker run -d --name tunnelcode-ci -p 3000:3000 \
+            -e VAPID_PUBLIC_KEY=BLc7hJDkJ-hguS8snGSl6pFi3kFzBP4VoVQB0k9th2GJ8E0e2BYOrCz5aelxE0VD1E4f6aRDIqMyKNJrjV4UEhI \
+            -e VAPID_PRIVATE_KEY=M44bkFB1kDIW2c4o5oC1ESQ9TfAYfqJkHVqvCnWPeIM \
+            tunnelcode:ci
           for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:3000/health > /dev/null; then
+            if curl -fsS http://127.0.0.1:3000/api/health > /dev/null; then
               echo "healthy"
               exit 0
             fi

@@ -1,15 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import type { Db } from './client.js';
-import { pushKeys, pushSubscriptions } from './schema.js';
-
-/** The single row that holds this deployment's signing identity. */
-const VAPID_ROW_ID = 'vapid';
-
-/** A signing identity, base64url on both halves. */
-export interface VapidKeyPair {
-  publicKey: string;
-  privateKey: string;
-}
+import { subscriptions } from './schema.js';
 
 /** Where a browser can be reached, and what to encrypt for it. */
 export interface StoredSubscription {
@@ -23,46 +14,15 @@ export interface SaveSubscriptionInput extends StoredSubscription {
 }
 
 /**
- * Persists push subscriptions and the key they were made against.
+ * Persists push subscriptions.
  *
- * Both have to survive a restart for a notification to arrive at all: a
+ * Subscriptions have to survive a restart for a notification to arrive at all: a
  * subscription names a browser that is not connected, and it is only valid for the
- * public key it was created with. See ADR-045.
+ * public key it was created with. The signing keys themselves are read from
+ * environment variables. See ADR-045.
  */
 export class PushRepository {
   constructor(private readonly db: Db) {}
-
-  /** The stored signing identity, or undefined before one has been generated. */
-  findKeys(): VapidKeyPair | undefined {
-    const row = this.db
-      .select({ publicKey: pushKeys.publicKey, privateKey: pushKeys.privateKey })
-      .from(pushKeys)
-      .where(eq(pushKeys.id, VAPID_ROW_ID))
-      .get();
-
-    return row === undefined ? undefined : { publicKey: row.publicKey, privateKey: row.privateKey };
-  }
-
-  /**
-   * Writes the signing identity, keeping whichever one got there first.
-   *
-   * Nothing here runs concurrently today, but a pair that replaced an existing one
-   * would silently retire every subscription already made against it, so the
-   * insert refuses rather than overwrites and the caller reads back what is
-   * stored.
-   */
-  saveKeys(keys: VapidKeyPair): void {
-    this.db
-      .insert(pushKeys)
-      .values({
-        id: VAPID_ROW_ID,
-        publicKey: keys.publicKey,
-        privateKey: keys.privateKey,
-        createdAt: Date.now(),
-      })
-      .onConflictDoNothing()
-      .run();
-  }
 
   /**
    * Records where a browser can be reached.
@@ -73,7 +33,7 @@ export class PushRepository {
    */
   save(input: SaveSubscriptionInput): void {
     this.db
-      .insert(pushSubscriptions)
+      .insert(subscriptions)
       .values({
         endpoint: input.endpoint,
         sessionId: input.sessionId,
@@ -82,7 +42,7 @@ export class PushRepository {
         createdAt: Date.now(),
       })
       .onConflictDoUpdate({
-        target: pushSubscriptions.endpoint,
+        target: subscriptions.endpoint,
         set: { sessionId: input.sessionId, p256dh: input.p256dh, auth: input.auth },
       })
       .run();
@@ -91,12 +51,12 @@ export class PushRepository {
   listBySession(sessionId: string): StoredSubscription[] {
     return this.db
       .select({
-        endpoint: pushSubscriptions.endpoint,
-        p256dh: pushSubscriptions.p256dh,
-        auth: pushSubscriptions.auth,
+        endpoint: subscriptions.endpoint,
+        p256dh: subscriptions.p256dh,
+        auth: subscriptions.auth,
       })
-      .from(pushSubscriptions)
-      .where(eq(pushSubscriptions.sessionId, sessionId))
+      .from(subscriptions)
+      .where(eq(subscriptions.sessionId, sessionId))
       .all();
   }
 
@@ -107,7 +67,7 @@ export class PushRepository {
    * session that owns it first. See removeForSession.
    */
   remove(endpoint: string): void {
-    this.db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint)).run();
+    this.db.delete(subscriptions).where(eq(subscriptions.endpoint, endpoint)).run();
   }
 
   /**
@@ -118,7 +78,7 @@ export class PushRepository {
    * session row that is deleted, and an ended one is marked rather than removed.
    */
   removeBySession(sessionId: string): void {
-    this.db.delete(pushSubscriptions).where(eq(pushSubscriptions.sessionId, sessionId)).run();
+    this.db.delete(subscriptions).where(eq(subscriptions.sessionId, sessionId)).run();
   }
 
   /**
@@ -130,10 +90,8 @@ export class PushRepository {
    */
   removeForSession(endpoint: string, sessionId: string): void {
     this.db
-      .delete(pushSubscriptions)
-      .where(
-        and(eq(pushSubscriptions.endpoint, endpoint), eq(pushSubscriptions.sessionId, sessionId)),
-      )
+      .delete(subscriptions)
+      .where(and(eq(subscriptions.endpoint, endpoint), eq(subscriptions.sessionId, sessionId)))
       .run();
   }
 }

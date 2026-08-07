@@ -19,7 +19,7 @@ export async function withTempDb<T>(
   const file = join(dir, 'test.sqlite');
   const handle = openDb(file);
 
-  runMigrations(handle.db);
+  runMigrations(handle.db, file);
 
   try {
     return await run(handle, file);
@@ -32,7 +32,7 @@ export async function withTempDb<T>(
 /** Opens an existing database file again, standing in for a server restart. */
 export async function reopenDb<T>(file: string, run: (handle: DbHandle) => Promise<T>): Promise<T> {
   const handle = openDb(file);
-  runMigrations(handle.db);
+  runMigrations(handle.db, file);
 
   try {
     return await run(handle);

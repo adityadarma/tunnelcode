@@ -10,6 +10,25 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+### Changed
+
+- VAPID signing keys for web push notifications are now read from `VAPID_PUBLIC_KEY`
+  and `VAPID_PRIVATE_KEY` environment variables instead of being auto-generated and
+  stored in the database. Existing deployments must extract their key from the
+  `push_keys` table and set it in the environment before upgrading, or generate a
+  fresh pair (which retires all existing push subscriptions). The `push_keys` table
+  is dropped by this release's migration.
+
+- The `push_subscriptions` table is renamed to `subscriptions`. Existing data is
+  migrated automatically.
+
+- The database is backed up to a `.pre-migration` file before migrations run, so a
+  bad upgrade can be rolled back by restoring that copy.
+
+- `docker-compose.yml` reads the `.env` file in the same directory via `env_file`,
+  so VAPID keys and other settings reach the container without listing each one in
+  `environment`. The volume mount is corrected to `/app/data`.
+
 ## [0.3.16] - 2026-08-07
 
 ### Changed

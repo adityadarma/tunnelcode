@@ -218,28 +218,6 @@ export const activities = sqliteTable(
 );
 
 /**
- * The identity this server signs push messages with.
- *
- * One row, generated the first time a browser asks for the key. Persisted because
- * a subscription is made against a particular public key: a pair regenerated on
- * restart would leave every phone holding a subscription the push service refuses
- * to deliver on. See ADR-045.
- *
- * The private key is a signing identity for this deployment, not a user secret. It
- * proves to a push service which server is sending, and it cannot decrypt anything:
- * the payload is encrypted for the subscriber's own key, which this server never
- * holds either half of.
- */
-export const pushKeys = sqliteTable('push_keys', {
-  id: text('id').primaryKey(),
-  /** Uncompressed P-256 point, base64url, as the browser is given it. */
-  publicKey: text('public_key').notNull(),
-  /** The scalar, base64url. */
-  privateKey: text('private_key').notNull(),
-  createdAt: integer('created_at').notNull(),
-});
-
-/**
  * Where to reach a browser that is not currently connected.
  *
  * Keyed by endpoint rather than by an id of its own, because the endpoint is what
@@ -249,8 +227,8 @@ export const pushKeys = sqliteTable('push_keys', {
  * Tied to the session, and dropped with it, so notifications about an agent stop
  * when permission to reach that agent does. See ADR-045.
  */
-export const pushSubscriptions = sqliteTable(
-  'push_subscriptions',
+export const subscriptions = sqliteTable(
+  'subscriptions',
   {
     endpoint: text('endpoint').primaryKey(),
     sessionId: text('session_id')
@@ -262,5 +240,5 @@ export const pushSubscriptions = sqliteTable(
     auth: text('auth').notNull(),
     createdAt: integer('created_at').notNull(),
   },
-  (table) => [index('push_subscriptions_session_idx').on(table.sessionId)],
+  (table) => [index('subscriptions_session_idx').on(table.sessionId)],
 );

@@ -1,11 +1,6 @@
 import type { PushRepository, StoredSubscription } from '../db/push-repository.js';
 import type { BrowserRegistry } from '../ws/browser-registry.js';
-import {
-  encryptPushPayload,
-  generateVapidKeys,
-  vapidAuthorization,
-  type VapidKeys,
-} from './web-push.js';
+import { encryptPushPayload, vapidAuthorization, type VapidKeys } from './web-push.js';
 
 /**
  * How long a push service should hold a message for a device that is asleep.
@@ -42,6 +37,8 @@ export interface Notification {
 }
 
 export interface PushServiceOptions {
+  /** The VAPID signing identity, read from environment variables at startup. */
+  keys: VapidKeys;
   repository: PushRepository;
   /**
    * Read to find out whether anybody is watching.
@@ -58,48 +55,21 @@ export interface PushServiceOptions {
 /**
  * Sends notifications to browsers that are not connected.
  *
- * The signing identity is generated on first use and then read from the database,
- * so subscriptions stay valid across restarts. Everything here is fire and forget:
- * the agent's work is what matters, and a push service that is slow or down must
- * never hold up a turn.
+ * The signing identity is supplied at construction from environment variables, so
+ * subscriptions stay valid across restarts as long as the same keys are configured.
+ * Everything here is fire and forget: the agent's work is what matters, and a push
+ * service that is slow or down must never hold up a turn.
  */
 export class PushService {
-  private keys: VapidKeys | undefined;
+  private readonly keys: VapidKeys;
 
-  constructor(private readonly options: PushServiceOptions) {}
+  constructor(private readonly options: PushServiceOptions) {
+    this.keys = options.keys;
+  }
 
   /** The application server key a browser subscribes with. */
   publicKey(): string {
-    return this.signingKeys().publicKey;
-  }
-
-  /**
-   * The signing identity, generating and persisting one the first time.
-   *
-   * Read back after writing rather than trusting the write, so two callers arriving
-   * at once cannot end up signing with different keys.
-   */
-  private signingKeys(): VapidKeys {
-    if (this.keys !== undefined) {
-      return this.keys;
-    }
-
-    const stored = this.options.repository.findKeys();
-
-    if (stored !== undefined) {
-      this.keys = stored;
-      return stored;
-    }
-
-    this.options.repository.saveKeys(generateVapidKeys());
-    const written = this.options.repository.findKeys();
-
-    if (written === undefined) {
-      throw new Error('Cannot store the push signing key.');
-    }
-
-    this.keys = written;
-    return written;
+    return this.keys.publicKey;
   }
 
   subscribe(sessionId: string, subscription: StoredSubscription): void {
@@ -173,7 +143,7 @@ export class PushService {
         method: 'POST',
         headers: {
           authorization: vapidAuthorization({
-            keys: this.signingKeys(),
+            keys: this.keys,
             audience: endpointUrl.origin,
             subject: SUBJECT,
           }),
