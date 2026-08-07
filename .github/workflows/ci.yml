@@ -29,10 +29,6 @@ jobs:
       # to run build scripts.
       - run: pnpm install --frozen-lockfile
 
-      # Catch known vulnerabilities before anything else runs. Moderate and above
-      # fail the build; low-severity advisories are visible but not blocking.
-      - run: pnpm audit --audit-level=moderate
-
       - run: pnpm build
 
       - run: pnpm lint

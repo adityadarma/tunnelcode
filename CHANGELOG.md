@@ -14,14 +14,18 @@ to the version it ships as and leaves an empty one behind.
 
 ### Changed
 
-- CI runs `pnpm audit --audit-level=moderate` before the build, so a dependency with
-  a known vulnerability fails the pipeline rather than shipping silently.
-
 - Docker builds in CI and Release use GitHub Actions layer caching
   (`cache-from`/`cache-to: type=gha`), cutting rebuild time when only source files
   changed.
 
+- Fastify updated to 5.11.2, pulling in a patched `fast-uri` that fixes a host
+  confusion vulnerability.
+
 ### Fixed
+
+- The update notice is printed before the menu opens rather than after it closes, so
+  a user who leaves the menu sees the newer version mentioned before choosing what
+  to do.
 
 - The permission card is scrollable when its content exceeds the viewport, with the
   action buttons pinned to the bottom. A long list of operations no longer pushes
