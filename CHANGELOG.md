@@ -10,6 +10,23 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+## [0.3.16] - 2026-08-07
+
+### Changed
+
+- CI runs `pnpm audit --audit-level=moderate` before the build, so a dependency with
+  a known vulnerability fails the pipeline rather than shipping silently.
+
+- Docker builds in CI and Release use GitHub Actions layer caching
+  (`cache-from`/`cache-to: type=gha`), cutting rebuild time when only source files
+  changed.
+
+### Fixed
+
+- The permission card is scrollable when its content exceeds the viewport, with the
+  action buttons pinned to the bottom. A long list of operations no longer pushes
+  Allow/Deny off screen.
+
 ## [0.3.15] - 2026-08-06
 
 ### Added
@@ -1020,20 +1037,3 @@ between the browser, a server, and a local agent.
   writes files on the machine it runs on, so both are deliberate answers to a
   visible prompt rather than something the surrounding shell or a cloned repository
   can decide.
-
-[0.3.12]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.12
-[0.3.11]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.11
-[0.3.10]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.10
-[0.3.9]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.9
-[0.3.8]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.8
-[0.3.7]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.7
-[0.3.6]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.6
-[0.3.5]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.5
-[0.3.4]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.4
-[0.3.2]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.2
-[0.3.1]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.1
-[0.3.0]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.3.0
-[0.2.1]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.2.1
-[0.2.0]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.2.0
-[0.1.1]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.1.1
-[0.1.0]: https://github.com/adityadarma/tunnelcode/releases/tag/v0.1.0
