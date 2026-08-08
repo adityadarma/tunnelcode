@@ -34,6 +34,34 @@ export const PROMPT_MAX_LENGTH = 100_000;
 export const ENGINE_TEXT_MAX_LENGTH = 500_000;
 
 /**
+ * One model an engine can answer with.
+ *
+ * Two fields because the two jobs conflict. The id is what the engine takes back
+ * and has to survive whole — Cursor's are parameterised, such as
+ * `claude-opus-5[thinking=true,context=300k]`, and it accepts nothing shorter. The
+ * label is what a person reads, and `default[]` is not a thing to show anybody when
+ * the engine calls it `Auto`.
+ *
+ * A bare string is still accepted and read as a model labelled by its own id. That
+ * is what every CLI before this change sent, and this field is required, so refusing
+ * the old shape would stop an older CLI registering at all rather than degrading:
+ * the device would simply show offline. The string form is normalised away here, so
+ * nothing downstream has to know it existed. See ADR-051.
+ */
+export const engineModelSchema = z
+  .union([
+    z.string().min(1),
+    z.object({
+      id: z.string().min(1),
+      label: z.string().min(1),
+    }),
+  ])
+  .transform((value) => (typeof value === 'string' ? { id: value, label: value } : value));
+
+/** A model as every reader downstream of the schema sees it. */
+export type EngineModelPayload = z.output<typeof engineModelSchema>;
+
+/**
  * What an ask carries, wherever it travels.
  *
  * Shared between the CLI and the browser halves of the trip so the two cannot
@@ -104,10 +132,20 @@ export const cliMessageSchema = z.discriminatedUnion('type', [
      */
     engines: z
       .array(
-        z.object({
-          name: z.string().min(1),
-          models: z.array(z.string().min(1)),
-        }),
+        z
+          .object({
+            name: z.string().min(1),
+            /**
+             * The engine's own name for itself, as its vendor writes it.
+             *
+             * Optional so a CLI from before labels existed still registers, and
+             * filled from the name when it is absent. Kept out of every comparison:
+             * a conversation records the name, and that is what is matched.
+             */
+            label: z.string().min(1).optional(),
+            models: z.array(engineModelSchema),
+          })
+          .transform((engine) => ({ ...engine, label: engine.label ?? engine.name })),
       )
       .min(1),
     /**

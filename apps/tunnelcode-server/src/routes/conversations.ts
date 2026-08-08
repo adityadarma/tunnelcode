@@ -154,7 +154,10 @@ export function registerConversationRoutes(
 
     // A model the engine never reported is refused here rather than at the first
     // prompt, so the conversation is never created in a state it cannot answer in.
-    if (parsed.data.model !== undefined && !engine.models.includes(parsed.data.model)) {
+    if (
+      parsed.data.model !== undefined &&
+      !engine.models.some((entry) => entry.id === parsed.data.model)
+    ) {
       return reply.code(400).send({ error: 'That model is not available on this engine.' });
     }
 
@@ -211,7 +214,7 @@ export function registerConversationRoutes(
         return reply.code(409).send({ error: 'The device is offline.' });
       }
 
-      if (!engine.models.includes(parsed.data.model)) {
+      if (!engine.models.some((entry) => entry.id === parsed.data.model)) {
         return reply.code(400).send({ error: 'That model is not available on this engine.' });
       }
     }

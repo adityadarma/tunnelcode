@@ -1,4 +1,26 @@
 import type { Conversation, DeviceEngine } from '../api.js';
+
+/**
+ * How an engine is named in a row.
+ *
+ * Falls back to the stored name when the device no longer reports that engine, which
+ * is the honest answer: a conversation created on an engine since uninstalled still
+ * says what it runs on rather than reading as blank.
+ */
+function describeEngine(engines: DeviceEngine[], name: string): string {
+  return engines.find((engine) => engine.name === name)?.label ?? name;
+}
+
+/**
+ * How a model is named in a row.
+ *
+ * The label rather than the id, so a row does not carry a line of Cursor's bracketed
+ * parameters. Falls back to the id for the same reason as above.
+ */
+function describeModel(engines: DeviceEngine[], engineName: string, modelId: string): string {
+  const engine = engines.find((entry) => entry.name === engineName);
+  return engine?.models.find((model) => model.id === modelId)?.label ?? modelId;
+}
 import { NewConversationButton } from './NewConversationButton.js';
 
 interface ConversationListProps {
@@ -130,8 +152,9 @@ export function ConversationList({
                   </span>
                   {conversation.engine !== null && (
                     <span className="item-meta">
-                      {conversation.engine}
-                      {conversation.model !== null && ` · ${conversation.model}`}
+                      {describeEngine(engines, conversation.engine)}
+                      {conversation.model !== null &&
+                        ` · ${describeModel(engines, conversation.engine, conversation.model)}`}
                     </span>
                   )}
                 </span>

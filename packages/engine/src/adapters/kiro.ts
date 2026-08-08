@@ -2,7 +2,9 @@ import { readActivityTarget } from '../activity.js';
 import { captureOutput, isOnPath } from '../which.js';
 import { RpcFailure, startJsonRpc } from './json-rpc.js';
 import type { RpcConnection, RpcRequest } from './json-rpc.js';
+import { labelledById } from '../types.js';
 import type {
+  EngineModel,
   Engine,
   EngineEvent,
   EnginePermissionDecision,
@@ -304,6 +306,7 @@ function chooseOption(options: PermissionOption[], decision: EnginePermissionDec
  */
 export class KiroEngine implements Engine {
   readonly name = 'kiro';
+  readonly label = 'Kiro';
   readonly command = COMMAND;
 
   async isAvailable(): Promise<boolean> {
@@ -333,7 +336,7 @@ export class KiroEngine implements Engine {
    * An empty list is read as "use the engine default" rather than as a failure, so
    * the engine is still offered once someone logs in.
    */
-  async listModels(): Promise<string[]> {
+  async listModels(): Promise<EngineModel[]> {
     if (!(await this.isLoggedIn())) {
       return [];
     }
@@ -351,18 +354,18 @@ export class KiroEngine implements Engine {
     }
 
     // The plain format is the fallback, for a version whose --format is missing or
-    // spelled differently.
-    const ids: string[] = [];
+    // spelled differently. An id is a word here, so it is its own label.
+    const models: EngineModel[] = [];
 
     for (const line of output.split('\n')) {
       const id = MODEL_LINE.exec(line)?.[1] ?? '';
 
-      if (id !== '' && !ids.includes(id)) {
-        ids.push(id);
+      if (id !== '' && !models.some((model) => model.id === id)) {
+        models.push(labelledById(id));
       }
     }
 
-    return ids;
+    return models;
   }
 
   prompt(text: string, options: PromptOptions): AsyncGenerator<EngineEvent> {
@@ -912,8 +915,8 @@ function mapUpdate(params: unknown, tools: Map<string, ToolMemo>): EngineEvent[]
   return events;
 }
 
-/** Reads model ids from the JSON form, which is what --format json produces. */
-function readModelJson(output: string): string[] {
+/** Reads models from the JSON form, which is what --format json produces. */
+function readModelJson(output: string): EngineModel[] {
   let parsed: unknown;
 
   try {
@@ -932,7 +935,7 @@ function readModelJson(output: string): string[] {
     return [];
   }
 
-  const ids: string[] = [];
+  const models: EngineModel[] = [];
 
   for (const entry of list) {
     // `model_id` is what the listing reports. The other spellings are read too
@@ -949,10 +952,17 @@ function readModelJson(output: string): string[] {
             (entry as { name?: unknown }).name)
           : undefined;
 
-    if (typeof id === 'string' && id !== '' && !ids.includes(id)) {
-      ids.push(id);
+    if (typeof id !== 'string' || id === '' || models.some((model) => model.id === id)) {
+      continue;
     }
+
+    // Labelled by its own id, because the listing has no display name to offer.
+    // `model_name` is the id repeated, and the only other prose field is
+    // `description`, which is a sentence — "Claude Sonnet 5 model with 1M context
+    // window" — rather than a name, so using it as a label would put a paragraph in
+    // a dropdown. Recorded from kiro-cli's own listing. See ADR-051.
+    models.push(labelledById(id));
   }
 
-  return ids;
+  return models;
 }

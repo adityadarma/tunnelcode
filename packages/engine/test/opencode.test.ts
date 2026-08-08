@@ -780,6 +780,170 @@ test('a tool that merely failed is not reported as refused', async () => {
   );
 });
 
+/**
+ * The tokens on a finished assistant message, recorded from opencode 1.18.10.
+ *
+ * Cache sits beside the input rather than inside it and thinking is counted apart
+ * from the answer, which is why the four figures add up to the `total` reported
+ * with them: 6742 + 1856 + 1 + 19 comes to 8618.
+ */
+const RECORDED_TOKENS = {
+  total: 8618,
+  input: 6742,
+  output: 1,
+  reasoning: 19,
+  cache: { read: 1856, write: 0 },
+};
+
+function spent(tokens: unknown, id = 'msg-1', sessionID = SESSION): unknown {
+  return {
+    type: 'message.updated',
+    properties: { sessionID, info: { id, role: 'assistant', tokens } },
+  };
+}
+
+const usageOf = (events: EngineEvent[]): Extract<EngineEvent, { type: 'usage' }> | undefined =>
+  events.find((event): event is Extract<EngineEvent, { type: 'usage' }> => event.type === 'usage');
+
+test('what a turn cost is reported, cache and thinking included', async () => {
+  await withFakeOpenCode(
+    { events: [assistantMessage, delta('prt-1', 'OK'), spent(RECORDED_TOKENS), idle] },
+    async (engine) => {
+      const events = await collect(engine.prompt('hi', base));
+      const usage = usageOf(events);
+
+      // The two halves come to opencode's own total, which is what makes them the
+      // whole of what the turn spent rather than the part that was not cached.
+      assert.deepEqual(usage, { type: 'usage', inputTokens: 8598, outputTokens: 20 });
+      assert.equal((usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0), RECORDED_TOKENS.total);
+    },
+  );
+});
+
+test('a message updated twice is charged once', async () => {
+  // The running figures are repeated for the same message as the answer streams,
+  // so a total that added them would grow with every update.
+  await withFakeOpenCode(
+    {
+      events: [
+        assistantMessage,
+        spent({ input: 6742, output: 0, reasoning: 0, cache: { read: 1856, write: 0 } }),
+        delta('prt-1', 'OK'),
+        spent(RECORDED_TOKENS),
+        idle,
+      ],
+    },
+    async (engine) => {
+      const events = await collect(engine.prompt('hi', base));
+      assert.deepEqual(usageOf(events), { type: 'usage', inputTokens: 8598, outputTokens: 20 });
+    },
+  );
+});
+
+test('a turn answered in several messages reports the sum', async () => {
+  await withFakeOpenCode(
+    {
+      events: [
+        assistantMessage,
+        spent({ input: 100, output: 5, reasoning: 0, cache: { read: 0, write: 0 } }),
+        spent({ input: 200, output: 7, reasoning: 0, cache: { read: 0, write: 0 } }, 'msg-2'),
+        idle,
+      ],
+    },
+    async (engine) => {
+      const events = await collect(engine.prompt('hi', base));
+      assert.deepEqual(usageOf(events), { type: 'usage', inputTokens: 300, outputTokens: 12 });
+    },
+  );
+});
+
+test('an engine that reported no counts reports no usage', async () => {
+  // Zero is not the same as unknown, and a turn that says it cost nothing would be
+  // read as a turn that was free.
+  await withFakeOpenCode(
+    {
+      events: [
+        assistantMessage,
+        spent({ input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }),
+        delta('prt-1', 'OK'),
+        idle,
+      ],
+    },
+    async (engine) => {
+      const events = await collect(engine.prompt('hi', base));
+      assert.equal(usageOf(events), undefined);
+    },
+  );
+});
+
+test('a turn that failed still says what it spent', async () => {
+  await withFakeOpenCode(
+    {
+      events: [
+        assistantMessage,
+        spent(RECORDED_TOKENS),
+        { type: 'session.error', properties: { sessionID: SESSION, error: 'It broke.' } },
+      ],
+    },
+    async (engine) => {
+      const events = await collect(engine.prompt('hi', base));
+
+      assert.deepEqual(usageOf(events), { type: 'usage', inputTokens: 8598, outputTokens: 20 });
+
+      // Reported before the failure, so nothing downstream has to read past a
+      // finished turn to find it.
+      assert.ok(
+        events.findIndex((event) => event.type === 'usage') <
+          events.findIndex((event) => event.type === 'error'),
+      );
+    },
+  );
+});
+
+test("a subagent's tokens count towards the turn that started it", async () => {
+  await withFakeOpenCode(
+    {
+      events: [
+        assistantMessage,
+        spent({ input: 100, output: 5, reasoning: 0, cache: { read: 0, write: 0 } }),
+        { type: 'session.created', properties: { info: { id: 'ses-sub', parentID: SESSION } } },
+        spent(
+          { input: 40, output: 2, reasoning: 0, cache: { read: 0, write: 0 } },
+          'msg-sub',
+          'ses-sub',
+        ),
+        idleFor('ses-sub'),
+        idle,
+      ],
+    },
+    async (engine) => {
+      const events = await collect(engine.prompt('hi', base));
+      assert.deepEqual(usageOf(events), { type: 'usage', inputTokens: 140, outputTokens: 7 });
+    },
+  );
+});
+
+test('a session that is not this turn is not charged to it', async () => {
+  await withFakeOpenCode(
+    {
+      events: [
+        assistantMessage,
+        spent({ input: 100, output: 5, reasoning: 0, cache: { read: 0, write: 0 } }),
+        spent(
+          { input: 9000, output: 900, reasoning: 0, cache: { read: 0, write: 0 } },
+          'msg-other',
+          'ses-elsewhere',
+        ),
+        idle,
+      ],
+    },
+    async (engine) => {
+      const events = await collect(engine.prompt('hi', base));
+      assert.deepEqual(usageOf(events), { type: 'usage', inputTokens: 100, outputTokens: 5 });
+    },
+  );
+});
+
 test('an idle session ends the turn', async () => {
   await withFakeOpenCode({ events: [idle] }, async (engine) => {
     const events = await collect(engine.prompt('hi', base));
@@ -1035,15 +1199,76 @@ test('a server that cannot start is reported, not thrown', async () => {
   assert.ok(events.some((event) => event.type === 'done'));
 });
 
-test('models are read from the engine and junk lines dropped', async () => {
+/**
+ * The verbose listing, in the shape the real `opencode models --verbose` prints: an
+ * id line, then the model's record pretty-printed with its braces at column zero.
+ * The name is what opencode's own picker shows.
+ */
+const VERBOSE_MODELS = `#!/usr/bin/env node
+if (process.argv[3] !== '--verbose') {
+  process.stdout.write('anthropic/claude-sonnet-4\\nnot a model\\nopenai/gpt-5\\n');
+  process.exit(0);
+}
+const record = (providerID, id, name) => {
+  process.stdout.write(providerID + '/' + id + '\\n');
+  process.stdout.write(JSON.stringify({ id, providerID, name, api: { id, url: 'https://example.test' } }, null, 2) + '\\n');
+};
+record('anthropic', 'claude-sonnet-4', 'Claude Sonnet 4');
+record('openai', 'gpt-5', 'GPT 5');
+process.exit(0);
+`;
+
+test('models are read from the engine with the names it knows', async () => {
+  await withFakeEngine('opencode', VERBOSE_MODELS, async () => {
+    // Recorded from the real listing: opencode does know a name for every model, and
+    // its own picker shows `Claude Sonnet 4` where the id reads
+    // `anthropic/claude-sonnet-4`. The id is composed from the record rather than
+    // read from the line above it, so a record cannot be paired with the wrong id.
+    // See ADR-051.
+    assert.deepEqual(await new OpenCodeEngine().listModels(), [
+      { id: 'anthropic/claude-sonnet-4', label: 'Claude Sonnet 4' },
+      { id: 'openai/gpt-5', label: 'GPT 5' },
+    ]);
+  });
+});
+
+test('a name shared by two providers is qualified by the provider', async () => {
+  // Names collide the moment two routers offer the same model, which is why
+  // opencode's own picker shows the provider beside the name. Two options reading
+  // alike would be a choice nobody could make.
+  const script = `#!/usr/bin/env node
+const record = (providerID, id, name) => {
+  process.stdout.write(providerID + '/' + id + '\\n');
+  process.stdout.write(JSON.stringify({ id, providerID, name }, null, 2) + '\\n');
+};
+record('9Router', 'claude-opus-5', 'Claude Opus 5');
+record('anthropic', 'claude-opus-5', 'Claude Opus 5');
+record('Zro', 'glm-5.2', 'GLM 5.2');
+process.exit(0);
+`;
+
+  await withFakeEngine('opencode', script, async () => {
+    assert.deepEqual(await new OpenCodeEngine().listModels(), [
+      { id: '9Router/claude-opus-5', label: 'Claude Opus 5 (9Router)' },
+      { id: 'anthropic/claude-opus-5', label: 'Claude Opus 5 (anthropic)' },
+      // Unique, so it is left unqualified rather than given noise it does not need.
+      { id: 'Zro/glm-5.2', label: 'GLM 5.2' },
+    ]);
+  });
+});
+
+test('a version whose verbose listing says nothing falls back to the plain ids', async () => {
+  // An older opencode with no --verbose, or one whose records cannot be read. The
+  // plain listing is still a usable answer, labelled by id as it was before names
+  // were read at all.
   const script = `#!/usr/bin/env node
 process.stdout.write('anthropic/claude-sonnet-4\\nnot a model\\nopenai/gpt-5\\n');
 `;
 
   await withFakeEngine('opencode', script, async () => {
     assert.deepEqual(await new OpenCodeEngine().listModels(), [
-      'anthropic/claude-sonnet-4',
-      'openai/gpt-5',
+      { id: 'anthropic/claude-sonnet-4', label: 'anthropic/claude-sonnet-4' },
+      { id: 'openai/gpt-5', label: 'openai/gpt-5' },
     ]);
   });
 });

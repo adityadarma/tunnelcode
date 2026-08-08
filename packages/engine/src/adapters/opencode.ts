@@ -3,7 +3,9 @@ import { readActivityTarget } from '../activity.js';
 import { readResultBody } from './opencode-output.js';
 import { startOpenCodeServer } from './opencode-server.js';
 import type { OpenCodeServerHandle, StartOpenCodeServer } from './opencode-server.js';
+import { labelledById } from '../types.js';
 import type {
+  EngineModel,
   Engine,
   EngineEvent,
   EnginePermissionDecision,
@@ -15,6 +17,95 @@ const COMMAND = 'opencode';
 
 /** A model id looks like provider/model, which is what opencode reports. */
 const MODEL_PATTERN = /^[\w.-]+\/[\w./-]+$/;
+
+/** One model record from `opencode models --verbose`. */
+interface VerboseModel {
+  id?: unknown;
+  providerID?: unknown;
+  name?: unknown;
+}
+
+/**
+ * Reads the models out of `opencode models --verbose`.
+ *
+ * The output alternates an id line with the model's record, pretty-printed. A record
+ * is recognised by its braces sitting at column zero, which is what tells the object
+ * apart from the indented ones nested inside it — and, unlike counting braces, is not
+ * confused by one inside a string.
+ *
+ * The id is composed from the record rather than read from the line above it, so a
+ * record cannot be paired with the wrong id. `providerID/id` is exactly what the
+ * plain listing prints, verified against it entry for entry, and it is what `--model`
+ * takes back.
+ *
+ * A name is only qualified by its provider when another provider offers the same
+ * name. Names like `Claude Opus 5` are shared the moment two routers are connected,
+ * and two options reading alike would be a choice nobody could make; qualifying the
+ * ones that do not need it would just be noise.
+ */
+function readVerboseModels(output: string): EngineModel[] {
+  const records: VerboseModel[] = [];
+  let buffer = '';
+
+  for (const line of output.split('\n')) {
+    if (buffer === '') {
+      if (line !== '{') {
+        continue;
+      }
+
+      buffer = `${line}\n`;
+      continue;
+    }
+
+    buffer += `${line}\n`;
+
+    if (line !== '}') {
+      continue;
+    }
+
+    try {
+      records.push(JSON.parse(buffer) as VerboseModel);
+    } catch {
+      // A record that will not parse is skipped rather than failing the listing: the
+      // ones around it are still worth offering.
+    }
+
+    buffer = '';
+  }
+
+  const models: { id: string; name: string; provider: string }[] = [];
+
+  for (const record of records) {
+    const id = record.id;
+    const provider = record.providerID;
+
+    if (typeof id !== 'string' || id === '' || typeof provider !== 'string' || provider === '') {
+      continue;
+    }
+
+    const composed = `${provider}/${id}`;
+
+    if (!MODEL_PATTERN.test(composed) || models.some((model) => model.id === composed)) {
+      continue;
+    }
+
+    const name = record.name;
+    models.push({
+      id: composed,
+      name: typeof name === 'string' && name.trim() !== '' ? name.trim() : composed,
+      provider,
+    });
+  }
+
+  const shared = new Set(
+    models.map((model) => model.name).filter((name, index, all) => all.indexOf(name) !== index),
+  );
+
+  return models.map((model) => ({
+    id: model.id,
+    label: shared.has(model.name) ? `${model.name} (${model.provider})` : model.name,
+  }));
+}
 
 /**
  * Title given to a session the adapter starts.
@@ -56,6 +147,20 @@ interface EventPart {
   state?: ToolState;
 }
 
+/**
+ * What an assistant message has cost, as opencode reports it.
+ *
+ * Cache is a pair of its own rather than folded into the input, and thinking is
+ * counted apart from the answer, which is why reading only `input` and `output`
+ * would report a fraction of the turn.
+ */
+interface EventTokens {
+  input?: unknown;
+  output?: unknown;
+  reasoning?: unknown;
+  cache?: { read?: unknown; write?: unknown };
+}
+
 interface EventProperties {
   sessionID?: unknown;
   messageID?: unknown;
@@ -63,7 +168,7 @@ interface EventProperties {
   field?: unknown;
   delta?: unknown;
   part?: EventPart;
-  info?: { id?: unknown; role?: unknown; parentID?: unknown };
+  info?: { id?: unknown; role?: unknown; parentID?: unknown; tokens?: EventTokens };
   error?: unknown;
   /** Carried by a permission ask. */
   id?: unknown;
@@ -82,6 +187,34 @@ function readStrings(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string')
     : [];
+}
+
+/** One reported count, or zero for anything that is not a count. */
+function readCount(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+/**
+ * What one assistant message cost, as two figures.
+ *
+ * Cache reads and writes are counted as input because that is what was sent to
+ * the provider and charged for: opencode's own `total` includes them, and a figure
+ * that left them out would report 6,742 for a turn that spent 8,598. Thinking is
+ * counted as output for the same reason — the model produced it. Added up, the two
+ * come to the total opencode reports beside them.
+ */
+export function readSpend(tokens: EventTokens | undefined): {
+  input: number;
+  output: number;
+} {
+  if (tokens === undefined) {
+    return { input: 0, output: 0 };
+  }
+
+  return {
+    input: readCount(tokens.input) + readCount(tokens.cache?.read) + readCount(tokens.cache?.write),
+    output: readCount(tokens.output) + readCount(tokens.reasoning),
+  };
 }
 
 /** Turns a permission ask into the shape the caller answers. */
@@ -123,6 +256,7 @@ function readPermissionRequest(properties: EventProperties): EnginePermissionReq
  */
 export class OpenCodeEngine implements Engine {
   readonly name = 'opencode';
+  readonly label = 'OpenCode';
   readonly command = COMMAND;
 
   private readonly startServer: StartOpenCodeServer;
@@ -137,9 +271,28 @@ export class OpenCodeEngine implements Engine {
     return isOnPath(COMMAND);
   }
 
-  /** Reads the model list from `opencode models`, one id per line. */
-  async listModels(): Promise<string[]> {
-    const output = await captureOutput(COMMAND, ['models']);
+  /**
+   * Reads the model list from `opencode models --verbose`.
+   *
+   * The verbose form is asked for because the plain one prints ids alone, and
+   * opencode does know a name for every model: its own picker shows `Claude Opus 5`
+   * where the id reads `9Router/claude-opus-5`. Verbose prints each id followed by
+   * the model's record, which carries that name. Recorded from opencode's own
+   * output. See ADR-051.
+   *
+   * The plain listing is the fallback, for a version whose `--verbose` is missing or
+   * prints something this cannot read. Then a model is labelled by its id, which is
+   * what it was before names were read at all.
+   */
+  async listModels(): Promise<EngineModel[]> {
+    const verbose = await captureOutput(COMMAND, ['models', '--verbose']);
+    const named = verbose === undefined ? [] : readVerboseModels(verbose);
+
+    if (named.length > 0) {
+      return named;
+    }
+
+    const output = verbose ?? (await captureOutput(COMMAND, ['models']));
 
     if (output === undefined) {
       return [];
@@ -148,7 +301,8 @@ export class OpenCodeEngine implements Engine {
     return output
       .split('\n')
       .map((line) => line.trim())
-      .filter((line) => MODEL_PATTERN.test(line));
+      .filter((line) => MODEL_PATTERN.test(line))
+      .map(labelledById);
   }
 
   prompt(text: string, options: PromptOptions): AsyncGenerator<EngineEvent> {
@@ -311,12 +465,46 @@ export class OpenCodeEngine implements Engine {
     const reportedTools = new Set<string>();
     const reportedRefusals = new Set<string>();
 
+    /**
+     * What each assistant message of this turn has cost, by message id.
+     *
+     * Replaced per message rather than added to, because `message.updated` repeats
+     * the running figures for the same message: added, a turn that reported twice
+     * would be charged twice. Summed across messages, because a turn that stopped to
+     * run a tool answers in more than one, and a subagent answers in a session of
+     * its own that this turn still paid for. See ADR-023.
+     */
+    const spend = new Map<string, { input: number; output: number }>();
+
+    /**
+     * The turn's total, reported once as the turn ends.
+     *
+     * Emitted from here rather than on each update, so what reaches the browser is
+     * what the turn cost rather than a figure that climbs while it is read. Nothing
+     * is emitted when opencode reported no counts at all, which the rest of the
+     * system reads as unknown rather than as zero.
+     */
+    const usage = (): EngineEvent[] => {
+      let inputTokens = 0;
+      let outputTokens = 0;
+
+      for (const message of spend.values()) {
+        inputTokens += message.input;
+        outputTokens += message.output;
+      }
+
+      return inputTokens > 0 || outputTokens > 0
+        ? [{ type: 'usage', inputTokens, outputTokens }]
+        : [];
+    };
+
     let buffer = '';
 
     for (;;) {
       const { done, value } = await reader.read();
 
       if (done) {
+        yield* usage();
         yield { type: 'done', exitCode: 0 };
         return;
       }
@@ -367,6 +555,13 @@ export class OpenCodeEngine implements Engine {
 
         if (event.type === 'message.updated') {
           const info = properties.info;
+
+          // Counted for every session this turn owns, not just the prompted one: a
+          // subagent's tokens were spent answering this prompt, and a total that
+          // left them out would read as cheaper than the turn was.
+          if (info?.role === 'assistant' && typeof info.id === 'string') {
+            spend.set(info.id, readSpend(info.tokens));
+          }
 
           // Only the prompted session's assistant messages, because a subagent's
           // narration is not the answer to the prompt. Its tool calls are still
@@ -442,6 +637,10 @@ export class OpenCodeEngine implements Engine {
 
         if (prompted && event.type === 'session.error') {
           const error = properties.error;
+          // Reported for a failed turn too. The tokens were spent whether or not an
+          // answer came of them, and a turn that cost something and says it cost
+          // nothing is the one reading nobody can act on.
+          yield* usage();
           yield {
             type: 'error',
             message: typeof error === 'string' ? error : 'The engine reported an error.',
@@ -453,6 +652,7 @@ export class OpenCodeEngine implements Engine {
         // A subagent falling idle only means its own session finished, and the turn
         // it was started for is still working.
         if (prompted && event.type === 'session.idle') {
+          yield* usage();
           yield { type: 'done', exitCode: 0 };
           return;
         }

@@ -1,7 +1,10 @@
+import type { EngineModel } from '../api.js';
 import { SearchableSelect } from './SearchableSelect.js';
 
 interface ModelPickerProps {
-  models: string[];
+  /** Models the engine reported, each with the id it takes back and a label. */
+  models: EngineModel[];
+  /** The model id the conversation asks for, not its label. */
   selected: string | undefined;
   disabled: boolean;
   onChange: (model: string | undefined) => void;
@@ -34,7 +37,7 @@ export function ModelPicker({
     <SearchableSelect
       id={id}
       label="Model"
-      options={models}
+      options={models.map((model) => ({ value: model.id, label: model.label }))}
       selected={selected}
       emptyLabel="Engine default"
       placeholder="Search model..."

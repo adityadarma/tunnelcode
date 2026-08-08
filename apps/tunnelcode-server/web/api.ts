@@ -9,10 +9,24 @@ export interface PairStatusResponse {
   sessionId?: string;
 }
 
+/**
+ * One model an engine can answer with.
+ *
+ * The id is what the engine takes back, the label is what is shown. They differ for
+ * engines whose ids are parameterised or opaque. See ADR-051.
+ */
+export interface EngineModel {
+  id: string;
+  label: string;
+}
+
 /** An engine the paired machine can run, with the models it reported. */
 export interface DeviceEngine {
+  /** Recorded on a conversation and matched against. */
   name: string;
-  models: string[];
+  /** Shown to the reader, written as the engine's vendor writes it. */
+  label: string;
+  models: EngineModel[];
 }
 
 export interface SessionDetail {

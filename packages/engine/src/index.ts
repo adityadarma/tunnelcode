@@ -14,13 +14,16 @@ export {
 export { ClaudeEngine } from './adapters/claude.js';
 export { CodexEngine } from './adapters/codex.js';
 export { CopilotEngine } from './adapters/copilot.js';
+export { CursorEngine } from './adapters/cursor.js';
 export { KiroEngine } from './adapters/kiro.js';
 export { OpenCodeEngine } from './adapters/opencode.js';
 export { createEngine, discoverEngines, isEngineName, ENGINE_NAMES } from './registry.js';
 export type { AvailableEngine, EngineName } from './registry.js';
 export { isOnPath } from './which.js';
+export { labelledById } from './types.js';
 export type {
   Engine,
+  EngineModel,
   EngineActivity,
   EngineBlocked,
   EngineDelta,

@@ -3,6 +3,7 @@ import { isOnPath } from '../which.js';
 import { startJsonRpc } from './json-rpc.js';
 import type { RpcConnection, RpcRequest } from './json-rpc.js';
 import type {
+  EngineModel,
   Engine,
   EngineEvent,
   EnginePermissionDecision,
@@ -364,8 +365,15 @@ function mapUpdate(params: unknown, tools: Map<string, ToolMemo>): EngineEvent[]
   return events;
 }
 
-/** Reads the model ids a session reports it can answer with. */
-function readModelIds(result: unknown): string[] {
+/**
+ * Reads the models a session reports it can answer with.
+ *
+ * The session reports a name beside each id — `Claude Sonnet 5` for
+ * `claude-sonnet-5` — and it is kept as the label rather than discarded, because it
+ * is what Copilot itself calls the model. The id is still what `session/set_model`
+ * takes back. See ADR-051.
+ */
+function readModels(result: unknown): EngineModel[] {
   const models =
     typeof result === 'object' && result !== null
       ? (result as { models?: { availableModels?: unknown } }).models
@@ -376,20 +384,22 @@ function readModelIds(result: unknown): string[] {
     return [];
   }
 
-  const ids: string[] = [];
+  const found: EngineModel[] = [];
 
   for (const entry of listed) {
-    const id =
-      typeof entry === 'object' && entry !== null
-        ? (entry as { modelId?: unknown }).modelId
-        : undefined;
+    const record =
+      typeof entry === 'object' && entry !== null ? (entry as Record<string, unknown>) : {};
+    const id = record['modelId'];
 
-    if (typeof id === 'string' && id !== '' && !ids.includes(id)) {
-      ids.push(id);
+    if (typeof id !== 'string' || id === '' || found.some((model) => model.id === id)) {
+      continue;
     }
+
+    const name = record['name'];
+    found.push({ id, label: typeof name === 'string' && name.trim() !== '' ? name.trim() : id });
   }
 
-  return ids;
+  return found;
 }
 
 /**
@@ -410,6 +420,7 @@ function readModelIds(result: unknown): string[] {
  */
 export class CopilotEngine implements Engine {
   readonly name = 'copilot';
+  readonly label = 'GitHub Copilot';
   readonly command = COMMAND;
 
   async isAvailable(): Promise<boolean> {
@@ -428,7 +439,7 @@ export class CopilotEngine implements Engine {
    * The login is never checked by running `copilot login`, which would open a
    * browser and wait for it during discovery.
    */
-  async listModels(): Promise<string[]> {
+  async listModels(): Promise<EngineModel[]> {
     let connection: RpcConnection | undefined;
 
     try {
@@ -456,7 +467,7 @@ export class CopilotEngine implements Engine {
         },
       });
 
-      return readModelIds(
+      return readModels(
         await connection.request('session/new', { cwd: process.cwd(), mcpServers: [] }),
       );
     } catch {

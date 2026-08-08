@@ -377,24 +377,36 @@ test('models are read from the bare slugs agy prints', async () => {
   // One slug per line and nothing else, which is what 1.1.9 prints. Expecting a
   // display name beside it matched no line at all, which left the browser offering
   // nothing but the engine default.
+  //
+  // A line with no name after the slug is labelled by the slug, because a model has
+  // to be shown as something and there is nothing else to show.
   assert.deepEqual(models, [
-    'gemini-3.6-flash-high',
-    'gemini-3.6-flash-medium',
-    'gemini-3.1-pro-high',
-    'claude-sonnet-4-6',
-    'gpt-oss-120b-medium',
+    { id: 'gemini-3.6-flash-high', label: 'gemini-3.6-flash-high' },
+    { id: 'gemini-3.6-flash-medium', label: 'gemini-3.6-flash-medium' },
+    { id: 'gemini-3.1-pro-high', label: 'gemini-3.1-pro-high' },
+    { id: 'claude-sonnet-4-6', label: 'claude-sonnet-4-6' },
+    { id: 'gpt-oss-120b-medium', label: 'gpt-oss-120b-medium' },
   ]);
 });
 
-test('a display name beside the slug is tolerated, and prose is not read as one', async () => {
+test('a display name beside the slug becomes the label, and prose is not read as one', async () => {
   const models = await withEmptyPath(async () =>
     withFakeEngine('agy', MODELS_WITH_NAMES, async () => new AntigravityEngine().listModels()),
   );
 
   // Headless mode refuses an unknown --model instead of falling back, so only the
-  // slug is usable. A heading is not a model, which is what the lower-case rule
+  // slug can be sent — which is why the name is carried beside it rather than
+  // instead of it. A heading is not a model, which is what the lower-case rule
   // separates it from.
-  assert.deepEqual(models, ['gemini-3.1-pro-high', 'claude-sonnet-4-6']);
+  //
+  // Recorded from the real `agy models`, which prints exactly this shape:
+  // `gemini-3.6-flash-high   Gemini 3.6 Flash (High)`. The name is worth keeping
+  // because Antigravity spells the effort into it, where the slug leaves it as a
+  // suffix to be decoded. See ADR-051.
+  assert.deepEqual(models, [
+    { id: 'gemini-3.1-pro-high', label: 'Gemini 3.1 Pro (High)' },
+    { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Thinking)' },
+  ]);
 });
 
 test('a conversation that no longer exists is answered without it', async () => {

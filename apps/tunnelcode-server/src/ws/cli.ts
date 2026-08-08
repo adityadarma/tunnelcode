@@ -369,7 +369,17 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
         return;
       }
 
-      handle(message);
+      // A report the server cannot store must not take the process down with it.
+      // An exception escaping this listener is uncaught, and the handler that
+      // catches it shuts the server down, which ends every other session on it and
+      // leaves the turn that was running with nothing to report it. One frame
+      // dropped is one thing missing from a transcript; a shutdown is everybody's
+      // answer lost.
+      try {
+        handle(message);
+      } catch (error) {
+        app.log.error({ err: error, type: message.type }, 'Failed to handle a CLI message.');
+      }
     });
 
     // A code is only valid while its CLI session runs, so dropping the socket

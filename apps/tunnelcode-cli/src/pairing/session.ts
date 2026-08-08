@@ -320,7 +320,11 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
     workspace: options.workspace,
     version: readVersion(),
     answerTimeoutMs: options.timeouts?.answerMs,
-    engines: options.engines.map((engine) => ({ name: engine.name, models: engine.models })),
+    engines: options.engines.map((engine) => ({
+      name: engine.name,
+      label: engine.label,
+      models: engine.models,
+    })),
 
     onRegistered: () => {
       local.registered = true;

@@ -3,6 +3,7 @@ import { captureOutput, isOnPath } from '../which.js';
 import { RpcFailure, startJsonRpc } from './json-rpc.js';
 import type { RpcConnection, RpcRequest } from './json-rpc.js';
 import type {
+  EngineModel,
   Engine,
   EngineEvent,
   EnginePermissionDecision,
@@ -299,6 +300,7 @@ function readItemOutput(item: ThreadItem): string {
  */
 export class CodexEngine implements Engine {
   readonly name = 'codex';
+  readonly label = 'Codex';
   readonly command = COMMAND;
 
   async isAvailable(): Promise<boolean> {
@@ -329,7 +331,7 @@ export class CodexEngine implements Engine {
    * An empty list is read as "use the engine default" rather than as a failure, so
    * the engine is still offered once someone logs in.
    */
-  async listModels(): Promise<string[]> {
+  async listModels(): Promise<EngineModel[]> {
     if (!(await this.isLoggedIn())) {
       return [];
     }
@@ -360,7 +362,7 @@ export class CodexEngine implements Engine {
       // does not consider current.
       const listed = await connection.request('model/list', { includeHidden: false });
 
-      return readModelIds(listed);
+      return readModels(listed);
     } catch {
       return [];
     } finally {
@@ -1122,12 +1124,14 @@ function mapNotification(
 }
 
 /**
- * Reads model ids from a `model/list` response.
+ * Reads the models from a `model/list` response.
  *
- * `id` is what `--model` and the thread settings accept. The display name is not
- * read: a model has to be named the way the engine will take it back.
+ * `id` is what `--model` and the thread settings accept, so that is the id here and
+ * it is never abbreviated. The display name is now kept as the label: a model still
+ * has to be named the way the engine will take it back, and the label is carried
+ * beside the id rather than instead of it. See ADR-051.
  */
-function readModelIds(result: unknown): string[] {
+function readModels(result: unknown): EngineModel[] {
   const data =
     typeof result === 'object' && result !== null ? (result as { data?: unknown }).data : undefined;
 
@@ -1135,9 +1139,14 @@ function readModelIds(result: unknown): string[] {
     return [];
   }
 
-  const ids: string[] = [];
+  const found: EngineModel[] = [];
 
-  for (const entry of data as { id?: unknown; model?: unknown; hidden?: unknown }[]) {
+  for (const entry of data as {
+    id?: unknown;
+    model?: unknown;
+    hidden?: unknown;
+    displayName?: unknown;
+  }[]) {
     if (entry.hidden === true) {
       continue;
     }
@@ -1149,10 +1158,16 @@ function readModelIds(result: unknown): string[] {
           ? entry.model
           : '';
 
-    if (id !== '' && !ids.includes(id)) {
-      ids.push(id);
+    if (id === '' || found.some((model) => model.id === id)) {
+      continue;
     }
+
+    // `displayName` as recorded from the real app server: `gpt-5.6-terra` is
+    // reported as `GPT-5.6-Terra`. `description` sits beside it and is a sentence,
+    // so it is deliberately not read as a label.
+    const name = entry.displayName;
+    found.push({ id, label: typeof name === 'string' && name.trim() !== '' ? name.trim() : id });
   }
 
-  return ids;
+  return found;
 }

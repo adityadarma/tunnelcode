@@ -1,9 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 
+/**
+ * One choice in the dropdown.
+ *
+ * The value is what is reported back and stored; the label is what is shown and
+ * searched. They differ for engines whose model ids are parameterised or opaque,
+ * where the id has to travel exactly and is not fit to read. See ADR-051.
+ */
+export interface SelectOption {
+  value: string;
+  label: string;
+}
+
 interface SearchableSelectProps {
   /** Accessible name for the trigger. */
   label: string;
-  options: string[];
+  options: SelectOption[];
   selected: string | undefined;
   /** Shown when options is empty. */
   emptyLabel?: string;
@@ -51,10 +63,26 @@ export function SearchableSelect({
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const availableOptions = Array.from(new Set([...(selected ? [selected] : []), ...options]));
-  const currentDisplay = selected ?? availableOptions[0] ?? emptyLabel;
+  // A selected value the engine no longer offers is still listed, so the control
+  // shows what the conversation actually asks for rather than silently reading as
+  // something else. Labelled by its own value, since the label is only known for
+  // options the engine reported.
+  const availableOptions: SelectOption[] =
+    selected !== undefined && !options.some((option) => option.value === selected)
+      ? [{ value: selected, label: selected }, ...options]
+      : options;
 
-  const filtered = availableOptions.filter((o) => o.toLowerCase().includes(search.toLowerCase()));
+  const currentValue = selected ?? availableOptions[0]?.value;
+  const currentDisplay =
+    availableOptions.find((option) => option.value === currentValue)?.label ?? emptyLabel;
+
+  // Matched on both, because the label is what is on screen while the value is what
+  // a person may know the model by. Searching a bracketed parameter still finds it.
+  const needle = search.toLowerCase();
+  const filtered = availableOptions.filter(
+    (option) =>
+      option.label.toLowerCase().includes(needle) || option.value.toLowerCase().includes(needle),
+  );
 
   // Close dropdown when clicking outside or pressing Escape
   useEffect(() => {
@@ -161,18 +189,22 @@ export function SearchableSelect({
           <div className="model-picker-no-results">No matches</div>
         ) : (
           filtered.map((option) => {
-            const isSelected = option === (selected ?? availableOptions[0]);
+            const isSelected = option.value === currentValue;
             return (
               <div
-                key={option}
+                key={option.value}
                 role="option"
                 aria-selected={isSelected}
                 className={`model-picker-option ${isSelected ? 'selected' : ''}`}
+                // The value carries the whole id, which can be long and
+                // parameterised, so it is available on hover where the label is all
+                // that fits on the line.
+                title={option.value === option.label ? undefined : option.value}
                 onClick={() => {
-                  handleSelect(option);
+                  handleSelect(option.value);
                 }}
               >
-                <span className="truncate">{option}</span>
+                <span className="truncate">{option.label}</span>
                 {isSelected && (
                   <svg
                     className="model-picker-check"

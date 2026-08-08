@@ -711,7 +711,13 @@ console.log(JSON.stringify({
   await withFakeEngine('kiro-cli', script, async () => {
     // 'auto' is the default the engine ships with, so a listing that dropped it
     // would hide the only model most conversations would use.
-    assert.deepEqual(await new KiroEngine().listModels(), ['auto', 'claude-sonnet-4.5']);
+    // Labelled by id. The listing reports `model_name` as the id repeated and offers
+    // no display name, and its `description` is a sentence rather than a name.
+    // Verified against the real `kiro-cli chat --list-models`. See ADR-051.
+    assert.deepEqual(await new KiroEngine().listModels(), [
+      { id: 'auto', label: 'auto' },
+      { id: 'claude-sonnet-4.5', label: 'claude-sonnet-4.5' },
+    ]);
   });
 });
 
@@ -729,7 +735,11 @@ console.log('  glm-5                0.50x credits      GLM-5 model');
 `;
 
   await withFakeEngine('kiro-cli', script, async () => {
-    assert.deepEqual(await new KiroEngine().listModels(), ['auto', 'claude-sonnet-4.5', 'glm-5']);
+    assert.deepEqual(await new KiroEngine().listModels(), [
+      { id: 'auto', label: 'auto' },
+      { id: 'claude-sonnet-4.5', label: 'claude-sonnet-4.5' },
+      { id: 'glm-5', label: 'glm-5' },
+    ]);
   });
 });
 

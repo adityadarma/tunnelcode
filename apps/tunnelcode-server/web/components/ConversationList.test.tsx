@@ -16,8 +16,12 @@ const conversations = [
 ];
 
 const engines = [
-  { name: 'opencode', models: ['opencode/fast'] },
-  { name: 'claude', models: ['sonnet'] },
+  {
+    name: 'opencode',
+    label: 'OpenCode',
+    models: [{ id: 'opencode/fast', label: 'Fast' }],
+  },
+  { name: 'claude', label: 'Claude Code', models: [{ id: 'sonnet', label: 'sonnet' }] },
 ];
 
 describe('ConversationList', () => {
@@ -143,10 +147,69 @@ describe('ConversationList', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'New' }));
     await userEvent.click(screen.getByRole('combobox', { name: 'Engine' }));
-    await userEvent.click(screen.getByRole('option', { name: 'claude' }));
+
+    // The engine is offered under the name its vendor uses, not the name a
+    // conversation records: `claude` is Claude Code and `opencode` is OpenCode.
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'OpenCode',
+      'Claude Code',
+    ]);
+
+    await userEvent.click(screen.getByRole('option', { name: 'Claude Code' }));
     await userEvent.click(screen.getByRole('button', { name: 'Start Conversation' }));
 
+    // Chosen by label, recorded by name. See ADR-051.
     expect(onCreate).toHaveBeenCalledWith('claude', 'sonnet');
+  });
+
+  test('a row names the engine and model as they are shown, not as they are stored', () => {
+    render(
+      <ConversationList
+        conversations={[
+          {
+            id: 'c1',
+            title: 'A conversation',
+            engine: 'opencode',
+            model: 'opencode/fast',
+            createdAt: 1,
+            updatedAt: 2,
+          },
+        ]}
+        activeId="c1"
+        engines={engines}
+        createDisabled={false}
+        onSelect={vi.fn()}
+        onCreate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('OpenCode · Fast')).toBeDefined();
+  });
+
+  test('a row falls back to what is stored when the engine is gone', () => {
+    // A conversation created on an engine since uninstalled still says what it runs
+    // on, rather than reading as blank.
+    render(
+      <ConversationList
+        conversations={[
+          {
+            id: 'c1',
+            title: 'A conversation',
+            engine: 'retired',
+            model: 'retired/model',
+            createdAt: 1,
+            updatedAt: 2,
+          },
+        ]}
+        activeId="c1"
+        engines={engines}
+        createDisabled={false}
+        onSelect={vi.fn()}
+        onCreate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('retired · retired/model')).toBeDefined();
   });
 
   test('creating is refused while the device is offline', () => {

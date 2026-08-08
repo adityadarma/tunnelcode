@@ -330,8 +330,12 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
       // asked for something its engine cannot serve. This can happen without any
       // browser doing anything wrong: the engine may have dropped a model since the
       // conversation chose it.
+      //
+      // Matched on the id, which is what a conversation stores and what the engine
+      // takes back. A label is for reading and two engines may well share one.
       const model =
-        conversation.model !== null && engine.models.includes(conversation.model)
+        conversation.model !== null &&
+        engine.models.some((entry) => entry.id === conversation.model)
           ? conversation.model
           : undefined;
 
@@ -487,7 +491,8 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
       }
 
       const model =
-        conversation.model !== null && engine.models.includes(conversation.model)
+        conversation.model !== null &&
+        engine.models.some((entry) => entry.id === conversation.model)
           ? conversation.model
           : undefined;
 

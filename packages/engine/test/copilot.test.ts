@@ -640,10 +640,14 @@ test('the models are read from the session, which is the only place they are rep
   const script = conversation(endTurn);
 
   await withFakeEngine('copilot', script, async () => {
+    // The session reports a name beside each id, and it is kept as the label rather
+    // than discarded: `claude-sonnet-5` is `Claude Sonnet 5` and `gpt-5.4-mini` is
+    // `GPT-5.4 mini`, neither of which could be derived from the id without
+    // inventing the capitalisation. See ADR-051.
     assert.deepEqual(await new CopilotEngine().listModels(), [
-      'auto',
-      'claude-sonnet-5',
-      'gpt-5.4-mini',
+      { id: 'auto', label: 'Auto' },
+      { id: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
+      { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini' },
     ]);
   });
 });

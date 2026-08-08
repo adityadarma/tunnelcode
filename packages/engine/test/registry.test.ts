@@ -3,10 +3,20 @@ import assert from 'node:assert/strict';
 import { discoverEngines } from '../dist/registry.js';
 import { withEmptyPath, withFakeEngine } from './helpers.ts';
 
-/** Fake opencode that only has to answer `models`, which is all discovery asks. */
+/**
+ * Fake opencode that only has to answer `models`, which is all discovery asks.
+ *
+ * Answers the verbose form, which is what the adapter asks for so it can read the
+ * names opencode knows. See ADR-051.
+ */
 const OPENCODE = `#!/usr/bin/env node
-if (process.argv[2] === 'models') {
-  process.stdout.write('opencode/fast\\nopencode/slow\\n');
+if (process.argv[2] === 'models' && process.argv[3] === '--verbose') {
+  const record = (providerID, id, name) => {
+    process.stdout.write(providerID + '/' + id + '\\n');
+    process.stdout.write(JSON.stringify({ id, providerID, name }, null, 2) + '\\n');
+  };
+  record('opencode', 'fast', 'Fast');
+  record('opencode', 'slow', 'Slow');
   process.exit(0);
 }
 process.exit(0);
@@ -110,7 +120,10 @@ test('only the installed engines are reported, with their own models', async () 
         found.map((engine) => engine.name),
         ['opencode'],
       );
-      assert.deepEqual(found[0]?.models, ['opencode/fast', 'opencode/slow']);
+      assert.deepEqual(found[0]?.models, [
+        { id: 'opencode/fast', label: 'Fast' },
+        { id: 'opencode/slow', label: 'Slow' },
+      ]);
     });
   });
 });
@@ -128,7 +141,11 @@ test('several installed engines are all reported', async () => {
         // Models stay with their engine, so one engine's model is never offered
         // for another.
         const claude = found.find((engine) => engine.name === 'claude');
-        assert.deepEqual(claude?.models, ['opus', 'sonnet', 'haiku']);
+        assert.deepEqual(claude?.models, [
+          { id: 'opus', label: 'opus' },
+          { id: 'sonnet', label: 'sonnet' },
+          { id: 'haiku', label: 'haiku' },
+        ]);
       });
     });
   });
@@ -146,7 +163,9 @@ test('antigravity is discovered under the name its binary does not share', async
         ['antigravity'],
       );
       assert.equal(found[0]?.command, 'agy');
-      assert.deepEqual(found[0]?.models, ['gemini-3.1-pro-high']);
+      assert.deepEqual(found[0]?.models, [
+        { id: 'gemini-3.1-pro-high', label: 'Gemini 3.1 Pro (High)' },
+      ]);
     });
   });
 });
@@ -163,7 +182,7 @@ test('kiro is discovered under the name its binary does not share', async () => 
         ['kiro'],
       );
       assert.equal(found[0]?.command, 'kiro-cli');
-      assert.deepEqual(found[0]?.models, ['claude-sonnet-4.5']);
+      assert.deepEqual(found[0]?.models, [{ id: 'claude-sonnet-4.5', label: 'claude-sonnet-4.5' }]);
     });
   });
 });
@@ -180,7 +199,7 @@ test('codex is discovered, and its models come from its app server', async () =>
       );
       assert.equal(found[0]?.command, 'codex');
       // The hidden model is left out: Codex keeps it out of its own picker.
-      assert.deepEqual(found[0]?.models, ['gpt-5.6-terra']);
+      assert.deepEqual(found[0]?.models, [{ id: 'gpt-5.6-terra', label: 'gpt-5.6-terra' }]);
     });
   });
 });
@@ -197,7 +216,10 @@ test('copilot is discovered, and its models come from an ACP session', async () 
       assert.equal(found[0]?.command, 'copilot');
       // Read from the session rather than from a listing command, because the CLI
       // has none and initialize answers without models.
-      assert.deepEqual(found[0]?.models, ['auto', 'claude-sonnet-5']);
+      assert.deepEqual(found[0]?.models, [
+        { id: 'auto', label: 'Auto' },
+        { id: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
+      ]);
     });
   });
 });

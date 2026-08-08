@@ -14,6 +14,19 @@ export type RpcId = string | number;
 export interface RpcError {
   code: number;
   message: string;
+  /**
+   * Whatever the peer attached to the failure, carried and never interpreted.
+   *
+   * Present because a code and a message are not always enough to tell two
+   * failures apart. Cursor reports a session it no longer holds as an ordinary
+   * `-32602` "Invalid params" and names the session only in here, so an adapter
+   * that could not read it would have to treat every bad parameter as a pruned
+   * session and silently start a new conversation.
+   *
+   * Typed as unknown on purpose: what is in it belongs to the engine, so the
+   * transport hands it over rather than deciding what it means.
+   */
+  data?: unknown;
 }
 
 /** An incoming call that expects an answer. */
@@ -60,11 +73,20 @@ interface Pending {
 /** A JSON-RPC failure carrying the code, so a caller can tell auth from the rest. */
 export class RpcFailure extends Error {
   readonly code: number;
+  /** The error payload, when the peer sent one. See RpcError.data. */
+  readonly data?: unknown;
 
   constructor(error: RpcError) {
     super(error.message);
     this.name = 'RpcFailure';
     this.code = error.code;
+
+    // Assigned conditionally so a failure without a payload has no `data` property
+    // at all, rather than one holding undefined. `exactOptionalPropertyTypes` is on,
+    // and the two are not the same thing to a caller narrowing the field.
+    if (error.data !== undefined) {
+      this.data = error.data;
+    }
   }
 }
 
@@ -73,7 +95,7 @@ interface Envelope {
   method?: unknown;
   params?: unknown;
   result?: unknown;
-  error?: { code?: unknown; message?: unknown };
+  error?: { code?: unknown; message?: unknown; data?: unknown };
 }
 
 /**
@@ -194,7 +216,10 @@ export async function startJsonRpc(
       const code = typeof message.error.code === 'number' ? message.error.code : 0;
       const text =
         typeof message.error.message === 'string' ? message.error.message : 'The agent refused.';
-      waiting.reject(new RpcFailure({ code, message: text }));
+      const data = message.error.data;
+      waiting.reject(
+        new RpcFailure({ code, message: text, ...(data !== undefined ? { data } : {}) }),
+      );
       return;
     }
 

@@ -69,7 +69,15 @@ function stubFetch(): void {
             workspace: '/work',
             engine: 'opencode',
             online: true,
-            engines: [{ name: 'opencode', models: ['opencode/fast', 'opencode/slow'] }],
+            engines: [
+              {
+                name: 'opencode',
+                models: [
+                  { id: 'opencode/fast', label: 'opencode/fast' },
+                  { id: 'opencode/slow', label: 'opencode/slow' },
+                ],
+              },
+            ],
           };
 
     return Promise.resolve({

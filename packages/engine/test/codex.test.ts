@@ -116,7 +116,7 @@ function handle(msg) {
     return;
   }
   if (msg.method === 'model/list') {
-    send({ jsonrpc: '2.0', id: msg.id, result: { data: [{ id: 'gpt-5.6-terra', hidden: false, isDefault: true }, { id: 'internal-eval', hidden: true }, { id: 'gpt-5.5', hidden: false }], nextCursor: null } });
+    send({ jsonrpc: '2.0', id: msg.id, result: { data: [{ id: 'gpt-5.6-terra', displayName: 'GPT-5.6-Terra', description: 'Balanced agentic coding model for everyday work.', hidden: false, isDefault: true }, { id: 'internal-eval', displayName: 'Internal Eval', hidden: true }, { id: 'gpt-5.5', hidden: false }], nextCursor: null } });
     return;
   }
 }
@@ -708,7 +708,16 @@ test('models are read from the listing, without the hidden ones', async () => {
   await withFakeEngine('codex', conversation(''), async () => {
     // Hidden models are the ones Codex keeps out of its own picker, so offering
     // them would put a choice in the browser the engine does not consider current.
-    assert.deepEqual(await new CodexEngine().listModels(), ['gpt-5.6-terra', 'gpt-5.5']);
+    //
+    // `displayName` becomes the label, as recorded from the real app server, which
+    // reports `gpt-5.6-terra` as `GPT-5.6-Terra` — a capitalisation nothing could
+    // derive from the id. An entry without one is labelled by its id. The
+    // `description` beside it is a sentence and is deliberately not read as a name.
+    // See ADR-051.
+    assert.deepEqual(await new CodexEngine().listModels(), [
+      { id: 'gpt-5.6-terra', label: 'GPT-5.6-Terra' },
+      { id: 'gpt-5.5', label: 'gpt-5.5' },
+    ]);
   });
 });
 

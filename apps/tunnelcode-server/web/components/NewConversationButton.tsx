@@ -45,7 +45,7 @@ export function NewConversationButton({
       const initialEngine = engines.find((engine) => engine.name === defaultEngine) ?? engines[0];
       if (initialEngine !== undefined) {
         setSelectedEngine(initialEngine.name);
-        setSelectedModel(initialEngine.models[0] ?? '');
+        setSelectedModel(initialEngine.models[0]?.id ?? '');
       }
     }
   }, [open, engines, defaultEngine]);
@@ -57,7 +57,7 @@ export function NewConversationButton({
     const name = engineName ?? '';
     setSelectedEngine(name);
     const targetEngine = engines.find((e) => e.name === name);
-    setSelectedModel(targetEngine?.models[0] ?? '');
+    setSelectedModel(targetEngine?.models[0]?.id ?? '');
   };
 
   const handleModelChange = (model: string | undefined): void => {
@@ -114,7 +114,7 @@ export function NewConversationButton({
 
             <div className="modal-body space-y-4">
               <EnginePicker
-                engines={engines.map((engine) => engine.name)}
+                engines={engines}
                 selected={selectedEngine !== '' ? selectedEngine : undefined}
                 disabled={engines.length === 0}
                 onChange={handleEngineChange}

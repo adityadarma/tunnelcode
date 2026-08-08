@@ -31,6 +31,7 @@ export type { PushSubscriptionRequest, PushUnsubscribeRequest } from './push.js'
 export {
   browserMessageSchema,
   cliMessageSchema,
+  engineModelSchema,
   ENGINE_TEXT_MAX_LENGTH,
   parseBrowserMessage,
   parseCliMessage,
@@ -41,6 +42,7 @@ export {
 export type {
   BrowserMessage,
   CliMessage,
+  EngineModelPayload,
   ServerToBrowserMessage,
   ServerToCliMessage,
 } from './events.js';

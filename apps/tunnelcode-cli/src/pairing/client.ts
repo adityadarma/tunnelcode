@@ -1,6 +1,7 @@
 import WebSocket from 'ws';
 import { serverToCliMessageSchema } from '@tunnelcode/protocol';
 import type { CliMessage, PermissionDecision, ServerToCliMessage } from '@tunnelcode/protocol';
+import type { EngineModel } from '@tunnelcode/engine';
 
 /** How often the CLI pings, to notice a dead connection. */
 const PING_INTERVAL_MS = 30 * 1000;
@@ -20,8 +21,8 @@ export interface PairingClientOptions {
   workspace: string;
   /** Version of the CLI, sent to the server for display. */
   version: string;
-  /** Engines this machine can run, each with the models it reported. */
-  engines: { name: string; models: string[] }[];
+  /** Engines this machine can run, each with its label and the models it reported. */
+  engines: { name: string; label: string; models: EngineModel[] }[];
   /** Per-device answer timeout from config, sent to the server. */
   answerTimeoutMs?: number | undefined;
   /** Asked when the server forwards a pairing request. */

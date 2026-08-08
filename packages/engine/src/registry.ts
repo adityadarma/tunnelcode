@@ -2,9 +2,10 @@ import { AntigravityEngine } from './adapters/antigravity.js';
 import { ClaudeEngine } from './adapters/claude.js';
 import { CodexEngine } from './adapters/codex.js';
 import { CopilotEngine } from './adapters/copilot.js';
+import { CursorEngine } from './adapters/cursor.js';
 import { KiroEngine } from './adapters/kiro.js';
 import { OpenCodeEngine } from './adapters/opencode.js';
-import type { Engine } from './types.js';
+import type { Engine, EngineModel } from './types.js';
 
 /**
  * Engine names that can appear in configuration.
@@ -19,6 +20,7 @@ export const ENGINE_NAMES = [
   'kiro',
   'codex',
   'copilot',
+  'cursor',
 ] as const;
 
 export type EngineName = (typeof ENGINE_NAMES)[number];
@@ -49,6 +51,8 @@ export function createEngine(name: string): Engine | undefined {
       return new CodexEngine();
     case 'copilot':
       return new CopilotEngine();
+    case 'cursor':
+      return new CursorEngine();
   }
 }
 
@@ -61,8 +65,10 @@ export function createEngine(name: string): Engine | undefined {
  */
 export interface AvailableEngine {
   name: EngineName;
+  /** The engine's own name for itself, for showing rather than matching. */
+  label: string;
   command: string;
-  models: string[];
+  models: EngineModel[];
 }
 
 /**
@@ -86,7 +92,12 @@ export async function discoverEngines(): Promise<AvailableEngine[]> {
         return undefined;
       }
 
-      return { name, command: engine.command, models: await engine.listModels() };
+      return {
+        name,
+        label: engine.label,
+        command: engine.command,
+        models: await engine.listModels(),
+      };
     }),
   );
 

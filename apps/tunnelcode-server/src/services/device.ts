@@ -1,3 +1,5 @@
+import type { EngineModelPayload as EngineModel } from '@tunnelcode/protocol';
+
 /**
  * A device is a CLI process that registered a pairing code. Devices live in
  * memory only: a restarted server means every CLI has to register again, which
@@ -8,11 +10,13 @@
  * An engine the device can run, with the models it reported.
  *
  * Both are needed to validate a browser's choice: an engine that is not here
- * cannot answer, and a model that is not in its list cannot be asked for.
+ * cannot answer, and a model whose id is not in its list cannot be asked for.
  */
 export interface DeviceEngine {
   name: string;
-  models: string[];
+  /** The engine's own name for itself, for showing rather than matching. */
+  label: string;
+  models: EngineModel[];
 }
 
 export interface Device {

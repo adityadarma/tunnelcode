@@ -2,7 +2,9 @@ import { isOnPath } from '../which.js';
 import { streamProcess } from '../process.js';
 import type { ProcessChannel } from '../process.js';
 import { readActivityTarget } from '../activity.js';
+import { labelledById } from '../types.js';
 import type {
+  EngineModel,
   Engine,
   EngineEvent,
   EnginePermissionDecision,
@@ -213,6 +215,7 @@ function readPermissionRequest(id: string, request: ControlRequest): EnginePermi
  */
 export class ClaudeEngine implements Engine {
   readonly name = 'claude';
+  readonly label = 'Claude Code';
   readonly command = COMMAND;
 
   async isAvailable(): Promise<boolean> {
@@ -222,9 +225,11 @@ export class ClaudeEngine implements Engine {
   /**
    * Claude Code has no command that lists models, only the aliases its --model
    * flag accepts. Those are returned so the UI can still offer a choice.
+   *
+   * An alias is a word, so it is its own label. See ADR-051.
    */
-  async listModels(): Promise<string[]> {
-    return (await isOnPath(COMMAND)) ? [...MODEL_ALIASES] : [];
+  async listModels(): Promise<EngineModel[]> {
+    return (await isOnPath(COMMAND)) ? MODEL_ALIASES.map(labelledById) : [];
   }
 
   prompt(text: string, options: PromptOptions): AsyncGenerator<EngineEvent> {

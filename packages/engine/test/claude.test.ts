@@ -316,7 +316,14 @@ test('model aliases are offered when the engine is installed', async () => {
   await withFakeEngine('claude', STREAMING, async () => {
     // Claude Code cannot enumerate models, so the aliases its flag accepts are
     // the only stable choice.
-    assert.deepEqual(await new ClaudeEngine().listModels(), ['opus', 'sonnet', 'haiku']);
+    // An alias is a word, so it is its own label: Claude Code reports no display
+    // name anywhere, and there is nothing to derive one from that would not be
+    // invented. See ADR-051.
+    assert.deepEqual(await new ClaudeEngine().listModels(), [
+      { id: 'opus', label: 'opus' },
+      { id: 'sonnet', label: 'sonnet' },
+      { id: 'haiku', label: 'haiku' },
+    ]);
   });
 });
 

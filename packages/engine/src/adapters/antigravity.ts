@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { RUN_COMMANDS_RULE } from './antigravity-settings.js';
 import { captureOutput, isOnPath } from '../which.js';
 import { streamProcess } from '../process.js';
-import type { Engine, EngineEvent, PromptOptions } from '../types.js';
+import type { Engine, EngineEvent, EngineModel, PromptOptions } from '../types.js';
 
 const COMMAND = 'agy';
 
@@ -193,31 +193,43 @@ function readTarget(parameters: unknown): string | undefined {
  */
 export class AntigravityEngine implements Engine {
   readonly name = 'antigravity';
+  readonly label = 'Antigravity';
   readonly command = COMMAND;
 
   async isAvailable(): Promise<boolean> {
     return isOnPath(COMMAND);
   }
 
-  /** Reads the model list from `agy models`, one `slug display name` per line. */
-  async listModels(): Promise<string[]> {
+  /**
+   * Reads the model list from `agy models`, one `slug display name` per line.
+   *
+   * The display name is kept as the label rather than thrown away: the slug is what
+   * `--model` takes back, and the rest of the line is what Antigravity itself calls
+   * the model. A line with nothing after the slug is labelled by the slug. See
+   * ADR-051.
+   */
+  async listModels(): Promise<EngineModel[]> {
     const output = await captureOutput(COMMAND, ['models']);
 
     if (output === undefined) {
       return [];
     }
 
-    const slugs: string[] = [];
+    const models: EngineModel[] = [];
 
     for (const line of output.split('\n')) {
-      const slug = line.trim().split(/\s+/)[0] ?? '';
+      const trimmed = line.trim();
+      const slug = trimmed.split(/\s+/)[0] ?? '';
 
-      if (MODEL_SLUG.test(slug) && !slugs.includes(slug)) {
-        slugs.push(slug);
+      if (!MODEL_SLUG.test(slug) || models.some((model) => model.id === slug)) {
+        continue;
       }
+
+      const name = trimmed.slice(slug.length).trim();
+      models.push({ id: slug, label: name === '' ? slug : name });
     }
 
-    return slugs;
+    return models;
   }
 
   prompt(text: string, options: PromptOptions): AsyncGenerator<EngineEvent> {

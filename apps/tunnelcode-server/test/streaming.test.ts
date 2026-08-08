@@ -63,10 +63,15 @@ interface Paired {
   conversationId: string;
 }
 
-/** Brings a session all the way to paired, which every streaming test needs. */
-async function pair(baseUrl: string): Promise<Paired> {
+/**
+ * Brings a session all the way to paired, which every streaming test needs.
+ *
+ * The engines can be overridden, so a test can register the labelled shape without
+ * changing what every other test sends.
+ */
+async function pair(baseUrl: string, overrides: Record<string, unknown> = {}): Promise<Paired> {
   const cli = await connect<CliEvent>(baseUrl, '/ws/cli');
-  cli.send(register);
+  cli.send({ ...register, ...overrides });
   await cli.waitFor((events) => events.some((event) => event.type === 'registered'));
 
   const request = await postJson(baseUrl, '/api/pair', { code: 'ABCDEFGH' });
@@ -102,9 +107,66 @@ test('the session reports every engine the machine can run', async () => {
     // carries its own models so one engine's model is never offered for another.
     assert.equal(session.body['engine'], 'opencode');
     assert.equal(session.body['online'], true);
+
+    // This device registered its models as bare strings, which is what every CLI
+    // before labels existed sent. They arrive labelled by their own ids, because the
+    // schema normalises the old shape rather than refusing it: `models` is a required
+    // field, so rejecting it would stop an older CLI registering at all and the
+    // device would simply read as offline. See ADR-051.
+    // The engine label is absent from this payload too, and is filled from the name
+    // for the same reason.
     assert.deepEqual(session.body['engines'], [
-      { name: 'opencode', models: ['opencode/fast', 'opencode/slow'] },
-      { name: 'claude', models: ['sonnet', 'haiku'] },
+      {
+        name: 'opencode',
+        label: 'opencode',
+        models: [
+          { id: 'opencode/fast', label: 'opencode/fast' },
+          { id: 'opencode/slow', label: 'opencode/slow' },
+        ],
+      },
+      {
+        name: 'claude',
+        label: 'claude',
+        models: [
+          { id: 'sonnet', label: 'sonnet' },
+          { id: 'haiku', label: 'haiku' },
+        ],
+      },
+    ]);
+
+    cli.close();
+  });
+});
+
+test('a device that reports labelled models has them relayed to the browser', async () => {
+  await withServer(async ({ baseUrl }) => {
+    // The shape a current CLI sends: an id the engine takes back, and a label written
+    // for a person. Cursor is the reason the two are separate — `default[]` is the id
+    // and `Auto` is what it means.
+    const { cli, sessionId } = await pair(baseUrl, {
+      engines: [
+        {
+          name: 'cursor',
+          label: 'Cursor',
+          models: [
+            { id: 'default[]', label: 'Auto' },
+            { id: 'claude-opus-5[thinking=true,context=300k]', label: 'claude-opus-5' },
+          ],
+        },
+      ],
+    });
+
+    const session = await getJson(baseUrl, `/api/sessions/${sessionId}`);
+
+    assert.deepEqual(session.body['engines'], [
+      {
+        name: 'cursor',
+        label: 'Cursor',
+        models: [
+          { id: 'default[]', label: 'Auto' },
+          { id: 'claude-opus-5[thinking=true,context=300k]', label: 'claude-opus-5' },
+        ],
+      },
     ]);
 
     cli.close();

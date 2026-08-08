@@ -199,6 +199,35 @@ export interface PromptOptions {
 }
 
 /**
+ * A model an engine can answer with.
+ *
+ * Two fields because the two jobs conflict. The id is what the engine takes back
+ * and has to survive whole: Cursor's are parameterised, such as
+ * `claude-opus-5[thinking=true,context=300k]`, and it accepts nothing shorter. The
+ * label is what a person reads, and an id that has to be exact is often not fit to
+ * be read.
+ *
+ * The label is the id when the engine reports nothing better, so an engine whose
+ * ids are already readable needs to say nothing special. See ADR-051.
+ */
+export interface EngineModel {
+  /** Value the engine takes back, exactly as it reported it. Never abbreviated. */
+  id: string;
+  /** Name written for a person. Equal to the id when that is all the engine gave. */
+  label: string;
+}
+
+/**
+ * A model reported with only an id, labelled with it.
+ *
+ * For the engines that report one string per model, so they do not each repeat the
+ * same object literal.
+ */
+export function labelledById(id: string): EngineModel {
+  return { id, label: id };
+}
+
+/**
  * Engine adapter contract. Concrete engines translate their own CLI output into
  * EngineEvent, so business logic never depends on a specific engine. See
  * ADR-010.
@@ -206,6 +235,17 @@ export interface PromptOptions {
 export interface Engine {
   /** Engine name as written in configuration. */
   readonly name: string;
+  /**
+   * The engine's own name for itself, for showing rather than for matching.
+   *
+   * Written as its vendor writes it, so `opencode` shows as `OpenCode` and `claude`
+   * as `Claude Code`. Not derived from the name: capitalising the first letter would
+   * produce `Opencode`, which is not what it is called, and the same objection
+   * applies here as to deriving a model label. It lives on the adapter beside the
+   * name and the command because those are the other two facts an engine knows about
+   * itself, and because a new adapter then cannot be added without one. See ADR-051.
+   */
+  readonly label: string;
   /** Executable this engine spawns. */
   readonly command: string;
   /** Whether the executable can be found on PATH. */
@@ -214,7 +254,7 @@ export interface Engine {
    * Models this engine can answer with. Empty when the engine cannot report
    * them, which the UI treats as "use the engine default".
    */
-  listModels(): Promise<string[]>;
+  listModels(): Promise<EngineModel[]>;
   /** Sends a prompt and streams the answer. */
   prompt(text: string, options: PromptOptions): AsyncGenerator<EngineEvent>;
   /**
