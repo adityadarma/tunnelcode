@@ -288,6 +288,67 @@ test('a second agent in the same workspace is told the workspace is busy', async
   });
 });
 
+test('one approval frees the same browser asking twice', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const cli = await connect<CliEvent>(baseUrl, '/ws/cli');
+    cli.send(register);
+    await cli.waitFor((events) => events.some((event) => event.type === 'registered'));
+
+    // What React StrictMode produces: one browser, one effect, fired twice. The
+    // second request is the one it kept, so approving has to answer both.
+    const agent = { 'user-agent': 'the-paired-browser' };
+    const first = await postJson(baseUrl, '/api/pair', { code: 'ABCDEFGH' }, agent);
+    const second = await postJson(baseUrl, '/api/pair', { code: 'ABCDEFGH' }, agent);
+
+    await cli.waitFor((events) => events.some((event) => event.type === 'pair_request'));
+    cli.send({ type: 'approve', requestId: first.body['requestId'] });
+    await cli.waitFor((events) => events.some((event) => event.type === 'paired'));
+
+    const spare = await getJson(baseUrl, `/api/pair/${String(second.body['requestId'])}/status`);
+
+    assert.equal(spare.body['status'], 'approved');
+
+    cli.close();
+  });
+});
+
+test('an approval never answers a request from somebody else', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const cli = await connect<CliEvent>(baseUrl, '/ws/cli');
+    cli.send(register);
+    await cli.waitFor((events) => events.some((event) => event.type === 'registered'));
+
+    // A stranger holding a leaked code, posting before the user approves. Nothing
+    // stops them asking: the code is in the QR URL. What must not happen is the
+    // token minted for the user's browser being handed to them as well, which is
+    // what matching on the device alone did. They are never shown the approval
+    // number, so the approval is not theirs to collect.
+    const stranger = await postJson(
+      baseUrl,
+      '/api/pair',
+      { code: 'ABCDEFGH' },
+      { 'user-agent': 'the-stranger' },
+    );
+    const owner = await postJson(
+      baseUrl,
+      '/api/pair',
+      { code: 'ABCDEFGH' },
+      { 'user-agent': 'the-paired-browser' },
+    );
+
+    await cli.waitFor((events) => events.some((event) => event.type === 'pair_request'));
+    cli.send({ type: 'approve', requestId: owner.body['requestId'] });
+    await cli.waitFor((events) => events.some((event) => event.type === 'paired'));
+
+    const stolen = await getJson(baseUrl, `/api/pair/${String(stranger.body['requestId'])}/status`);
+
+    assert.equal(stolen.body['status'], 'rejected');
+    assert.equal(stolen.body['sessionId'], undefined);
+
+    cli.close();
+  });
+});
+
 test('a taken code is fatal too', async () => {
   await withServer(async ({ baseUrl }) => {
     const owner = await connect<CliEvent>(baseUrl, '/ws/cli');

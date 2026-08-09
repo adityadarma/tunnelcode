@@ -117,6 +117,29 @@ export const conversations = sqliteTable(
      * engine that created it, so switching engines must not resume into it.
      */
     engineSessionEngine: text('engine_session_engine'),
+    /**
+     * Every token this conversation has spent, added up across its turns.
+     *
+     * Deliberately not a measure of context: each turn resends the conversation, so
+     * this counts the same context once per turn. It answers what the conversation
+     * cost, which is the only question a running sum can answer honestly.
+     *
+     * Null until a turn reports a count, and null forever on an engine that cannot
+     * count. Zero would say the conversation was free, which is a different claim
+     * from having nothing to report. See ADR-050.
+     */
+    inputTokens: integer('input_tokens'),
+    outputTokens: integer('output_tokens'),
+    /**
+     * What the last turn to report spent.
+     *
+     * Kept beside the total rather than derived from it, because this is the figure
+     * that stands for how much context the conversation now carries: a turn's input
+     * is the conversation as the model last received it. Overwritten each time,
+     * since only the latest one means anything.
+     */
+    lastInputTokens: integer('last_input_tokens'),
+    lastOutputTokens: integer('last_output_tokens'),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
   },

@@ -39,7 +39,7 @@ interface MessageListProps {
    * Called when the user taps "Grant & Retry" on a blocked Antigravity activity.
    * Absent hides the button on every blocked activity.
    */
-  onGrantAndRetry?: ((grant: 'writes' | 'commands') => void) | undefined;
+  onGrantAndRetry?: (() => void) | undefined;
 }
 
 function formatTime(value: number): string {

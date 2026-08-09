@@ -45,7 +45,28 @@ export interface StoredReasoning {
   createdAt: number;
 }
 
-export interface StoredConversation {
+/** Tokens spent, as the engines report them. */
+export interface Usage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/**
+ * What a conversation has spent, and what its last reporting turn spent.
+ *
+ * Two figures because they answer different questions: the total is the cost, and
+ * the last turn's input is roughly the context the conversation now carries. Every
+ * field is null until something reports one, which is the state a conversation on
+ * an engine that cannot count stays in forever.
+ */
+export interface StoredUsage {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  lastInputTokens: number | null;
+  lastOutputTokens: number | null;
+}
+
+export interface StoredConversation extends StoredUsage {
   id: string;
   title: string | null;
   /**
@@ -115,6 +136,10 @@ export class ConversationRepository {
       title: row.title,
       engine: row.engine,
       model: row.model,
+      inputTokens: null,
+      outputTokens: null,
+      lastInputTokens: null,
+      lastOutputTokens: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -311,6 +336,51 @@ export class ConversationRepository {
     this.db.update(activities).set({ output }).where(eq(activities.id, activityId)).run();
   }
 
+  /**
+   * Adds a turn's tokens to the conversation and records them as the latest.
+   *
+   * The total accumulates and the latest is replaced, which is the whole difference
+   * between the two figures. Existing nulls are read as zero for the sum only: a
+   * conversation nobody had counted starts counting from this turn rather than
+   * refusing to.
+   *
+   * Written once per turn, so the traffic stays proportional to turns rather than
+   * to tokens. The conversation's updatedAt is deliberately left alone: spending
+   * tokens is not something the user said, and letting it reorder the list would
+   * move a conversation nobody had spoken in. See ADR-008.
+   */
+  addUsage(conversationId: string, spent: Usage): StoredUsage {
+    const current = this.readUsage(conversationId);
+
+    const updated: StoredUsage = {
+      inputTokens: (current?.inputTokens ?? 0) + spent.inputTokens,
+      outputTokens: (current?.outputTokens ?? 0) + spent.outputTokens,
+      lastInputTokens: spent.inputTokens,
+      lastOutputTokens: spent.outputTokens,
+    };
+
+    this.db.update(conversations).set(updated).where(eq(conversations.id, conversationId)).run();
+
+    return updated;
+  }
+
+  /** What a conversation has spent so far, or undefined when there is no such row. */
+  readUsage(conversationId: string): StoredUsage | undefined {
+    const rows = this.db
+      .select({
+        inputTokens: conversations.inputTokens,
+        outputTokens: conversations.outputTokens,
+        lastInputTokens: conversations.lastInputTokens,
+        lastOutputTokens: conversations.lastOutputTokens,
+      })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId))
+      .limit(1)
+      .all();
+
+    return rows[0];
+  }
+
   findById(conversationId: string): StoredConversation | undefined {
     const rows = this.db
       .select({
@@ -318,6 +388,10 @@ export class ConversationRepository {
         title: conversations.title,
         engine: conversations.engine,
         model: conversations.model,
+        inputTokens: conversations.inputTokens,
+        outputTokens: conversations.outputTokens,
+        lastInputTokens: conversations.lastInputTokens,
+        lastOutputTokens: conversations.lastOutputTokens,
         createdAt: conversations.createdAt,
         updatedAt: conversations.updatedAt,
       })
@@ -357,6 +431,10 @@ export class ConversationRepository {
         title: conversations.title,
         engine: conversations.engine,
         model: conversations.model,
+        inputTokens: conversations.inputTokens,
+        outputTokens: conversations.outputTokens,
+        lastInputTokens: conversations.lastInputTokens,
+        lastOutputTokens: conversations.lastOutputTokens,
         createdAt: conversations.createdAt,
         updatedAt: conversations.updatedAt,
       })

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test, vi, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ConversationPage } from './ConversationPage.js';
+import type { Conversation } from '../api.js';
 
 /**
  * A socket the test can push frames into.
@@ -46,23 +47,43 @@ class FakeSocket {
   }
 }
 
-const conversation = {
+/**
+ * A conversation as the API returns one.
+ *
+ * The token counts are null, which is a conversation nothing has been counted for
+ * yet. Spelled out rather than left off, because that is the shape the server sends
+ * and a page that only works against a payload with fields missing would not be
+ * tested against anything real.
+ */
+/** The title, named on its own so a matcher does not have to prove it is not null. */
+const TITLE = 'Earlier question';
+
+const conversation: Conversation = {
   id: 'conversation-1',
-  title: 'Earlier question',
+  title: TITLE,
   engine: 'opencode',
   model: 'opencode/fast',
+  inputTokens: null,
+  outputTokens: null,
+  lastInputTokens: null,
+  lastOutputTokens: null,
   createdAt: 1,
   updatedAt: 2,
 };
 
 function stubFetch(): void {
+  stubFetchWith(conversation);
+}
+
+/** The same stub, for a test that needs the conversation to carry other figures. */
+function stubFetchWith(only: Conversation): void {
   vi.stubGlobal('fetch', (input: string) => {
     const url = input;
 
     const payload = url.includes('/messages')
       ? { messages: [], activities: [] }
       : url.includes('/conversations')
-        ? { conversations: [conversation] }
+        ? { conversations: [only] }
         : {
             id: 'session-1',
             deviceName: 'Test Mac',
@@ -97,7 +118,7 @@ function stubFetch(): void {
 async function loadPage(): Promise<void> {
   await screen.findByLabelText('Message', {}, { timeout: 4000 });
   await waitFor(() => {
-    expect(screen.getAllByText(conversation.title).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(TITLE).length).toBeGreaterThan(0);
   });
 }
 
@@ -519,6 +540,101 @@ describe('ConversationPage reconnect approval', () => {
     // waiting for something that is never coming.
     await waitFor(() => {
       expect(lost).toHaveBeenCalled();
+    });
+  });
+});
+
+describe('ConversationPage token counts', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.stubGlobal('WebSocket', FakeSocket);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    FakeSocket.latest = undefined;
+  });
+
+  test('a conversation nothing was counted for shows no figures', async () => {
+    stubFetch();
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+
+    await loadPage();
+
+    // An engine that cannot count leaves the conversation here for good, and zero
+    // would claim it was free.
+    expect(screen.queryByText(/in ·/)).toBeNull();
+  });
+
+  test('the stored counts are shown without waiting for a turn', async () => {
+    stubFetchWith({
+      ...conversation,
+      inputTokens: 15000,
+      outputTokens: 50,
+      lastInputTokens: 9000,
+      lastOutputTokens: 30,
+    });
+
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+
+    await loadPage();
+
+    // Read from the conversation, which is what makes them survive a refresh: the
+    // figures used to live only in this page's state and vanished with it.
+    await waitFor(() => {
+      expect(screen.getByText('9.0k in · 30 out · 15.1k total')).toBeDefined();
+    });
+  });
+
+  test('a finished turn updates both the turn and the total', async () => {
+    stubFetchWith({
+      ...conversation,
+      inputTokens: 6000,
+      outputTokens: 20,
+      lastInputTokens: 6000,
+      lastOutputTokens: 20,
+    });
+
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+
+    await loadPage();
+
+    FakeSocket.latest?.deliver({
+      type: 'turn_done',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      usage: { inputTokens: 9000, outputTokens: 30 },
+      total: { inputTokens: 15000, outputTokens: 50 },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('9.0k in · 30 out · 15.1k total')).toBeDefined();
+    });
+  });
+
+  test('a turn that counted nothing leaves the figures alone', async () => {
+    stubFetchWith({
+      ...conversation,
+      inputTokens: 6000,
+      outputTokens: 20,
+      lastInputTokens: 6000,
+      lastOutputTokens: 20,
+    });
+
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+
+    await loadPage();
+
+    // A server too old to send counts, or a turn nothing reported for. Either way
+    // the last figures stand rather than being wiped to nothing.
+    FakeSocket.latest?.deliver({
+      type: 'turn_done',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('6.0k in · 20 out · 6.0k total')).toBeDefined();
     });
   });
 });

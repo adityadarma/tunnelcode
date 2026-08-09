@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a1b2c3d4-5678-9012-3456-push-keys-drop",
-  "prevId": "3f8de921-388a-4534-a309-28c94ae42314",
+  "id": "1f1b9402-7de1-47f8-8f24-184766db1afb",
+  "prevId": "a1b2c3d4-5678-9012-3456-push-keys-drop",
   "tables": {
     "activities": {
       "name": "activities",
@@ -141,6 +141,34 @@
         "engine_session_engine": {
           "name": "engine_session_engine",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "input_tokens": {
+          "name": "input_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "output_tokens": {
+          "name": "output_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_input_tokens": {
+          "name": "last_input_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_output_tokens": {
+          "name": "last_output_tokens",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

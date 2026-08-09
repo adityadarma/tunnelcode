@@ -24,6 +24,8 @@
 - A verb for a tool is read from the name the engine gave it, never from a list of tool names kept in this project. An unrecognised tool degrades to a general word rather than being shown its own name.
 - Never pass an engine flag that approves tool calls on the agent's behalf. An engine that cannot be asked must be left to refuse, so a limit set on this machine is never bypassed by a flag.
 - Never shorten a value the machine also decides with. Permission targets, commands, and paths are recorded whole; shortening is the surface's job and belongs in CSS, not in an event.
+- A value the machine decides with travels beside the name it is shown under, never instead of it. Engine names and model ids are stored and matched; labels are only shown, and nothing is ever matched on one.
+- A label is read from the engine or it is the value itself. Never derived: capitalising an id produces `Gpt` for GPT and `Opencode` for OpenCode, and a name nobody reported is the same mistake as a number nobody counted.
 - A path shown to the user is relative to the workspace, with no prefix marker in front of it.
 - An adapter is pinned by tests built from output shapes recorded from the real engine, never from what its documentation implies.
 - Web UI styling uses Tailwind CSS v4 and CSS variables (`--bg`, `--surface`, `--accent`, `--border`) for theme support.

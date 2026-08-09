@@ -93,10 +93,19 @@ test('register carries the models of each engine separately', () => {
 
   // Models belong to an engine, so a browser can never offer one engine's model
   // for another.
+  //
+  // The bare strings a CLI from before ADR-051 sends are normalised on the way in:
+  // each becomes a model labelled by its own id, and the engine label is filled from
+  // the engine name. Normalising here rather than at each reader is what lets an
+  // older CLI keep registering instead of being refused outright.
   assert.equal(parsed?.type, 'register');
   assert.deepEqual(parsed?.type === 'register' ? parsed.engines[1] : undefined, {
     name: 'claude',
-    models: ['sonnet', 'haiku'],
+    label: 'claude',
+    models: [
+      { id: 'sonnet', label: 'sonnet' },
+      { id: 'haiku', label: 'haiku' },
+    ],
   });
 });
 
@@ -290,6 +299,21 @@ test('a prompt has a length the browser cannot exceed', () => {
   // controls. See ADR-030.
   assert.notEqual(parseBrowserMessage(prompt(PROMPT_MAX_LENGTH)), undefined);
   assert.equal(parseBrowserMessage(prompt(PROMPT_MAX_LENGTH + 1)), undefined);
+});
+
+test('the browser can only ask for write access', () => {
+  const grant = (value: string): string =>
+    JSON.stringify({
+      type: 'grant_and_retry',
+      conversationId: '3f8c1e42-2a5b-4f7d-9c11-6b2d0e5a7c93',
+      grant: value,
+    });
+
+  // `command(*)` is unscoped and Antigravity raises no ask, so nobody would see the
+  // question afterwards. It is refused here rather than merely left out of the UI,
+  // so a hand-written message cannot reach it either. See ADR-035.
+  assert.notEqual(parseBrowserMessage(grant('writes')), undefined);
+  assert.equal(parseBrowserMessage(grant('commands')), undefined);
 });
 
 test('engine output has a length the CLI cannot exceed', () => {

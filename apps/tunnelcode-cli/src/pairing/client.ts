@@ -80,7 +80,7 @@ export interface PairingClientOptions {
     engine: string,
     model: string | undefined,
     resume: string | undefined,
-    grant: 'writes' | 'commands',
+    grant: 'writes',
   ) => Promise<void>;
 }
 

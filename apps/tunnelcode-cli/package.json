@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -b && tsc -p test/tsconfig.json",
     "start": "node ./dist/index.js",
     "test": "node --test \"test/**/*.test.ts\"",
     "bundle": "node scripts/bundle.mjs"

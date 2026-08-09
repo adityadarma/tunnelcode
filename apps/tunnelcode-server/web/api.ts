@@ -63,6 +63,21 @@ export interface Conversation {
   engine: string | null;
   /** Model asked for, or null to let the engine decide. */
   model: string | null;
+  /**
+   * Every token this conversation has spent, added up across its turns.
+   *
+   * Not a measure of context: each turn resends the conversation, so this counts
+   * the same context once per turn. Null when no turn has ever reported a count,
+   * which is where a conversation on an engine that cannot count stays.
+   */
+  inputTokens: number | null;
+  outputTokens: number | null;
+  /**
+   * What the last turn to report spent, which stands for how much context the
+   * conversation now carries.
+   */
+  lastInputTokens: number | null;
+  lastOutputTokens: number | null;
   createdAt: number;
   updatedAt: number;
 }

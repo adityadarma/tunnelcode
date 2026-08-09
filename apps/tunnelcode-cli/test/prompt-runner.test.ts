@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PromptRunner } from '../dist/pairing/prompt-runner.js';
-import type { Engine, EngineEvent, PromptOptions } from '@tunnelcode/engine';
+import type { Engine, EngineEvent, EngineModel, PromptOptions } from '@tunnelcode/engine';
 import { ENGINE_TEXT_MAX_LENGTH, parseCliMessage } from '@tunnelcode/protocol';
 import type { CliMessage } from '@tunnelcode/protocol';
 
@@ -19,6 +19,9 @@ const wait = async (ms: number): Promise<void> => {
  */
 class ScriptedEngine implements Engine {
   readonly name = 'scripted';
+  // The name a vendor would show, which every engine carries beside the name that
+  // is stored and matched. See ADR-051.
+  readonly label = 'Scripted';
   readonly command = 'scripted';
   aborted = false;
   private readonly events: EngineEvent[];
@@ -33,8 +36,8 @@ class ScriptedEngine implements Engine {
     return true;
   }
 
-  async listModels(): Promise<string[]> {
-    return ['scripted/fast'];
+  async listModels(): Promise<EngineModel[]> {
+    return [{ id: 'scripted/fast', label: 'scripted/fast' }];
   }
 
   async *prompt(_text: string, options: PromptOptions): AsyncGenerator<EngineEvent> {
@@ -126,6 +129,81 @@ test('a failure with nothing produced carries no text', async () => {
   assert.equal(error?.type === 'turn_error' ? error.text : 'unset', undefined);
 });
 
+test('a turn that failed still reports what it spent', async () => {
+  // The order the engines actually use: opencode reports the count before the
+  // failure, because the tokens were spent before anything went wrong.
+  const engine = new ScriptedEngine(
+    [
+      { type: 'usage', inputTokens: 8598, outputTokens: 20 },
+      { type: 'error', message: 'It broke.' },
+    ],
+    false,
+  );
+  const { sent, send } = collect();
+  const runner = new PromptRunner({
+    engines: new Map([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    silenceTimeoutMs: 500,
+  });
+
+  await runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+
+  // Dropped, this is what made a conversation with one bad turn in it understate
+  // everything it had cost.
+  const error = sent.find((message) => message.type === 'turn_error');
+  assert.deepEqual(error?.type === 'turn_error' ? error.usage : undefined, {
+    inputTokens: 8598,
+    outputTokens: 20,
+  });
+});
+
+test('a failure that spent nothing reports no count', async () => {
+  const engine = new ScriptedEngine([{ type: 'error', message: 'not logged in' }], false);
+  const { sent, send } = collect();
+  const runner = new PromptRunner({
+    engines: new Map([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    silenceTimeoutMs: 500,
+  });
+
+  await runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+
+  // Absent rather than zero: an engine that never counted is unknown, and a login
+  // that was refused spent nothing to report.
+  const error = sent.find((message) => message.type === 'turn_error');
+  assert.equal(error?.type === 'turn_error' ? error.usage : 'unset', undefined);
+});
+
+test('a turn abandoned for silence reports what it spent first', async () => {
+  const engine = new ScriptedEngine(
+    [
+      { type: 'delta', text: 'part of an answer' },
+      { type: 'usage', inputTokens: 100, outputTokens: 5 },
+    ],
+    true,
+  );
+  const { sent, send } = collect();
+  const runner = new PromptRunner({
+    engines: new Map([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    silenceTimeoutMs: 80,
+  });
+
+  await runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+
+  const error = sent.find((message) => message.type === 'turn_error');
+  assert.deepEqual(error?.type === 'turn_error' ? error.usage : undefined, {
+    inputTokens: 100,
+    outputTokens: 5,
+  });
+});
+
 test('a cancelled turn is reported once, not twice', async () => {
   const engine = new ScriptedEngine([{ type: 'delta', text: 'hello' }], true);
   const { sent, send } = collect();
@@ -155,6 +233,7 @@ test('a cancelled turn is reported once, not twice', async () => {
  */
 class SlowButTalkingEngine implements Engine {
   readonly name = 'slow';
+  readonly label = 'Slow';
   readonly command = 'slow';
   aborted = false;
 
@@ -162,7 +241,7 @@ class SlowButTalkingEngine implements Engine {
     return true;
   }
 
-  async listModels(): Promise<string[]> {
+  async listModels(): Promise<EngineModel[]> {
     return [];
   }
 
@@ -451,6 +530,7 @@ test('a refused tool call is forwarded without ending the turn', async () => {
  */
 class AskingEngine implements Engine {
   readonly name = 'asking';
+  readonly label = 'Asking';
   readonly command = 'asking';
   aborted = false;
   decision: string | undefined;
@@ -464,7 +544,7 @@ class AskingEngine implements Engine {
     return true;
   }
 
-  async listModels(): Promise<string[]> {
+  async listModels(): Promise<EngineModel[]> {
     return [];
   }
 

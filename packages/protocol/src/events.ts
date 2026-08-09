@@ -97,6 +97,24 @@ const permissionAskShape = {
 };
 
 /**
+ * Tokens spent, wherever a count travels.
+ *
+ * Shared so the CLI half and the browser half cannot drift, and so the running
+ * total a conversation keeps is the same shape as the turn that adds to it.
+ *
+ * Zero is allowed because an engine is entitled to report it. What is not allowed
+ * is inventing one: a count is absent when nobody reported it, and absent reads as
+ * unknown rather than as free.
+ */
+const usageSchema = z.object({
+  inputTokens: z.number().int().min(0),
+  outputTokens: z.number().int().min(0),
+});
+
+/** Tokens spent, as every reader downstream of the schema sees them. */
+export type UsagePayload = z.output<typeof usageSchema>;
+
+/**
  * Messages the CLI sends to the server.
  *
  * The CLI registers a code, then answers pairing requests. Only the CLI can
@@ -270,12 +288,7 @@ export const cliMessageSchema = z.discriminatedUnion('type', [
      * Optional because not every engine can report it. Absent means unknown,
      * not zero.
      */
-    usage: z
-      .object({
-        inputTokens: z.number().int().min(0),
-        outputTokens: z.number().int().min(0),
-      })
-      .optional(),
+    usage: usageSchema.optional(),
   }),
   z.object({
     type: z.literal('turn_error'),
@@ -289,6 +302,15 @@ export const cliMessageSchema = z.discriminatedUnion('type', [
      * older CLI does not send it at all.
      */
     text: z.string().max(ENGINE_TEXT_MAX_LENGTH).optional(),
+    /**
+     * What the turn spent before it failed.
+     *
+     * Reported for the same reason the partial answer is: the tokens were spent
+     * whether or not an answer came of them, and a conversation total that skipped
+     * every failed turn would understate what it cost. Optional, since a turn can
+     * fail before any count arrives and an older CLI never sends one.
+     */
+    usage: usageSchema.optional(),
   }),
   /**
    * Git diff data from the local workspace, sent periodically by the CLI.
@@ -422,7 +444,15 @@ export const serverToCliMessageSchema = z.discriminatedUnion('type', [
     engine: z.string().min(1),
     model: z.string().min(1).optional(),
     resume: z.string().min(1).optional(),
-    grant: z.enum(['writes', 'commands']),
+    /**
+     * What to allow. Only writes, and only for the workspace the CLI is in.
+     *
+     * Running commands is deliberately not a value here. Antigravity cannot raise
+     * an ask mid-turn, so an engine allowed to run commands would run them with
+     * nobody able to see the question, and the rule that grant needs is
+     * `command(*)` rather than anything scoped to a workspace. See ADR-031.
+     */
+    grant: z.literal('writes'),
   }),
 ]);
 
@@ -485,12 +515,16 @@ export const browserMessageSchema = z.discriminatedUnion('type', [
    * Antigravity cannot ask mid-turn, so a block ends the work. This lets the user
    * grant from the browser and have the prompt re-sent without typing it again.
    * The grant kind says what to allow: 'writes' adds a workspace write rule,
-   * 'commands' adds the command rule. See ADR-031.
+   * Only writes can be granted this way, and only for the workspace the CLI is in.
+   * Running commands is not offered here: the grant it needs is `command(*)`, which
+   * is unscoped and would let an engine that cannot raise an ask run anything with
+   * nobody able to see the question. That one stays a choice made in the terminal.
+   * See ADR-031.
    */
   z.object({
     type: z.literal('grant_and_retry'),
     conversationId: conversationIdSchema,
-    grant: z.enum(['writes', 'commands']),
+    grant: z.literal('writes'),
   }),
   // The user ended the session from the browser. The agent runs on the paired
   // machine, so ending it has to reach the CLI, not just clear the browser.
@@ -710,12 +744,18 @@ export const serverToBrowserMessageSchema = z.discriminatedUnion('type', [
      *
      * Optional because not every engine reports it. Absent means unknown.
      */
-    usage: z
-      .object({
-        inputTokens: z.number().int().min(0),
-        outputTokens: z.number().int().min(0),
-      })
-      .optional(),
+    usage: usageSchema.optional(),
+    /**
+     * What the conversation has spent in total, this turn included.
+     *
+     * Sent beside the turn's own figures rather than instead of them, because the
+     * two answer different questions and neither can be worked out from the other:
+     * every turn resends the conversation, so the total is what it cost and the
+     * turn's input is roughly how much context it now carries.
+     *
+     * Absent when no turn in this conversation has ever reported a count.
+     */
+    total: usageSchema.optional(),
   }),
   /**
    * Git file changes from the local workspace, forwarded from the CLI.

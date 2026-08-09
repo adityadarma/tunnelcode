@@ -12,7 +12,7 @@ interface ActivityItemProps {
    * Present only when the engine is Antigravity and the block can be granted from
    * the browser. Absent hides the button entirely.
    */
-  onGrantAndRetry?: ((grant: 'writes' | 'commands') => void) | undefined;
+  onGrantAndRetry?: (() => void) | undefined;
 }
 
 /**
@@ -52,15 +52,16 @@ export function ActivityItem({
   const hasOutput = output !== undefined;
   const reason = typeof activity.reason === 'string' ? activity.reason : undefined;
 
-  // Determine the grant type from the reason text for Antigravity blocked activities.
-  const grantType: 'writes' | 'commands' | undefined =
-    activity.blocked === true && reason !== undefined
-      ? /write_file\(/.test(reason)
-        ? 'writes'
-        : /command\(/.test(reason)
-          ? 'commands'
-          : undefined
-      : undefined;
+  // Whether this block is one the browser can lift, read from the rule Antigravity
+  // named in its refusal.
+  //
+  // Only a write. A blocked command shows as blocked with no button, because the
+  // rule it would need is `command(*)`: unscoped, and held by an engine that cannot
+  // raise an ask mid-turn, so it would run anything with nobody able to see the
+  // question. Allowing that is a choice made in Setup, in the terminal, where the
+  // user can read what it covers. See ADR-031.
+  const canGrantWrites =
+    activity.blocked === true && reason !== undefined && /write_file\(/.test(reason);
 
   return (
     <div className="activity-pill-wrapper">
@@ -134,15 +135,15 @@ export function ActivityItem({
             <pre className="activity-output-content">{withoutNumberSeparators(output)}</pre>
           </div>
         )}
-        {onGrantAndRetry !== undefined && grantType !== undefined && (
+        {onGrantAndRetry !== undefined && canGrantWrites && (
           <button
             type="button"
             className="grant-retry-button"
             onClick={() => {
-              onGrantAndRetry(grantType);
+              onGrantAndRetry();
             }}
           >
-            Grant &amp; Retry
+            Grant write access &amp; Retry
           </button>
         )}
       </div>

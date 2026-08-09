@@ -248,6 +248,17 @@ export class PromptRunner {
      */
     const partial = (): { text?: string } => (answer === '' ? {} : { text: clamp(answer) });
 
+    /**
+     * What the turn spent, sent along with a failure as well as with an answer.
+     *
+     * A turn that failed still cost tokens, and dropping the count because the
+     * answer never arrived would understate every conversation that had a bad turn
+     * in it. Omitted when nothing was reported, which reads as unknown rather than
+     * as free.
+     */
+    const spent = (): { usage?: { inputTokens: number; outputTokens: number } } =>
+      usage === undefined ? {} : { usage };
+
     const stopWaiting = (): void => {
       if (silenceTimer !== undefined) {
         clearTimeout(silenceTimer);
@@ -482,7 +493,13 @@ export class PromptRunner {
             // arrive, and a turn that failed still explains itself through what
             // the model was working on. See ADR-033.
             flushReasoning();
-            send({ type: 'turn_error', turnId, message: clamp(event.message), ...partial() });
+            send({
+              type: 'turn_error',
+              turnId,
+              message: clamp(event.message),
+              ...partial(),
+              ...spent(),
+            });
             break;
           case 'done':
             if (event.exitCode !== 0 && !failed) {
@@ -493,6 +510,7 @@ export class PromptRunner {
                 turnId,
                 message: `Engine exited with code ${String(event.exitCode)}.`,
                 ...partial(),
+                ...spent(),
               });
             }
             break;
@@ -512,7 +530,7 @@ export class PromptRunner {
       } else if (wasAbandoned()) {
         // An abandoned turn reports why rather than presenting a truncated answer
         // as if the engine had finished.
-        send({ type: 'turn_error', turnId, message: abandonedMessage, ...partial() });
+        send({ type: 'turn_error', turnId, message: abandonedMessage, ...partial(), ...spent() });
       } else if (!failed) {
         send({
           type: 'turn_done',
@@ -536,6 +554,7 @@ export class PromptRunner {
                 : 'The engine failed.',
           ),
           ...partial(),
+          ...spent(),
         });
       }
     } finally {

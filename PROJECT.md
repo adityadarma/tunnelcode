@@ -468,7 +468,18 @@ Custom Engine
 Without changing business logic.
 
 Implemented so far: OpenCode, Claude Code, Antigravity CLI, Kiro CLI, Codex CLI,
-GitHub Copilot CLI.
+GitHub Copilot CLI, Cursor Agent CLI.
+
+Naming
+
+An engine has a name and a label. The name is what configuration records, what a
+conversation stores, and what everything is matched on. The label is what is shown,
+written as the engine's vendor writes it, so `opencode` reads as OpenCode and `claude`
+as Claude Code.
+
+A model is the same: an id the engine takes back, never abbreviated or rewritten, and
+a label to show. An engine that reports no name of its own labels a model by its id,
+and a label is never derived from an id. See ADR-051.
 
 Token Usage
 
@@ -508,7 +519,10 @@ reason, and its approval policy and sandbox are set on the thread rather than re
 from the user's own config, because those are what decide whether a call is asked
 about at all. See ADR-048. GitHub Copilot CLI is driven over the Agent Client
 Protocol as well, chosen over its own non-interactive mode because that one requires
-a flag which approves every call on the agent's behalf.
+a flag which approves every call on the agent's behalf. Cursor Agent CLI is driven over
+the same protocol, reached through a subcommand it does not advertise, because every
+surface it documents decides tool calls from its own allowlist and leaves an ask with
+nowhere to go. See ADR-050.
 
 Not every engine can be asked. Antigravity CLI runs headless and has no prompt of its
 own, so there is nothing to carry a question out and an answer back: a call it will not

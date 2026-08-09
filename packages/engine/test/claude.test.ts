@@ -431,7 +431,11 @@ test('a stale session still gets an answer', async () => {
     // Engine sessions live outside this project and can be pruned at any time, so
     // refusing to answer would be worse than answering without the old context.
     assert.equal(textOf(events), 'fresh answer');
-    assert.equal(events.at(-1)?.type === 'done' ? events.at(-1)?.exitCode : -1, 0);
+
+    // Bound to a name so the check narrows: read twice, the second call is a fresh
+    // lookup that TypeScript knows nothing about.
+    const last = events.at(-1);
+    assert.equal(last?.type === 'done' ? last.exitCode : -1, 0);
   });
 });
 

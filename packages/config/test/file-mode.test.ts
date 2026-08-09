@@ -5,6 +5,7 @@ import { addGrants } from '../dist/grants.js';
 import { machineIdPath, readOrCreateDeviceId } from '../dist/device-id.js';
 import { globalConfigPath, grantsPath } from '../dist/paths.js';
 import { writeGlobalConfig } from '../dist/write.js';
+import type { GlobalConfig } from '../dist/schema.js';
 import { withTempHome } from './helpers.ts';
 
 /**
@@ -17,10 +18,20 @@ async function modeOf(path: string): Promise<number> {
   return (await stat(path)).mode & 0o777;
 }
 
-const config = {
+/**
+ * A config as it is stored.
+ *
+ * The timeouts and the ceiling are spelled out because the stored shape carries
+ * them: both are defaulted when a file written before they existed is read, but a
+ * value handed to the writer is already past that point. These tests are about file
+ * permissions, so the values themselves are the defaults.
+ */
+const config: GlobalConfig = {
   server: { url: 'https://server.example.com' },
   device: { name: 'Test Mac' },
-  engine: 'opencode' as const,
+  engine: 'opencode',
+  timeouts: { idleMinutes: 60, answerMinutes: 5, silenceMinutes: 15 },
+  permission: { deny: [] },
 };
 
 test('the config is readable only by its owner', { skip: !posix }, async () => {

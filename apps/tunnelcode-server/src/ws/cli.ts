@@ -341,7 +341,7 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
 
         case 'turn_error':
           if (deviceId !== undefined) {
-            relay.fail(deviceId, message.turnId, message.message, message.text);
+            relay.fail(deviceId, message.turnId, message.message, message.text, message.usage);
           }
           return;
 

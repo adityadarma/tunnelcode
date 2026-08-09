@@ -10,7 +10,49 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+### Added
+
+- Cursor Agent CLI is supported as a seventh engine, selectable in Setup and in the
+  browser when `agent` is on PATH. It raises permission cards like the other engines
+  rather than deciding calls by itself, and Always allow is recorded on this machine
+  so Setup can list and clear it. Cursor reports no token usage, so a conversation on
+  it shows none. See ADR-050.
+
+- Engines are shown under the names their vendors use: OpenCode, Claude Code,
+  Antigravity, Kiro, Codex, GitHub Copilot, Cursor. A conversation row names its engine
+  and model the same way. What is stored and matched is unchanged, so nothing needs
+  migrating. See ADR-051.
+
+- The model picker shows the name each engine gives a model instead of its raw id.
+  Copilot now reads `Claude Sonnet 5`, Codex `GPT-5.6-Terra`, Antigravity
+  `Gemini 3.6 Flash (High)`, OpenCode `Claude Opus 5`, and Cursor `Auto` where its id
+  is `default[]`. Kiro and Claude Code report no names, so their ids are shown as
+  before. Searching still matches the id, so a model can be found by a parameter that
+  is not on screen. See ADR-051.
+
+- A conversation keeps a running total of the tokens it has spent, and the pill by
+  the model picker now reads `9.0k in · 30 out · 15.0k total`. The total survives a
+  refresh and follows you between conversations, where before the figures vanished
+  the moment the page reloaded.
+
+  The two numbers answer different questions and neither can be worked out from the
+  other. Every turn resends the conversation, so the total is what the conversation
+  cost, while the last turn's input is roughly how much context it now carries. No
+  percentage is shown: a share of the context window needs the window's size, and no
+  engine reports that in a way that holds across models, so a percentage would be a
+  number nobody counted.
+
+  A conversation on an engine that cannot count shows nothing rather than zero, and
+  an engine that sends two zeros is read the same way as one that sends nothing.
+
 ### Changed
+
+- A device now registers its models as `{ id, label }` rather than as bare strings, and
+  reports a label for each engine. Both older shapes are still accepted — a bare string
+  is read as a model labelled by its own id, and a missing engine label is filled from
+  the engine name — so a CLI from before this release keeps working; support for them
+  will be dropped in a later release. Conversations still store the engine name and the
+  model id, so nothing needs migrating. See ADR-051.
 
 - VAPID signing keys for web push notifications are now read from `VAPID_PUBLIC_KEY`
   and `VAPID_PRIVATE_KEY` environment variables instead of being auto-generated and
@@ -28,6 +70,70 @@ to the version it ships as and leaves an empty one behind.
 - `docker-compose.yml` reads the `.env` file in the same directory via `env_file`,
   so VAPID keys and other settings reach the container without listing each one in
   `environment`. The volume mount is corrected to `/app/data`.
+
+### Fixed
+
+- `Never allow` now reaches Antigravity grants. It had no point of entry for this
+  engine at all: the ceiling was checked when an ask was settled, and Antigravity
+  raises no ask, so `write_file(*)` under `Never allow` did not stop Setup from
+  granting write access. It is checked where the rule is written instead, in both
+  Setup and the browser's Grant & Retry, and the refusal names the entry that forbade
+  it. Checked in both directions, so `command(rm *)` refuses `command(*)`, which would
+  have covered it. Withdrawing a grant is never blocked. See ADR-052.
+
+- The browser can no longer grant Antigravity permission to run commands. Grant &
+  Retry offers write access alone, and it is offered only on a call that a write rule
+  would actually free. The `commands` value is refused by the protocol schema rather
+  than merely dropped from the button, so a hand-written message cannot reach it
+  either. Command access is granted where ADR-035 puts it, in Setup, because
+  `command(*)` is unscoped and Antigravity raises no ask, so the person choosing it
+  should be the one reading what it covers. See ADR-031, ADR-035.
+
+- An approval no longer answers a pairing request that arrived from somewhere other
+  than the browser the terminal approved. Requests sharing a device were all resolved
+  together, so a stranger holding a leaked pairing code could collect the session
+  minted for the user without ever being shown the approval number. Requests from the
+  same caller are still freed by one approval, which is what keeps a browser that
+  submitted the code twice from leaving a request nobody answers; anything else is
+  refused. See ADR-014.
+
+- `pnpm typecheck` now checks test files as well as sources for the shared, protocol,
+  config, engine, and CLI packages. Each already had a `test/tsconfig.json` that
+  nothing ever ran, so a test that no longer matched the code it tests compiled in the
+  editor's error list and nowhere else. Forty-three stale type errors were fixed with
+  it, left behind when engines gained a label and a model became `{ id, label }`. The
+  server's test folder is not wired in yet; its fixtures need the same treatment.
+
+- A migration that is passed over now stops the server at startup instead of at the
+  first request that needs it. Migrations are applied only when their recorded time
+  is later than the newest one the database has run, so one written by hand with a
+  time ahead of the clock makes everything generated afterwards invisible. That was
+  silent: the server started, and the conversation list answered 500 because the
+  columns it read had never been added. The startup check now names how many
+  migrations were skipped and where to look.
+
+- A turn that failed now reports what it spent, so a conversation with a bad turn in
+  it no longer understates what it cost. The tokens were spent whether or not an
+  answer came of them.
+
+- A conversation on OpenCode now shows what the turn cost, like the other engines
+  that can count. OpenCode reported the tokens all along and nothing was reading
+  them. Cache reads and writes are counted as input and thinking as output, so the
+  two figures come to the total OpenCode reports beside them rather than to the part
+  that was not cached. A turn that failed says what it spent too, since the tokens
+  were spent either way. Cursor still shows none, because its protocol reports none.
+
+- A second prompt to Cursor in the same conversation is answered. Cursor reads the
+  whole stored conversation back before it continues one, and that replay was being
+  reported as the new turn: the previous answer and its tool calls appeared again,
+  and because Cursor numbers replayed calls from zero on every read-back, the third
+  prompt reported a tool call the second had already stored. The server refused the
+  duplicate and stopped, so the browser sat on the thinking with no answer coming.
+  The replay is now discarded, since the transcript already holds it.
+
+- A report the server cannot store no longer takes the server down with it. One
+  failed report is now logged and the turn carries on, instead of every session on
+  the server losing its answer.
 
 ## [0.3.16] - 2026-08-07
 

@@ -19,6 +19,20 @@ export interface PendingRequest {
    * See ADR-040.
    */
   sessionId?: string;
+  /**
+   * Who asked, as far as the request itself can tell.
+   *
+   * Only used to recognise the same caller asking twice. An approval frees every
+   * other pending request from the same caller, because a browser that
+   * double-fires its effect polls whichever id it kept; without that the spare
+   * stays pending forever. Matching on the device alone made that a hole: a
+   * stranger holding a leaked code could post before the user approved and
+   * collect the token minted for the user's own browser, without ever seeing the
+   * approval number. See ADR-014.
+   *
+   * Absent on a resume, which is not raised by a request from a browser.
+   */
+  caller?: string;
 }
 
 /**
@@ -63,12 +77,13 @@ export class SessionService {
    * Creates a pending request for a device. The approval number is generated
    * here, on the server, so it never travels through the QR URL.
    */
-  createPending(deviceId: string): PendingRequest {
+  createPending(deviceId: string, caller?: string): PendingRequest {
     const request: PendingRequest = {
       id: generateId(),
       deviceId,
       approvalNumber: generateApprovalNumber(),
       createdAt: Date.now(),
+      ...(caller === undefined ? {} : { caller }),
     };
 
     this.pending.set(request.id, request);
@@ -161,15 +176,33 @@ export class SessionService {
     const outcome: ApprovalOutcome = { status: 'approved', session };
     this.resolved.set(requestId, outcome);
 
-    // Any other pending pairing requests for the same device are answered by the
-    // same approval: a browser that submitted the code twice (e.g. React StrictMode
-    // double-firing an effect) polls one of them, and the terminal only answered
-    // once. Without this, the duplicate stays pending forever.
+    // Any other request from the same caller is answered by the same approval: a
+    // browser that submitted the code twice (React StrictMode double-firing an
+    // effect) polls whichever id it kept, and the terminal only answered once.
+    // Without this the spare stays pending forever.
+    //
+    // Scoped to the caller rather than the device, because the terminal approved
+    // one browser and not every browser that happened to hold the code. Handing
+    // this token to a request that arrived from somewhere else would let a
+    // stranger with a leaked code collect the session minted for the user, having
+    // never been shown the approval number. Anything from another caller is
+    // refused instead: the code is spent either way, so leaving it pending would
+    // only be a request nobody will ever answer. See ADR-014.
     for (const [id, other] of this.pending) {
-      if (other.deviceId === deviceId && other.sessionId === undefined) {
-        this.pending.delete(id);
-        this.resolved.set(id, outcome);
+      if (other.deviceId !== deviceId || other.sessionId !== undefined) {
+        continue;
       }
+
+      this.pending.delete(id);
+
+      // An unknown caller is never treated as the same one: two requests that
+      // cannot be told apart are exactly the case this is here to refuse.
+      const sameCaller =
+        request.caller !== undefined &&
+        other.caller !== undefined &&
+        other.caller === request.caller;
+
+      this.resolved.set(id, sameCaller ? outcome : { status: 'rejected' });
     }
 
     return outcome;

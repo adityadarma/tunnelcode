@@ -969,3 +969,86 @@ A list with many entries can be filtered by typing, and the selected item shows 
 check mark.
 
 All existing ModelPicker tests continue to pass unchanged.
+
+---
+
+# Milestone 30 — Cursor Engine
+
+## Goal
+
+Add Cursor Agent CLI as an engine, driven over the Agent Client Protocol so a tool
+call it will not make alone reaches the phone as an ask, rather than through any
+surface Cursor documents: those decide from its own allowlist, and the only
+non-interactive way past that approves everything.
+
+### Tasks
+
+- [x] Cursor adapter driven over the hidden `agent acp` subcommand, sharing the
+      JSON-RPC transport with Kiro, Codex and Copilot
+- [x] Pin the subcommand with a test, so a release that drops it fails loudly rather
+      than turning every ask into something nobody was asked about
+- [x] Carry the JSON-RPC error payload on the shared transport, so a pruned
+      conversation can be told from any other refused parameter
+- [x] Route an ask to the browser, choosing the option by kind and never sending
+      Cursor's own lasting grant
+- [x] Continue a conversation with `session/load`, retrying once on a pruned id
+- [x] Fix the mode to `agent`, since its other modes cannot touch the workspace
+- [x] Register cursor with its own models, appended so Setup answers by position hold
+- [x] Unit: streaming, tool calls, asks, resume, model listing, login, and failures
+- [x] Discovery: cursor reported only when `agent` is installed on PATH
+- [ ] Property tests over the adapter's pure translations and generated turns
+
+Acceptance
+
+A conversation on Cursor answers, reports what it did, and remembers what was said in
+earlier turns.
+
+A tool call Cursor will not run alone reaches the phone as an ask, and Always allow is
+recorded on this machine rather than in Cursor's allowlist.
+
+A Cursor conversation reports no token usage, because nothing on that surface carries
+one.
+
+---
+
+# Milestone 31 — Engines And Models Are Named
+
+## Goal
+
+Show every engine and model under the name its vendor uses, while still storing and
+matching on the value the engine takes back. Cursor forced the question — its ids are
+parameterised and its `default[]` means `Auto` — but four other engines were already
+reporting a name that the adapters were discarding.
+
+### Tasks
+
+- [x] `EngineModel` carries an `id` and a `label`, with the label defaulting to the id
+- [x] `Engine` carries a `label` beside its name and command, so a new adapter cannot
+      be added without one
+- [x] Read the name each engine already reports: Cursor and Copilot from their ACP
+      session, Codex from `model/list`, Antigravity from its listing, OpenCode from
+      `models --verbose`
+- [x] Label by id where no name exists, for Kiro and Claude Code, and never derive one
+- [x] Protocol carries both, accepting the older shapes for one release: a bare string
+      reads as a model labelled by its id, and a missing engine label is filled from
+      the name
+- [x] Match on the engine name and the model id, never on a label
+- [x] `SearchableSelect` separates the value it reports from the label it shows, and
+      searches both
+- [x] Engine picker, model picker, and the conversation row all show labels
+- [x] Unit: labels read from each engine's real output shape, old payloads still
+      register, and the picker reports ids while showing labels
+
+Acceptance
+
+The model picker reads `Claude Sonnet 5` rather than `claude-sonnet-5`, and `Auto`
+rather than `default[]`.
+
+Engines read as OpenCode, Claude Code, Antigravity, Kiro, Codex, GitHub Copilot and
+Cursor.
+
+A model can still be found by typing part of its id, including a bracketed parameter
+that is never shown.
+
+A CLI from before this change still registers, and its models are labelled by their
+own ids.

@@ -10,6 +10,7 @@ import {
   revokeWorkspaceWrites,
   workspaceWriteRule,
 } from '@tunnelcode/engine';
+import { ceilingRefusing } from '../pairing/antigravity-ceiling.js';
 import { CANCELLED, select } from '../prompt.js';
 import type { Choice } from '../prompt.js';
 import { writeErr, writeOut } from '../output.js';
@@ -47,12 +48,38 @@ function report(changed: boolean, done: string): void {
   writeOut(green(changed ? done : 'That rule was already as you asked. Nothing changed.'));
 }
 
+/**
+ * Refuses a grant `Never allow` forbids, saying which entry forbade it.
+ *
+ * Checked here because Antigravity raises no ask for the policy to settle, so this
+ * is the only moment the ceiling can still apply. Withdrawing is never checked: a
+ * ceiling is a limit on what may be allowed, and taking a grant back moves the same
+ * direction it does.
+ */
+async function blockedByCeiling(rule: string): Promise<boolean> {
+  const refusal = await ceilingRefusing(rule);
+
+  if (refusal === undefined) {
+    return false;
+  }
+
+  writeErr(
+    `Never allow forbids ${refusal.denied} on this machine, so ${refusal.rule} was not granted. Change it under Setup → Never allow if you meant to.`,
+  );
+
+  return true;
+}
+
 async function editWrites(cwd: string, allowed: boolean): Promise<void> {
   if (allowed) {
     report(
       await revokeWorkspaceWrites(cwd),
       'Withdrawn. Antigravity can read this workspace but not change it.',
     );
+    return;
+  }
+
+  if (await blockedByCeiling(await workspaceWriteRule(cwd))) {
     return;
   }
 
@@ -65,6 +92,10 @@ async function editCommands(allowed: boolean): Promise<void> {
       await revokeCommands(),
       'Withdrawn. A command Antigravity wants to run is refused again.',
     );
+    return;
+  }
+
+  if (await blockedByCeiling(RUN_COMMANDS_RULE)) {
     return;
   }
 
@@ -95,13 +126,14 @@ export async function runAntigravityMenu(cwd: string): Promise<void> {
   writeOut(dim('  so they apply to your own terminal sessions too.'));
   writeOut('');
 
-  // Said plainly because the rule is wider than the two safeguards a user has
-  // reason to expect: Antigravity writes its own command lines and prefixes them,
-  // so a rule naming one program would refuse most of the work, and the engine
-  // never asks, so the ceiling in this menu has nothing to refuse.
+  // Said plainly because the rule is wider than a user has reason to expect:
+  // Antigravity writes its own command lines and prefixes them, so a rule naming one
+  // program would refuse most of the work. Never allow does reach both grants, but
+  // when the grant is written rather than when a call is made, since there is no
+  // call to refuse. See ADR-052.
   writeOut(dim('  Running commands covers every command: a narrower rule would not match'));
-  writeOut(dim('  the agent\u2019s own cd <dir> && \u2026 in front of it. Never allow cannot'));
-  writeOut(dim('  hold it back either, because Antigravity never asks about a call.'));
+  writeOut(dim('  the agent\u2019s own cd <dir> && \u2026 in front of it. Never allow still'));
+  writeOut(dim('  applies, checked here as a grant is written rather than at each call.'));
 
   const choice = await select('Antigravity access', [
     writes

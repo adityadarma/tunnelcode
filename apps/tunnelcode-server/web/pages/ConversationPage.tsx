@@ -60,7 +60,10 @@ interface ServerEvent {
   details?: unknown;
   suggestions?: unknown;
   expiresAt?: unknown;
+  /** What one turn spent. */
   usage?: unknown;
+  /** What the conversation has spent in all, this turn included. */
+  total?: unknown;
 }
 
 /** Strings from a list that crossed the socket, ignoring anything else in it. */
@@ -68,6 +71,27 @@ function readStrings(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string')
     : [];
+}
+
+/**
+ * Reads a pair of token counts off the socket.
+ *
+ * Returns undefined unless both are numbers, because half a count is not a figure
+ * anybody can read, and an older server sends none at all.
+ */
+function readUsage(value: unknown): { inputTokens: number; outputTokens: number } | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+
+  const { inputTokens, outputTokens } = value as {
+    inputTokens?: unknown;
+    outputTokens?: unknown;
+  };
+
+  return typeof inputTokens === 'number' && typeof outputTokens === 'number'
+    ? { inputTokens, outputTokens }
+    : undefined;
 }
 
 /**
@@ -188,10 +212,9 @@ export function ConversationPage({
   const [error, setError] = useState<string | undefined>(undefined);
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  /** Token usage from the last completed turn, cleared when a new turn starts. */
-  const [usage, setUsage] = useState<{ inputTokens: number; outputTokens: number } | undefined>(
-    undefined,
-  );
+  // Token counts are not held here. They live on the conversation, which is where
+  // the server stores them, so a refresh and a switch between conversations both
+  // show the right figures without this page remembering anything.
 
   /**
    * Dismisses whichever sidebar is on screen.
@@ -362,7 +385,6 @@ export function ConversationPage({
         }
 
         setRunningTurn({ conversationId: event.conversationId, turnId: event.turnId });
-        setUsage(undefined);
 
         // Raises the indicator for the conversation on screen, including in a second
         // tab that did not send the prompt. Left alone when text has already arrived,
@@ -570,22 +592,41 @@ export function ConversationPage({
         );
         lastAnswerRef.current = '';
 
-        // Token usage from the engine, when reported.
-        if (
-          typeof event.usage === 'object' &&
-          event.usage !== null &&
-          typeof (event.usage as { inputTokens?: unknown }).inputTokens === 'number' &&
-          typeof (event.usage as { outputTokens?: unknown }).outputTokens === 'number'
-        ) {
-          setUsage({
-            inputTokens: (event.usage as { inputTokens: number }).inputTokens,
-            outputTokens: (event.usage as { outputTokens: number }).outputTokens,
-          });
+        // What the engine counted, written onto the conversation it belongs to. The
+        // server has already stored the same figures, so this only saves the browser
+        // a reload to see them. A turn that reported nothing leaves the record as it
+        // was: absent is unknown, and overwriting it with zero would say the turn was
+        // free.
+        {
+          const turnUsage = readUsage(event.usage);
+          const total = readUsage(event.total);
+
+          if (turnUsage !== undefined || total !== undefined) {
+            setConversations((current) =>
+              current.map((item) =>
+                item.id === event.conversationId
+                  ? {
+                      ...item,
+                      ...(turnUsage !== undefined
+                        ? {
+                            lastInputTokens: turnUsage.inputTokens,
+                            lastOutputTokens: turnUsage.outputTokens,
+                          }
+                        : {}),
+                      ...(total !== undefined
+                        ? { inputTokens: total.inputTokens, outputTokens: total.outputTokens }
+                        : {}),
+                    }
+                  : item,
+              ),
+            );
+          }
         }
 
         setRunningTurn(undefined);
         setStreaming(undefined);
         streamedRef.current = '';
+
         // Nothing more is coming to close this off. The turn stores what it was
         // thinking as it ends, so anything left here is already on the timeline.
         setReasoningStream(undefined);
@@ -819,6 +860,28 @@ export function ConversationPage({
   };
 
   const active = conversations.find((item) => item.id === activeId);
+
+  /**
+   * What the last turn to report spent, which is what the pill leads with.
+   *
+   * Read off the conversation rather than held as state, so the figures survive a
+   * refresh and a switch between conversations. Undefined until a turn reports a
+   * count, which is where a conversation on an engine that cannot count stays.
+   *
+   * Checked as numbers rather than against null, because this arrives over HTTP: a
+   * server from before conversations counted sends no such field at all, and a field
+   * that is missing has to read the same way as one that is null.
+   */
+  const lastTurn =
+    typeof active?.lastInputTokens === 'number' && typeof active.lastOutputTokens === 'number'
+      ? { inputTokens: active.lastInputTokens, outputTokens: active.lastOutputTokens }
+      : undefined;
+
+  /** What the conversation has spent in all, on the same terms. */
+  const spentInAll =
+    typeof active?.inputTokens === 'number' && typeof active.outputTokens === 'number'
+      ? { inputTokens: active.inputTokens, outputTokens: active.outputTokens }
+      : undefined;
 
   /**
    * Changes the model of the open conversation.
@@ -1055,8 +1118,8 @@ export function ConversationPage({
           conversationId={activeId}
           onGrantAndRetry={
             activeEngine === 'antigravity' && activeId !== undefined
-              ? (grant) => {
-                  socket.sendGrantAndRetry(activeId, grant);
+              ? () => {
+                  socket.sendGrantAndRetry(activeId);
                 }
               : undefined
           }
@@ -1111,8 +1174,13 @@ export function ConversationPage({
                 disabled={sendDisabled}
                 onChange={changeModel}
               />
-              {usage !== undefined && (
-                <TokenUsage inputTokens={usage.inputTokens} outputTokens={usage.outputTokens} />
+              {lastTurn !== undefined && (
+                <TokenUsage
+                  inputTokens={lastTurn.inputTokens}
+                  outputTokens={lastTurn.outputTokens}
+                  totalInputTokens={spentInAll?.inputTokens}
+                  totalOutputTokens={spentInAll?.outputTokens}
+                />
               )}
             </>
           }

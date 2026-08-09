@@ -33,11 +33,11 @@ export interface SessionSocket {
     decision: 'once' | 'always' | 'reject',
   ) => void;
   /**
-   * Grants the permission Antigravity was refused and retries the last prompt.
+   * Grants Antigravity write access to the workspace and retries the last prompt.
    *
-   * The grant kind says what to allow: 'writes' or 'commands'.
+   * Writes are the only thing grantable from here. See ADR-031.
    */
-  sendGrantAndRetry: (conversationId: string, grant: 'writes' | 'commands') => void;
+  sendGrantAndRetry: (conversationId: string) => void;
   /**
    * Asks for the running answer to stop.
    *
@@ -192,18 +192,15 @@ export function useSessionSocket({ sessionId, onMessage }: UseSessionSocketOptio
     [],
   );
 
-  const sendGrantAndRetry = useCallback(
-    (conversationId: string, grant: 'writes' | 'commands'): void => {
-      const socket = socketRef.current;
+  const sendGrantAndRetry = useCallback((conversationId: string): void => {
+    const socket = socketRef.current;
 
-      if (socket === undefined || socket.readyState !== WebSocket.OPEN) {
-        return;
-      }
+    if (socket === undefined || socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
 
-      socket.send(JSON.stringify({ type: 'grant_and_retry', conversationId, grant }));
-    },
-    [],
-  );
+    socket.send(JSON.stringify({ type: 'grant_and_retry', conversationId, grant: 'writes' }));
+  }, []);
 
   const stopTurn = useCallback((turnId: string): void => {
     const socket = socketRef.current;

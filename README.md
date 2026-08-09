@@ -15,7 +15,9 @@ not an IDE and not an AI provider. See `PROJECT.md` for the full specification a
 - pnpm 11
 - An engine on PATH: [OpenCode](https://opencode.ai), [Claude Code](https://claude.com/product/claude-code),
   [Antigravity CLI](https://antigravity.google/product/antigravity-cli),
-  [Kiro CLI](https://kiro.dev), or [Codex CLI](https://developers.openai.com/codex/cli)
+  [Kiro CLI](https://kiro.dev), [Codex CLI](https://developers.openai.com/codex/cli),
+  [GitHub Copilot CLI](https://docs.github.com/copilot/how-tos/copilot-cli), or
+  [Cursor Agent CLI](https://cursor.com/cli)
 
 ## Platforms
 
@@ -129,6 +131,7 @@ discards a change. Arrow keys and Enter move through the lists, Escape goes back
 | [Kiro CLI](https://kiro.dev)                                       | `kiro-cli` | ✅    | ⚠️ needs a tester | ⚠️ needs a tester |
 | [Codex CLI](https://developers.openai.com/codex/cli)               | `codex`    | ✅    | ⚠️ needs a tester | ⚠️ needs a tester |
 | [GitHub Copilot CLI](https://docs.github.com/copilot/how-tos/copilot-cli) | `copilot`  | ✅    | ⚠️ needs a tester | ⚠️ needs a tester |
+| [Cursor Agent CLI](https://cursor.com/cli)                           | `agent`    | ✅    | ⚠️ needs a tester | ⚠️ needs a tester |
 
 ✅ means the adapter has been driven against the real CLI on that platform, prompt to
 answer, with its tool calls reported and an earlier conversation continued. ⚠️ means
@@ -157,6 +160,24 @@ engine.
 
 The Engine entry in Setup names what a new conversation starts on. A configured
 engine that is not installed is skipped in favour of one that is. See ADR-020.
+
+### How engines and models are named
+
+Engines and models are shown under the names their vendors use, and stored under the
+values their binaries accept. The two are rarely the same string, which is why they are
+kept apart: Cursor answers to `default[]` for the model it calls Auto, and to
+`claude-opus-5[thinking=true,context=300k,effort=high,fast=false]` for the one it calls
+claude-opus-5. Shortening either would be asking for a model the engine does not have.
+
+So the picker reads `Claude Sonnet 5` where Copilot's id is `claude-sonnet-5`,
+`GPT-5.6-Terra` where Codex's is `gpt-5.6-terra`, and `Gemini 3.6 Flash (High)` where
+Antigravity's is `gemini-3.6-flash-high`. Searching matches the id as well as the name,
+so a model can still be found by a parameter that is never on screen.
+
+Kiro CLI and Claude Code report no names — Kiro's own picker shows its ids too — so
+theirs are shown as they are. Nothing is invented to fill the gap: a name guessed from
+an id gets `Gpt 5.6 Sol` for a model everyone else calls GPT, and a wrong name is worse
+than a plain one. See ADR-051.
 
 ## Stopping an answer
 
@@ -204,12 +225,34 @@ they are withdrawn from the terminal rather than from the browser:
 - **Setup → Never allow** names rules this machine will never agree to, whatever the
   browser answers. Written as `Bash` for a whole tool or `Bash(rm *)` for a pattern.
   A request it matches is refused where it is raised and never sent to the browser.
+  For Antigravity, which raises no request, it is checked when a grant is written
+  instead, so the entry still holds.
 
 Never allow is a filter on what may be allowed, not a sandbox. It can only recognise
 what its patterns describe, and an engine that decides a call is safe on its own,
 such as Claude Code with a read-only shell command, never asks and so never reaches
 it. Judge a grant by what it would allow next time, not only by the call in front of
 you.
+
+### Cursor is asked over a subcommand it does not advertise
+
+Cursor does show cards. It is driven through `agent acp`, which starts an Agent Client
+Protocol server, because every surface Cursor documents decides tool calls from its own
+allowlist: `agent -p` leaves the call waiting with nothing able to answer, and
+`--force` runs everything without asking. Over ACP the ask reaches the browser like any
+other.
+
+That subcommand is hidden. It is in no `--help` output and no published reference, so a
+Cursor release could rename it. A test pins the argument, and if it ever goes the
+session fails at startup saying so rather than quietly running calls nobody approved.
+
+Always allow is recorded on this machine as it is for the other engines, not through
+Cursor's own allowlist, so Setup can list it and clear it. A conversation is answered
+in Cursor's agent mode, set here rather than read from your own Cursor settings, since
+its plan and ask modes cannot touch the workspace at all.
+
+A Cursor conversation reports no token usage. Nothing on that surface carries a count,
+so none is shown rather than a zero that would read as free.
 
 ### Antigravity is different
 
@@ -225,8 +268,22 @@ What it may do is therefore decided before the turn starts:
   `write_file(<workspace>)` rule to Antigravity's own settings for the workspace you
   are in. The same entry withdraws it. Without it the engine can study a project but
   never change it.
-- Running commands stays refused. There is no entry for it here on purpose: an engine
-  that cannot be asked should not also be able to run anything.
+- Running commands needs **Setup → Antigravity command access**, which adds one
+  `command(*)` rule. That rule covers every command and is not scoped to the
+  workspace. It is asked for on its own, never bundled with write access, and the
+  same entry withdraws it.
+
+Never allow reaches both of these, even though Antigravity raises no ask for it to
+refuse. It is checked when the grant is written rather than when a call is made, so a
+rule it forbids is never added and the entry that forbade it is named. Because a grant
+is a rule and not a single call, the check runs both ways: `Never allow` set to
+`command(rm *)` is enough to refuse `command(*)`, which would have covered it.
+
+Write access is the only one of the two the browser can grant. A blocked write shows
+a **Grant write access & Retry** button, which adds the `write_file(<workspace>)`
+rule and re-sends the prompt. There is no such button for `command(*)`: it is
+unscoped and no ask can be raised about it later, so the choice stays in Setup where
+the person making it is at the terminal reading what it covers.
 
 That rule lives in `~/.gemini/antigravity-cli/settings.json`, which belongs to `agy`
 and is read every time it runs, so granting it affects your own terminal sessions too.

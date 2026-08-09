@@ -1,5 +1,6 @@
 import { createEngine } from '@tunnelcode/engine';
 import type { AvailableEngine, Engine } from '@tunnelcode/engine';
+import { ceilingRefusing } from './antigravity-ceiling.js';
 import { Caffeinate } from './caffeinate.js';
 import { PairingClient } from './client.js';
 import { askApproval } from './approval.js';
@@ -342,16 +343,29 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
       await runner.run(turnId, text, engineName, model, resume);
     },
 
-    onGrantAndRetry: async (turnId, text, engineName, model, resume, grant) => {
-      // Grant the permission on this machine, then re-run the prompt.
-      const { allowWorkspaceWrites, allowCommands } = await import('@tunnelcode/engine');
+    // Only write access, and only for this workspace. Running commands is not
+    // grantable from the browser: the rule it needs is `command(*)`, which is
+    // unscoped, and Antigravity cannot raise an ask mid-turn, so an engine holding
+    // it would run anything with nobody able to see the question. That grant stays
+    // in Setup, where the user is the one choosing it. See ADR-031.
+    onGrantAndRetry: async (turnId, text, engineName, model, resume) => {
+      const { allowWorkspaceWrites, workspaceWriteRule } = await import('@tunnelcode/engine');
 
-      if (grant === 'writes') {
+      // The ceiling is checked here for the same reason the policy checks it before
+      // a grant: a rule answered in this terminal outranks a tap on a phone. For the
+      // other engines that happens in `settle`, but Antigravity raises no ask, so
+      // this is where it has to happen. The turn is still retried, and the engine
+      // refuses the call again with its reason unchanged, which is a truer answer
+      // than pretending the grant landed. See ADR-022.
+      const refusal = await ceilingRefusing(await workspaceWriteRule(options.workspace));
+
+      if (refusal === undefined) {
         await allowWorkspaceWrites(options.workspace);
         writeOut('Granted write access from the browser.');
       } else {
-        await allowCommands();
-        writeOut('Granted command access from the browser.');
+        writeOut(
+          `Never allow forbids ${refusal.denied}, so the grant from the browser was refused.`,
+        );
       }
 
       await runner.run(turnId, text, engineName, model, resume);

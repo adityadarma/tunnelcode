@@ -2,17 +2,40 @@ import { describe, expect, test, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ConversationList } from './ConversationList.js';
+import type { Conversation } from '../api.js';
+
+/**
+ * A conversation as the API returns one.
+ *
+ * The token counts default to null, which is a conversation nothing has been
+ * counted for: these tests are about how a row reads, and spelling four figures out
+ * in every fixture would bury what each one is actually checking.
+ */
+function conversation(fields: Partial<Conversation> & { id: string }): Conversation {
+  return {
+    title: null,
+    engine: null,
+    model: null,
+    inputTokens: null,
+    outputTokens: null,
+    lastInputTokens: null,
+    lastOutputTokens: null,
+    createdAt: 0,
+    updatedAt: 0,
+    ...fields,
+  };
+}
 
 const conversations = [
-  {
+  conversation({
     id: 'c1',
     title: 'First question',
     engine: 'opencode',
     model: 'opencode/fast',
     createdAt: 1,
     updatedAt: 2,
-  },
-  { id: 'c2', title: null, engine: 'claude', model: null, createdAt: 3, updatedAt: 4 },
+  }),
+  conversation({ id: 'c2', engine: 'claude', createdAt: 3, updatedAt: 4 }),
 ];
 
 const engines = [
@@ -166,14 +189,12 @@ describe('ConversationList', () => {
     render(
       <ConversationList
         conversations={[
-          {
+          conversation({
             id: 'c1',
             title: 'A conversation',
             engine: 'opencode',
             model: 'opencode/fast',
-            createdAt: 1,
-            updatedAt: 2,
-          },
+          }),
         ]}
         activeId="c1"
         engines={engines}
@@ -192,14 +213,12 @@ describe('ConversationList', () => {
     render(
       <ConversationList
         conversations={[
-          {
+          conversation({
             id: 'c1',
             title: 'A conversation',
             engine: 'retired',
             model: 'retired/model',
-            createdAt: 1,
-            updatedAt: 2,
-          },
+          }),
         ]}
         activeId="c1"
         engines={engines}

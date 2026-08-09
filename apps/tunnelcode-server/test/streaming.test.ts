@@ -348,6 +348,150 @@ test('a failure that produced nothing is still recorded as an answer that stoppe
   });
 });
 
+test('a conversation adds up what its turns spent', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const { cli, sessionId, conversationId } = await pair(baseUrl);
+
+    const browser = await connect<BrowserEvent>(baseUrl, '/ws/browser');
+    browser.send({ type: 'attach', sessionId });
+    await browser.waitFor((events) => events.some((event) => event.type === 'attached'));
+
+    const turn = async (text: string): Promise<string> => {
+      const before = cli.events.filter((event) => event.type === 'prompt').length;
+      browser.send({ type: 'prompt', conversationId, text });
+      await cli.waitFor(
+        (events) => events.filter((event) => event.type === 'prompt').length > before,
+      );
+
+      return String(cli.events.filter((event) => event.type === 'prompt').at(-1)?.turnId);
+    };
+
+    const first = await turn('first');
+    cli.send({
+      type: 'turn_done',
+      turnId: first,
+      text: 'one',
+      usage: { inputTokens: 6000, outputTokens: 20 },
+    });
+    await browser.waitFor((events) => events.some((event) => event.type === 'turn_done'));
+
+    // The second turn resends the whole conversation, which is why the input is
+    // larger and why summing it is a cost rather than a measure of context.
+    const second = await turn('second');
+    cli.send({
+      type: 'turn_done',
+      turnId: second,
+      text: 'two',
+      usage: { inputTokens: 9000, outputTokens: 30 },
+    });
+    await browser.waitFor(
+      (events) => events.filter((event) => event.type === 'turn_done').length === 2,
+    );
+
+    const done = browser.events.filter((event) => event.type === 'turn_done').at(-1) as
+      | { usage?: { inputTokens: number }; total?: { inputTokens: number; outputTokens: number } }
+      | undefined;
+
+    // The turn's own figures and the running total travel together, because neither
+    // can be worked out from the other.
+    assert.deepEqual(done?.usage, { inputTokens: 9000, outputTokens: 30 });
+    assert.deepEqual(done?.total, { inputTokens: 15000, outputTokens: 50 });
+
+    const list = await getJson(baseUrl, `/api/sessions/${sessionId}/conversations`);
+    const stored = (list.body['conversations'] as Record<string, unknown>[]).find(
+      (item) => item['id'] === conversationId,
+    );
+
+    // Stored, so a refresh still shows it. The last turn is kept beside the total,
+    // since that is the figure that stands for the context now carried.
+    assert.equal(stored?.['inputTokens'], 15000);
+    assert.equal(stored?.['outputTokens'], 50);
+    assert.equal(stored?.['lastInputTokens'], 9000);
+    assert.equal(stored?.['lastOutputTokens'], 30);
+
+    browser.close();
+    cli.close();
+  });
+});
+
+test('a turn that failed still adds what it spent to the conversation', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const { cli, sessionId, conversationId } = await pair(baseUrl);
+
+    const browser = await connect<BrowserEvent>(baseUrl, '/ws/browser');
+    browser.send({ type: 'attach', sessionId });
+    await browser.waitFor((events) => events.some((event) => event.type === 'attached'));
+
+    browser.send({ type: 'prompt', conversationId, text: 'will fail' });
+    await cli.waitFor((events) => events.some((event) => event.type === 'prompt'));
+
+    const turnId = String(cli.events.find((event) => event.type === 'prompt')?.turnId);
+
+    cli.send({
+      type: 'turn_error',
+      turnId,
+      message: 'It broke.',
+      usage: { inputTokens: 400, outputTokens: 9 },
+    });
+
+    await browser.waitFor((events) => events.some((event) => event.type === 'error'));
+
+    const list = await getJson(baseUrl, `/api/sessions/${sessionId}/conversations`);
+    const stored = (list.body['conversations'] as Record<string, unknown>[]).find(
+      (item) => item['id'] === conversationId,
+    );
+
+    // The tokens were spent whether or not an answer came of them.
+    assert.equal(stored?.['inputTokens'], 400);
+    assert.equal(stored?.['outputTokens'], 9);
+
+    browser.close();
+    cli.close();
+  });
+});
+
+test('a turn that counted nothing leaves the conversation uncounted', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const { cli, sessionId, conversationId } = await pair(baseUrl);
+
+    const browser = await connect<BrowserEvent>(baseUrl, '/ws/browser');
+    browser.send({ type: 'attach', sessionId });
+    await browser.waitFor((events) => events.some((event) => event.type === 'attached'));
+
+    browser.send({ type: 'prompt', conversationId, text: 'hi' });
+    await cli.waitFor((events) => events.some((event) => event.type === 'prompt'));
+
+    const turnId = String(cli.events.find((event) => event.type === 'prompt')?.turnId);
+
+    // Two zeros, which is what some engines send when they have nothing to report.
+    // Stored as zeros they would say the conversation was free, so they are read
+    // the same way as no report at all.
+    cli.send({
+      type: 'turn_done',
+      turnId,
+      text: 'done',
+      usage: { inputTokens: 0, outputTokens: 0 },
+    });
+
+    await browser.waitFor((events) => events.some((event) => event.type === 'turn_done'));
+
+    const done = browser.events.find((event) => event.type === 'turn_done') as
+      { total?: unknown } | undefined;
+    assert.equal(done?.total, undefined);
+
+    const list = await getJson(baseUrl, `/api/sessions/${sessionId}/conversations`);
+    const stored = (list.body['conversations'] as Record<string, unknown>[]).find(
+      (item) => item['id'] === conversationId,
+    );
+
+    assert.equal(stored?.['inputTokens'], null);
+    assert.equal(stored?.['lastInputTokens'], null);
+
+    browser.close();
+    cli.close();
+  });
+});
+
 test('a partial answer survives the failure that cut it short', async () => {
   await withServer(async ({ baseUrl }) => {
     const { cli, sessionId, conversationId } = await pair(baseUrl);

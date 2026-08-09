@@ -75,6 +75,29 @@ export class TurnRelay {
     return turn;
   }
 
+  /**
+   * Adds a turn's tokens to its conversation and reads back the running total.
+   *
+   * A report of nothing at all is discarded rather than stored as zero. The engines
+   * disagree here: some withhold a count they have no figures for, others send two
+   * zeros, and stored as zeros they would say a conversation was free. Both are
+   * read the same way — nobody counted. See ADR-050.
+   */
+  private recordUsage(
+    conversationId: string,
+    usage: { inputTokens: number; outputTokens: number } | undefined,
+  ): { inputTokens: number; outputTokens: number } | undefined {
+    if (usage === undefined || (usage.inputTokens === 0 && usage.outputTokens === 0)) {
+      return undefined;
+    }
+
+    const stored = this.options.conversationRepository.addUsage(conversationId, usage);
+
+    return stored.inputTokens !== null && stored.outputTokens !== null
+      ? { inputTokens: stored.inputTokens, outputTokens: stored.outputTokens }
+      : undefined;
+  }
+
   /** Forwards a fragment of the answer as it arrives. */
   delta(deviceId: string, turnId: string, text: string): void {
     const turn = this.options.turns.findForDevice(turnId, deviceId);
@@ -494,6 +517,8 @@ export class TurnRelay {
     // stop offering a decision that would go nowhere.
     this.dropPermissions(this.options.permissions.removeByTurn(turnId));
 
+    const total = this.recordUsage(turn.conversationId, usage);
+
     if (text !== '') {
       const stored = this.options.conversationRepository.appendMessage(
         turn.conversationId,
@@ -516,6 +541,7 @@ export class TurnRelay {
       conversationId: turn.conversationId,
       turnId,
       ...(usage !== undefined ? { usage } : {}),
+      ...(total !== undefined ? { total } : {}),
     });
 
     // A turn is the long wait: the user asked for something and went away. The answer
@@ -621,7 +647,19 @@ export class TurnRelay {
    * is stored as a partial so the transcript does not present it as a complete
    * reply.
    */
-  fail(deviceId: string, turnId: string, message: string, text?: string): void {
+  fail(
+    deviceId: string,
+    turnId: string,
+    message: string,
+    text?: string,
+    /**
+     * What the turn spent before it failed, when the engine got that far.
+     *
+     * Recorded like a finished turn's, because the tokens were spent either way and
+     * a total that skipped the bad turns would understate the conversation.
+     */
+    usage?: { inputTokens: number; outputTokens: number },
+  ): void {
     const turn = this.activeTurn(deviceId, turnId);
 
     if (turn === undefined) {
@@ -636,6 +674,8 @@ export class TurnRelay {
     this.options.turns.finish(turnId);
     this.dropPermissions(this.options.permissions.removeByTurn(turnId));
 
+    const total = this.recordUsage(turn.conversationId, usage);
+
     this.storeInterruption(turn.conversationId, turn.sessionId, said, 'failed');
 
     this.options.browsers.broadcast(turn.sessionId, { type: 'error', message });
@@ -643,6 +683,8 @@ export class TurnRelay {
       type: 'turn_done',
       conversationId: turn.conversationId,
       turnId,
+      ...(usage !== undefined ? { usage } : {}),
+      ...(total !== undefined ? { total } : {}),
     });
 
     // Told as well as a finished answer, because the wait ended either way and coming

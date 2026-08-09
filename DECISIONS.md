@@ -2247,3 +2247,270 @@ A local timer may only tighten the limit it does not own.
 The version is a diagnostic snapshot, not an authorization input. Showing a mismatch
 helps identify a partial deployment while preserving compatibility with older CLIs
 that did not report a version.
+---
+
+# ADR-050
+
+## Cursor Is Driven Over Its Hidden ACP Server, And Reports No Usage
+
+Amends ADR-022.
+
+Decision
+
+Cursor Agent CLI is driven through `agent acp`, which starts an Agent Client Protocol
+server on stdio: JSON-RPC, one object per line, the same framing Kiro, Codex and
+Copilot already use, so the transport is shared rather than copied.
+
+That subcommand is registered hidden. It appears in neither `agent --help` nor the
+published reference, and only `agent acp --help` admits to it. It is pinned by a test
+that asserts the spawned arguments are exactly `acp`.
+
+The visible surfaces are not used. `agent -p` leaves a call that needs approval
+waiting with no channel to carry the question out, and `--force` and `--yolo` run
+everything without asking.
+
+Asks arrive as `session/request_permission` offering `allow_once`, `allow_always` and
+`reject_once`. The option that carries out a decision is chosen by its kind, never by
+a remembered id: Cursor spells its ids with hyphens where the kinds use underscores.
+
+`allow_always` is never sent. Always allow is recorded on this machine, as ADR-022
+already requires, and answered on the wire exactly as once is.
+
+A conversation is answered in Cursor's `agent` mode. The mode is set here when the
+session reports a different one, and is not read from the user's own Cursor settings.
+
+The models offered are the ids an ACP session reports, kept whole including their
+bracketed parameters. `agent --list-models` is never consulted. A model is applied
+with `session/set_model` on the open session, before the prompt.
+
+A conversation Cursor no longer holds is recognised from `-32602` together with a
+not-found wording in the error's `data.message`, and retried once on a new
+conversation. Every other `-32602` is reported.
+
+No token usage is reported for this engine. Nothing on the ACP surface carries a
+count, so no usage event is emitted.
+
+Reason
+
+Every visible way to run Cursor decides tool calls from its own allowlist, and the
+only way to stop it asking a terminal nobody is watching is to stop it asking at all.
+That is the Antigravity situation of ADR-031, where a call the agent will not make
+alone is refused rather than asked about, and here it is avoidable: the ACP server
+raises the same asks as a request, so the question reaches the browser and the answer
+returns to the turn that asked. Choosing `--force` instead would have made Cursor the
+one engine that runs everything unasked, which is what ADR-022 exists to prevent.
+
+Depending on a hidden subcommand is a real risk, taken deliberately and bounded. The
+alternative is not a documented surface that asks; it is no asks at all. The exposure
+is one argument, and a release that renames it fails at startup with a message naming
+what could not be started, rather than degrading into calls nobody was asked about.
+That is the same position `--permission-prompt-tool stdio` holds for Claude Code, and
+it is pinned the same way, because the failure worth catching is the silent one.
+
+Cursor's own lasting grant is refused for the reason ADR-022 gives for every engine:
+a grant written into the engine's allowlist is one Setup can neither list nor clear,
+and it would reach work TunnelCode knows nothing about. The tap has to mean the same
+thing on all seven engines, and clearing it has to actually clear it.
+
+The kinds are read rather than the ids assumed because the two do not agree in this
+engine's wire format. An id guessed from a kind names no option at all, and an ask
+answered with an unknown id is an ask that was never answered.
+
+The mode is set here rather than inherited for the reason ADR-048 gives about Codex's
+approval policy: what decides whether the engine may act, and therefore whether an
+ask is ever raised, is a limit this project states rather than one it reads out of a
+file the user's own sessions share. Left to the setting, a workspace last used in plan
+mode would answer every prompt with a plan and never do the work, and nothing on the
+phone would say why.
+
+The two model surfaces disagree, and only one of them is real. `--list-models` prints
+a larger, human-formatted set that `session/set_model` rejects, so offering it would
+put choices in the browser that fail on the machine. The ids are kept whole because
+the bracketed suffix is part of the id rather than decoration; trimmed, it names
+nothing Cursor accepts.
+
+Staleness is read from the payload rather than inferred from a failure arriving first,
+which is what the other adapters do. Cursor reports a pruned conversation as an
+ordinary Invalid params and names the session only in `data.message`, so the code
+alone cannot tell it from a parameter this adapter got wrong. Inferring it would
+silently start a fresh conversation, and losing the agent's memory over a bug is worse
+than reporting the bug. Reading it needed one optional field on the shared transport,
+which carries the payload and does not interpret it.
+
+No usage is reported because there is none to report. Reporting zeros would be
+inventing a number, and the rest of the system already reads an absent usage event as
+unknown, which is the honest reading.
+
+---
+
+# ADR-051
+
+## A Model Is An Id And A Label
+
+Amends ADR-020 and ADR-050.
+
+Decision
+
+A model an engine reports is two fields, not one string: an `id` the engine takes back
+and a `label` written for a person. The pair travels from the adapter, through the
+register payload, to the picker in the browser.
+
+An engine is named the same way. It keeps the `name` it has always had, which is what
+configuration records and what a conversation stores, and gains a `label` written as
+its vendor writes it: `opencode` shows as OpenCode, `claude` as Claude Code,
+`copilot` as GitHub Copilot, and `antigravity`, `kiro`, `codex` and `cursor` as
+Antigravity, Kiro, Codex and Cursor. The label lives on the adapter beside the name
+and the command. A conversation row shows the label too, and the label of the model it
+runs on rather than its id.
+
+The id is never abbreviated, parsed, or rewritten. A conversation stores the id, and
+every check that a model may be asked for matches on the id.
+
+The label is what the browser shows and what its search matches, alongside the id.
+
+An engine that reports no name of its own labels each model by its id. That is the
+default, so an engine whose ids are already readable says nothing special.
+
+A label is never derived from an id. It is read from the engine or it is the id.
+
+Where each engine's label comes from, recorded from the real binaries:
+
+| Engine      | Source                              | Label                                    |
+| ----------- | ----------------------------------- | ---------------------------------------- |
+| Cursor      | `session/new`, `name`               | `default[]` reads as `Auto`               |
+| Copilot     | `session/new`, `name`               | `claude-sonnet-5` reads as `Claude Sonnet 5` |
+| Codex       | `model/list`, `displayName`         | `gpt-5.6-terra` reads as `GPT-5.6-Terra`  |
+| Antigravity | `agy models`, the rest of the line  | `gemini-3.6-flash-high` reads as `Gemini 3.6 Flash (High)` |
+| OpenCode    | `opencode models --verbose`, `name` | `9Router/claude-opus-5` reads as `Claude Opus 5` |
+| Kiro        | none                                | the id                                    |
+| Claude Code | none                                | the id                                    |
+
+An OpenCode label is qualified by its provider only when another provider reports the
+same name.
+
+The register payload accepts a bare string for one release and reads it as a model
+labelled by its own id. An engine label is optional there and filled from the engine
+name when absent. Both are normalised in the schema, so nothing downstream knows the
+older shape existed.
+
+Nothing is ever matched on a label. An engine is matched by name and a model by id.
+
+Reason
+
+One string could not do both jobs. Cursor's ids are parameterised —
+`claude-opus-5[thinking=true,context=300k,effort=high,fast=false]` — and
+`session/set_model` accepts nothing shorter: `claude-opus-5` on its own comes back as
+`Invalid model value`. So the id has to travel exactly. But the same string was also
+the label, which put a line of parameters in a dropdown and, worse, offered `default[]`
+as the name of a model when the engine calls it `Auto`. Showing a truncated id is not
+a display problem, it is the picker naming something the user cannot recognise.
+
+The two fields are separate rather than the label being computed, because the
+capitalisation cannot be recovered from an id. `gpt-5.6-terra` is `GPT-5.6-Terra` and
+`glm-5` is `GLM 5`, and no rule short of a table of acronyms gets there. A table would
+go stale the first time a vendor shipped a model it had not heard of, and would
+mislabel it silently — the same objection this project already makes to keeping a table
+of tool names in an adapter. A derived label is also a name nobody reported, which is
+the mistake ADR-050 refuses when it declines to report zero tokens for an engine that
+reports none: inventing a value is worse than admitting there is none.
+
+Labelling by id is therefore the honest default rather than a fallback that lost. Kiro
+reports `model_name` as the id repeated and offers only a `description`, which is a
+sentence rather than a name; Claude Code has no listing at all, only the three aliases
+its flag accepts. In both cases the id is already the model's name in lower case, so
+there is nothing a label would add.
+
+This was not done for Cursor alone, which is what makes it worth the size. Four other
+engines already reported a name and the adapters were throwing it away: Copilot knew
+`Claude Sonnet 5`, Codex knew `GPT-5.6-Terra`, Antigravity knew
+`Gemini 3.6 Flash (High)` — where the effort is spelled out rather than left as a suffix
+to decode — and OpenCode knew `Claude Opus 5` all along, in `--verbose`, which is why the
+plain listing was the wrong thing to read. Adding a field for one engine would have
+been a tax; adding it fixed five.
+
+An engine label is a table in this repository, which a model label deliberately is
+not, and the difference is who owns the vocabulary. `ENGINE_NAMES` is defined here and
+closed: adding an engine means editing the same files, so a missing label is a type
+error rather than something that goes stale unnoticed. A model list belongs to a vendor
+and grows without anybody here being told, which is why a model label is read from the
+engine and never written down. The engine label is put on the adapter rather than in a
+lookup beside the registry for that reason too — it sits with the name and the command,
+the other two things an engine already knows about itself.
+
+Capitalising the name would not have done. It produces `Opencode` for something called
+OpenCode and `Claude` for Claude Code, so it is the same mistake as deriving a model
+label, only more visible: these are seven names that are read on every screen.
+
+Matching on the id, not the label, is what keeps two engines from being confused for
+one another. A label is for reading and nothing stops two engines, or two providers,
+sharing one. That is also why an OpenCode label carries its provider when it has to:
+`Claude Opus 5` appears under every router that offers it, and two options reading
+alike is a choice nobody can make. Qualifying only the ones that collide keeps the rest
+clean, which is what opencode's own picker does by grouping.
+
+The old string shape is accepted for a release because `models` is a required field and
+this is the first breaking change to one. Every field added to the register payload
+before now — `runId`, `version`, `answerTimeoutMs` — was made optional precisely so an
+older CLI still registers. Refusing the string form would not degrade, it would stop
+registration outright, and the device would read as offline with nothing saying why.
+Normalising in the schema rather than at each reader means the compatibility lives in
+one place and can be removed in one place.
+
+
+---
+
+# ADR-052
+
+## Never Allow Is Checked Where A Grant Is Written
+
+Amends ADR-022, ADR-031 and ADR-035.
+
+Decision
+
+`permission.deny` is checked before a rule is written into Antigravity's own settings,
+in both places a rule is written: Setup, under Antigravity access, and the browser's
+Grant & Retry. A forbidden rule is not added, and the refusal names the `Never allow`
+entry that forbade it so the user knows where to change it.
+
+The check runs in both directions. A ceiling reaching the grant refuses it, as it
+would refuse an ask, and so does a grant reaching the ceiling: `Never allow` set to
+`command(rm *)` is enough to refuse `command(*)`. Rules are read with the same parser
+and matched with the same functions the policy uses for an ask, so one syntax still
+means one thing.
+
+Withdrawing a grant is never checked. A ceiling limits what may be allowed, and taking
+a grant back moves the same direction.
+
+A rule that cannot be parsed is treated as forbidden by nothing. These rules are
+constructed by this project, so a parse failure is a bug here and would be reported as
+a policy the user never wrote.
+
+Grant & Retry still retries the turn when the ceiling refuses the grant. Antigravity
+refuses the call again and reports it blocked with its reason unchanged, which is a
+truer answer than a retry that pretends the grant landed.
+
+Reason
+
+ADR-035 said `Never allow` cannot reach `command(*)`, because the ceiling works by
+refusing an ask and Antigravity raises none. That was true of where the check lived,
+not of what the ceiling means. The consequence was wider than the sentence admitted:
+it applied to write access too, so `Never allow` had no point of entry for this engine
+at all. A user could write `write_file(*)` under `Never allow`, believing this machine
+would never agree to change a file, then grant write access from the menu and watch
+files change. The limit was still in the config, only irrelevant.
+
+An ask is not the only moment a permission is decided. For Antigravity the deciding
+moment is when the rule is written, because `agy` reads its settings before the turn
+starts and asks nobody afterwards. Checking there is the same ceiling applied at the
+only moment that engine has, rather than a second, weaker list.
+
+Both directions are checked because a grant is a rule, not a call. An ask names what
+it would do, so a ceiling only has to reach it. A grant names what may be done from
+then on, and `command(*)` is the widest rule in the project. Matching one direction
+would let it past a ceiling written to stop something narrower, which is exactly what
+ADR-035 warns `command(*)` is: one grant wider than the work in front of it.
+
+The alternative was to say plainly in the README and the menu that `Never allow` does
+not reach any Antigravity grant. That is honest but leaves the two lists looking like
+one, and a limit a user has to remember does not apply is close to no limit. Applying
+it costs one read of a file already read per ask.
