@@ -47,7 +47,7 @@ export default tseslint.config(
   {
     // The service worker is plain JavaScript served as it is written, never
     // compiled, and it runs against globals no browser page has.
-    files: ['apps/tunnelcode-server/web/public/sw.js'],
+    files: ['apps/server/web/public/sw.js'],
     ...tseslint.configs.disableTypeChecked,
     languageOptions: {
       ...tseslint.configs.disableTypeChecked.languageOptions,

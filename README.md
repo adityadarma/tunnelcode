@@ -533,8 +533,8 @@ version mismatch between them is the failure worth avoiding.
 git tag v0.1.0 && git push origin v0.1.0
 ```
 
-The version in the tag has to match both `apps/tunnelcode-cli/package.json` and
-`apps/tunnelcode-server/package.json`, or the workflow fails before it builds
+The version in the tag has to match both `apps/cli/package.json` and
+`apps/server/package.json`, or the workflow fails before it builds
 anything. Bump the two together. A `workflow_dispatch` run builds both apps and
 publishes neither, which is how you check a release without cutting one.
 
@@ -547,7 +547,7 @@ packages are inlined, because `workspace:*` cannot be resolved from the registry
 and would break `npm install` for everyone. Only `ws` and `qrcode` stay external.
 
 ```sh
-pnpm --filter tunnelcode bundle   # writes apps/tunnelcode-cli/bundle
+pnpm --filter tunnelcode bundle   # writes apps/cli/bundle
 ```
 
 The default server URL is baked in at bundle time from the

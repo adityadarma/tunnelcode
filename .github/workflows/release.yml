@@ -37,7 +37,7 @@ jobs:
         if: github.event_name == 'push'
         run: |
           tagged="${GITHUB_REF_NAME#v}"
-          for app in tunnelcode-cli tunnelcode-server; do
+          for app in cli server; do
             manifest=$(node -p "require('./apps/$app/package.json').version")
             if [ "$tagged" != "$manifest" ]; then
               echo "tag is $tagged but apps/$app/package.json is $manifest"
@@ -123,7 +123,7 @@ jobs:
 
       - name: Publish to npm
         if: github.event_name == 'push'
-        working-directory: apps/tunnelcode-cli/bundle
+        working-directory: apps/cli/bundle
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public --provenance

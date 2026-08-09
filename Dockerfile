@@ -16,8 +16,8 @@ WORKDIR /app
 
 # Manifests first, so a source-only change reuses the installed dependencies.
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
-COPY apps/tunnelcode-cli/package.json apps/tunnelcode-cli/
-COPY apps/tunnelcode-server/package.json apps/tunnelcode-server/
+COPY apps/cli/package.json apps/cli/
+COPY apps/server/package.json apps/server/
 COPY packages/config/package.json packages/config/
 COPY packages/engine/package.json packages/engine/
 COPY packages/protocol/package.json packages/protocol/

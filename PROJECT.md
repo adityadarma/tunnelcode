@@ -96,10 +96,10 @@ QR
 
 apps/
 
-tunnelcode-cli/
+cli/
 CLI Application, published as `tunnelcode`
 
-tunnelcode-server/
+server/
 Backend + Web
 
 packages/

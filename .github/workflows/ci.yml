@@ -70,7 +70,7 @@ jobs:
       # Installing the tarball outside the workspace is the only way to catch a
       # manifest that cannot actually be installed.
       - name: Verify the tarball installs and runs
-        working-directory: apps/tunnelcode-cli/bundle
+        working-directory: apps/cli/bundle
         run: |
           expected=$(node -p "require('./package.json').version")
           npm pack --pack-destination /tmp

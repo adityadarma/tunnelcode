@@ -63,7 +63,7 @@ test('a .env file in the working directory is loaded', async () => {
 
 test('a .env higher up the tree is found', async () => {
   await withTempTree(async (dir) => {
-    const nested = join(dir, 'apps', 'tunnelcode-server');
+    const nested = join(dir, 'apps', 'server');
     await mkdir(nested, { recursive: true });
     await writeFile(join(dir, '.env'), 'HOST=10.0.0.9\n', 'utf8');
 
