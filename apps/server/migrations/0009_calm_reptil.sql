@@ -1,1 +1,0 @@
-ALTER TABLE `sessions` ADD `token_hash` text;

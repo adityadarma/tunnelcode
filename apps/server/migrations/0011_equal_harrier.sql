@@ -1,1 +1,0 @@
-ALTER TABLE `sessions` ADD `run_id_hash` text;
