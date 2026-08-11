@@ -1,7 +1,8 @@
 import { loadGlobalConfig, readOrCreateDeviceId } from '@tunnelcode/config';
 import type { GlobalConfig } from '@tunnelcode/config';
-import { ENGINE_NAMES, discoverEngines } from '@tunnelcode/engine';
+import { ENGINE_NAMES } from '@tunnelcode/engine';
 import type { AvailableEngine } from '@tunnelcode/engine';
+import { discoverEnginesCached } from '../engine-cache.js';
 import { runPairingSession } from '../pairing/session.js';
 import { writeErr, writeOut } from '../output.js';
 import { withSpinner } from '../spinner.js';
@@ -38,10 +39,12 @@ async function prepare(cwd: string): Promise<Ready | undefined> {
     return undefined;
   }
 
-  // Discovery asks every installed engine for its models, which spawns a process
-  // each. The menu has already erased itself by now, so without something on screen
-  // the terminal is blank for as long as the slowest engine takes to answer.
-  const engines = await withSpinner('Generating...', () => discoverEngines());
+  // Named for what is actually being waited on. Any engine whose models are not
+  // already remembered is run to ask it, which takes seconds on some of them, and a
+  // label reading "Generating" put that wait on the QR code, which costs nothing.
+  // The menu has erased itself by now, so without something on screen the terminal is
+  // blank for as long as the slowest engine takes to answer.
+  const engines = await withSpinner('Checking engines...', () => discoverEnginesCached());
 
   const version = readVersion();
   writeOut(`${dim(`[TunnelCode v${version}]`)} Initializing device...`);

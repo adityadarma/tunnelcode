@@ -172,7 +172,15 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
             }
           }
 
-          reply({ type: 'registered', deviceId: device.id });
+          // What the terminal needs to decide whether to put a pairing code on
+          // screen. Counted from the live rows rather than from `known`, which
+          // includes the ended ones: those keep their history and resume nothing.
+          // See ADR-053.
+          reply({
+            type: 'registered',
+            deviceId: device.id,
+            resumableSessions: sessionRepository.listLiveSessionIdsByDevice(device.id).length,
+          });
           return;
         }
 

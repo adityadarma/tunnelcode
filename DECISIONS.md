@@ -2514,3 +2514,71 @@ The alternative was to say plainly in the README and the menu that `Never allow`
 not reach any Antigravity grant. That is honest but leaves the two lists looking like
 one, and a limit a user has to remember does not apply is close to no limit. Applying
 it costs one read of a file already read per ask.
+
+---
+
+# ADR-053
+
+## The Pairing Code Is Shown Only When Somebody Has To Pair
+
+Amends ADR-014, ADR-020 and ADR-040.
+
+Decision
+
+Nothing is put on screen until the server has answered `register`. The `registered`
+message carries `resumableSessions`, the number of live sessions the server holds for
+this device, and the terminal decides from it what to show:
+
+- none: the QR code, the pairing code and the login link, as before.
+- one or more: a line saying a paired browser can come back, and nothing to scan.
+
+The code still exists in either case, is still generated once per run, and is still
+what a new browser would use. Only whether it is shown changes.
+
+A resumable session that nobody claims within ten seconds shows the code, prefaced by
+the reason. A resume that is refused in the terminal shows it too.
+
+Model lists are remembered between runs in `engines.json`, beside the settings, keyed
+on the engine name and the resolved path of its executable, for twelve hours and for
+one CLI version. Whether an engine is installed is asked every time.
+
+Reason
+
+Two questions were being answered with one screen. A first pairing needs a code
+carried from a terminal to a phone, which is what the QR is for. A workspace being
+picked back up needs no code at all: the browser holds a cookie, the session row is
+still live, and what the terminal is being asked is whether that browser may carry on
+here — a keypress, answered against a number both sides already show. Printing a code
+for that user offers them a way in they do not need, next to the one they do, and the
+QR is the largest thing on the screen.
+
+The count is read from live rows rather than from every row of the device. An ended or
+expired session keeps its history and resumes nothing, so counting one would hold the
+code back waiting for a browser that can never be allowed in.
+
+The wait has a floor under it because the terminal cannot see a phone. A browser that
+is open asks to resume within a second of the CLI registering, so the wait almost
+always ends on its own; a tab that was closed never asks, and a terminal that waits
+forever on it has taken away the only way forward. Ten seconds is long enough that the
+common case never sees a code and short enough that being wrong costs a glance.
+
+Deferring the print to after `register` also stops the code appearing in front of a
+failure. A workspace already running an agent, or a code already in use, is fatal and
+was being reported underneath a QR the user had no way to use.
+
+The model lists are cached because that is where the wait actually was. Discovery has
+two halves that cost differently by three orders of magnitude: finding an executable is
+a `which`, a few milliseconds, while asking an engine what it can answer with runs that
+engine's own CLI, and on a normal machine the slowest of them takes eight seconds while
+reporting the same list it reported yesterday. Only the slow half is remembered, so
+installing or removing an engine still shows up on the next start.
+
+Keyed on the resolved path because an engine reinstalled elsewhere is a different
+program, and on the CLI version because an adapter that changed may read the same
+output differently. Nothing here is load-bearing: a stale list costs a model that could
+have been offered, not a session that cannot run, and deleting the file costs only the
+wait.
+
+The spinner label moved with it. It read `Generating...`, which put a wait belonging to
+seven engine CLIs onto the QR code, and the QR code takes under a millisecond. A user
+watching that screen concluded the thing they could see was the thing that was slow.

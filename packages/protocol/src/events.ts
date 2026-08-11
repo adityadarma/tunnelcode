@@ -425,6 +425,19 @@ export const serverToCliMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('registered'),
     deviceId: deviceIdSchema,
+    /**
+     * How many live sessions this device already has on the server.
+     *
+     * Sent so the terminal knows whether anybody can come back before it decides
+     * what to put on screen. A workspace with a live session has a browser holding
+     * a cookie for it, and that browser resumes with a keypress rather than a scan,
+     * so showing it a pairing code would be showing it something it has no use for.
+     * See ADR-053.
+     *
+     * Optional because a CLI talking to an older server gets no answer, which reads
+     * as none and shows the code, the behaviour that was there before.
+     */
+    resumableSessions: z.number().int().nonnegative().optional(),
   }),
   z.object({
     type: z.literal('pair_request'),

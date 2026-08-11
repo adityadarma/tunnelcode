@@ -65,29 +65,86 @@ to the version it ships as and leaves an empty one behind.
 
 ### Changed
 
-- A device now registers its models as `{ id, label }` rather than as bare strings, and
-  reports a label for each engine. Both older shapes are still accepted — a bare string
-  is read as a model labelled by its own id, and a missing engine label is filled from
-  the engine name — so a CLI from before this release keeps working; support for them
-  will be dropped in a later release. Conversations still store the engine name and the
-  model id, so nothing needs migrating. See ADR-051.
+- **Deprecated, not yet breaking.** A device now registers its models as
+  `{ id, label }` rather than as bare strings, and reports a label for each engine.
+  Both older shapes are still accepted — a bare string is read as a model labelled by
+  its own id, and a missing engine label is filled from the engine name — so a CLI
+  from before this release keeps working; support for them will be dropped in a later
+  release. Conversations still store the engine name and the model id, so nothing
+  needs migrating. See ADR-051.
 
-- VAPID signing keys for web push notifications are now read from `VAPID_PUBLIC_KEY`
-  and `VAPID_PRIVATE_KEY` environment variables instead of being auto-generated and
-  stored in the database. Existing deployments must extract their key from the
-  `push_keys` table and set it in the environment before upgrading, or generate a
-  fresh pair (which retires all existing push subscriptions). The `push_keys` table
-  is dropped by this release's migration.
+- **Breaking.** VAPID signing keys for web push notifications are now read from
+  `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` environment variables instead of being
+  auto-generated and stored in the database. The server will not start without them.
+  Extract the existing key from the `push_keys` table and set it in the environment
+  before upgrading, or generate a fresh pair — every subscription is bound to the
+  public key it was created with, so a new pair retires all of them and each browser
+  has to be given notification permission again. The `push_keys` table no longer
+  exists in this release's schema.
 
-- The `push_subscriptions` table is renamed to `subscriptions`. Existing data is
-  migrated automatically.
+- **Breaking.** The migrations folder is a single `0000_initial` that describes the
+  whole schema, and the sixteen files that built it up are gone. A database this
+  release creates is correct. A database carried over from 0.3.16 is not upgraded,
+  and nothing says so: the migrator runs a migration only when its journal timestamp
+  is newer than the newest one the database has recorded, and `0000_initial` is
+  stamped older than every migration a 0.3.16 database already applied, so it finds
+  nothing to do and the server starts against the old schema. That database still has
+  `push_keys` and `push_subscriptions`, and `conversations` still lacks
+  `input_tokens`, `output_tokens`, `last_input_tokens` and `last_output_tokens`, so
+  notifications and the token pill fail on the first request that touches them rather
+  than at startup.
+
+  Start this release on an empty data directory — paired devices pair again and past
+  conversations are lost — or convert the old file by hand: rename
+  `push_subscriptions` to `subscriptions` with its `subscriptions_session_idx` index,
+  drop `push_keys`, and add the four nullable integer columns to `conversations`.
+  Leave `__drizzle_migrations` alone afterwards; its newest row is what keeps
+  `0000_initial` from being replayed over tables that already exist.
+
+- **Breaking.** `docker-compose.yml` now mounts `./data` at `/app/data`, where the
+  server actually writes, and reads the `.env` file beside it via `env_file` so VAPID
+  keys and other settings reach the container without listing each one under
+  `environment`. The previous `./data:/data` mount never held the database: the image
+  declares `VOLUME ["/app/data"]`, so the file lived in an anonymous Docker volume.
+  An existing compose deployment therefore comes up on an empty database with its old
+  one still in that volume. Copy it out before removing the container —
+  `docker cp <container>:/app/data/tunnelcode.sqlite ./data/` — and read the schema
+  note above before doing so, because that copy is a 0.3.16 database.
+
+- **Breaking for anything that names a path in this repo.** `apps/tunnelcode-cli` is
+  now `apps/cli` and `apps/tunnelcode-server` is now `apps/server`, and the workspace
+  is driven by pnpm. The bundle is written to `apps/cli/bundle`, and the release
+  workflow checks the tag against `apps/cli/package.json` and
+  `apps/server/package.json`. The published package name and the image name are
+  unchanged, so nothing changes for installing or running TunnelCode.
+
+- Starting a session in a workspace that still has a paired browser no longer prints a
+  QR code, a pairing code or a login link. There is nothing to scan in that case: the
+  browser already has the session, so all it needs is the approval number the terminal
+  is already showing. The terminal says a paired browser can come back and waits for it.
+
+  If nothing reconnects within ten seconds, or the resume is refused at the keyboard,
+  the pairing code appears with the reason, so a phone whose tab was closed is never
+  left with no way in. A first pairing is unchanged.
+
+  Nothing is now printed until the server has answered, which also stops a QR code
+  appearing above a failure the user cannot pair through, such as another `tunnelcode`
+  already running in the same workspace.
+
+- Starting a session is much faster after the first time. Each engine's model list is
+  remembered in `engines.json` next to the settings for twelve hours, so the wait that
+  used to run every installed engine's CLI on every start now happens once. On a machine
+  with all seven engines installed that wait was about eight seconds; a start that reads
+  the remembered lists spends milliseconds on it.
+
+  Whether an engine is installed is still checked every time, so installing or removing
+  one takes effect on the next start. A list is re-read when the engine is reinstalled
+  somewhere else, when the CLI is updated, or when twelve hours have passed. Deleting
+  `engines.json` forces a fresh read.
 
 - The database is backed up to a `.pre-migration` file before migrations run, so a
   bad upgrade can be rolled back by restoring that copy.
 
-- `docker-compose.yml` reads the `.env` file in the same directory via `env_file`,
-  so VAPID keys and other settings reach the container without listing each one in
-  `environment`. The volume mount is corrected to `/app/data`.
 
 ### Fixed
 

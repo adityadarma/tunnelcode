@@ -7,7 +7,11 @@ const base = {
   code: 'ABCDEFGH',
   name: 'Test Mac',
   workspace: '/work',
-  engines: [{ name: 'opencode', models: ['opencode/fast'] }],
+  // An engine carries the name it is matched on, the label it is shown under and
+  // models that are an id and a label each. See ADR-051.
+  engines: [
+    { name: 'opencode', label: 'OpenCode', models: [{ id: 'opencode/fast', label: 'Fast' }] },
+  ],
 };
 
 /**
@@ -86,9 +90,14 @@ test('a reconnect refreshes the engine list', () => {
 
   // An engine installed or removed between runs has to be picked up, otherwise the
   // browser would keep offering an engine the machine no longer has.
-  devices.register({ ...base, engines: [{ name: 'claude', models: ['sonnet'] }] });
+  const claude = {
+    name: 'claude',
+    label: 'Claude Code',
+    models: [{ id: 'sonnet', label: 'sonnet' }],
+  };
+  devices.register({ ...base, engines: [claude] });
 
-  assert.deepEqual(devices.findById('device-1')?.engines, [{ name: 'claude', models: ['sonnet'] }]);
+  assert.deepEqual(devices.findById('device-1')?.engines, [claude]);
   assert.equal(devices.findEngine('device-1', 'opencode'), undefined);
 });
 
@@ -97,14 +106,16 @@ test('an engine is looked up with its own models', () => {
   devices.register({
     ...base,
     engines: [
-      { name: 'opencode', models: ['opencode/fast'] },
-      { name: 'claude', models: ['sonnet'] },
+      { name: 'opencode', label: 'OpenCode', models: [{ id: 'opencode/fast', label: 'Fast' }] },
+      { name: 'claude', label: 'Claude Code', models: [{ id: 'sonnet', label: 'sonnet' }] },
     ],
   });
 
   // Models belong to an engine, so one engine's model must never validate against
   // another. See ADR-020.
-  assert.deepEqual(devices.findEngine('device-1', 'claude')?.models, ['sonnet']);
+  assert.deepEqual(devices.findEngine('device-1', 'claude')?.models, [
+    { id: 'sonnet', label: 'sonnet' },
+  ]);
   assert.equal(devices.findEngine('device-1', 'gemini'), undefined);
 });
 

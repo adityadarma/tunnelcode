@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 
 const GLOBAL_FILE = 'tunnelcode.json';
 const GRANTS_FILE = 'permissions.json';
+const ENGINES_FILE = 'engines.json';
 
 /**
  * Resolves the global config path for the current platform. See ADR-011.
@@ -31,4 +32,16 @@ export function globalConfigPath(): string {
  */
 export function grantsPath(): string {
   return join(dirname(globalConfigPath()), GRANTS_FILE);
+}
+
+/**
+ * Where the model lists engines reported last time are kept.
+ *
+ * Beside the settings rather than in them, for the same reason grants are: nothing
+ * here was chosen by anybody. It is an answer some other program gave, written down
+ * so the user does not wait for it twice, and deleting the file costs nothing but the
+ * wait. See ADR-053.
+ */
+export function enginesCachePath(): string {
+  return join(dirname(globalConfigPath()), ENGINES_FILE);
 }

@@ -72,6 +72,45 @@ export interface AvailableEngine {
 }
 
 /**
+ * An installed engine before anybody has asked it what it can answer with.
+ *
+ * Separate from AvailableEngine because the two halves of discovery cost wildly
+ * different amounts. Finding the executable is a `which`, a few milliseconds; asking
+ * for models runs the engine's own CLI, and some of them take seconds to start. A
+ * caller that already knows the models can stop here and skip the slow half.
+ * See ADR-053.
+ */
+export interface InstalledEngine {
+  name: EngineName;
+  label: string;
+  command: string;
+  /** The adapter itself, so the caller can ask it for models when it needs to. */
+  engine: Engine;
+}
+
+/**
+ * Engines that are both supported here and on this machine's PATH.
+ *
+ * Asked in parallel, and cheap either way: this is the half of discovery that only
+ * looks for an executable.
+ */
+export async function findInstalledEngines(): Promise<InstalledEngine[]> {
+  const found = await Promise.all(
+    ENGINE_NAMES.map(async (name): Promise<InstalledEngine | undefined> => {
+      const engine = createEngine(name);
+
+      if (engine === undefined || !(await engine.isAvailable())) {
+        return undefined;
+      }
+
+      return { name, label: engine.label, command: engine.command, engine };
+    }),
+  );
+
+  return found.filter((entry): entry is InstalledEngine => entry !== undefined);
+}
+
+/**
  * Engines that are both supported here and installed on this machine.
  *
  * The intersection is what the browser is offered, so a choice made there can
@@ -84,22 +123,14 @@ export interface AvailableEngine {
  * would add up to a visible delay before the QR appears.
  */
 export async function discoverEngines(): Promise<AvailableEngine[]> {
-  const found = await Promise.all(
-    ENGINE_NAMES.map(async (name): Promise<AvailableEngine | undefined> => {
-      const engine = createEngine(name);
+  const installed = await findInstalledEngines();
 
-      if (engine === undefined || !(await engine.isAvailable())) {
-        return undefined;
-      }
-
-      return {
-        name,
-        label: engine.label,
-        command: engine.command,
-        models: await engine.listModels(),
-      };
-    }),
+  return Promise.all(
+    installed.map(async ({ name, label, command, engine }) => ({
+      name,
+      label,
+      command,
+      models: await engine.listModels(),
+    })),
   );
-
-  return found.filter((entry): entry is AvailableEngine => entry !== undefined);
 }

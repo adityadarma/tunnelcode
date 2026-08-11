@@ -15,6 +15,10 @@ const session = {
   // Stands in for the hash of a real token: the browser is not in this test, so
   // nothing has to be able to present it.
   tokenHash: 'token-hash-1',
+  // Nobody recognises this run and no version was reported, which is what a row
+  // written by a CLI too old to introduce itself looks like. See ADR-043.
+  runIdHash: null,
+  cliVersion: null,
 };
 
 /** Short enough to test, standing in for the hour the app uses. */
@@ -117,6 +121,26 @@ test('an ended session stays ended regardless of activity', async () => {
     sessions.touch('session-1');
 
     assert.equal(sessions.findSessionDetail('session-1'), undefined);
+  });
+});
+
+test('only live sessions count as ones a browser could come back to', async () => {
+  await withTempDb(async (handle) => {
+    const sessions = new SessionRepository(handle.db, { idleMs: IDLE_MS });
+    sessions.persistApproved(session);
+    sessions.persistApproved({ ...session, sessionId: 'session-2' });
+    sessions.markEnded('session-2');
+
+    // The terminal decides from this count whether to put a pairing code on screen.
+    // Counting an ended session would hold the code back waiting for a browser that
+    // can never be let in. See ADR-053.
+    assert.deepEqual(sessions.listLiveSessionIdsByDevice('device-1'), ['session-1']);
+
+    await wait(IDLE_MS + 20);
+
+    // An idle session is gone for the same reason, so a workspace nobody has touched
+    // for an hour asks to pair again rather than waiting on nobody.
+    assert.deepEqual(sessions.listLiveSessionIdsByDevice('device-1'), []);
   });
 });
 

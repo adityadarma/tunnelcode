@@ -14,6 +14,10 @@ const session = {
   // Stands in for the hash of a real token: the browser is not in this test, so
   // nothing has to be able to present it.
   tokenHash: 'token-hash-1',
+  // Nobody recognises this run and no version was reported, which is what a row
+  // written by a CLI too old to introduce itself looks like. See ADR-043.
+  runIdHash: null,
+  cliVersion: null,
 };
 
 test('migrations create every table the app needs', async () => {
@@ -42,7 +46,7 @@ test('running migrations again keeps existing rows', async () => {
   await withTempDb(async (handle, file) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const conversation = conversations.create('session-1');
+    const conversation = conversations.create('session-1', 'opencode');
     conversations.appendMessage(conversation.id, 'user', 'keep me');
     conversations.appendMessage(conversation.id, 'assistant', 'kept');
     handle.close();
@@ -69,7 +73,7 @@ test('a message written before the partial flag reads as complete', async () => 
   await withTempDb(async (handle, file) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const conversation = conversations.create('session-1');
+    const conversation = conversations.create('session-1', 'opencode');
     handle.close();
 
     // Written the way a build that predates the column did, without naming it.
@@ -95,7 +99,7 @@ test('an activity written before the blocked flag reads as having run', async ()
   await withTempDb(async (handle, file) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const conversation = conversations.create('session-1');
+    const conversation = conversations.create('session-1', 'opencode');
     handle.close();
 
     // Written the way a build that predates the columns did, without naming them.
@@ -122,7 +126,7 @@ test('a database written before thinking existed still opens, and keeps it after
   await withTempDb(async (handle, file) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const conversation = conversations.create('session-1');
+    const conversation = conversations.create('session-1', 'opencode');
     conversations.appendMessage(conversation.id, 'user', 'keep me');
     handle.close();
 
@@ -189,7 +193,7 @@ test('deleting a device cascades to its history', async () => {
   await withTempDb(async (handle, file) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const conversation = conversations.create('session-1');
+    const conversation = conversations.create('session-1', 'opencode');
     conversations.appendMessage(conversation.id, 'user', 'gone soon');
     handle.close();
 

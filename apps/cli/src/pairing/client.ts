@@ -34,7 +34,15 @@ export interface PairingClientOptions {
    * browser's session rather than declining a new one. See ADR-040.
    */
   onResumeRequest: (approvalNumber: string) => Promise<boolean>;
-  onRegistered: (deviceId: string) => void;
+  /**
+   * Called once this connection is registered.
+   *
+   * `resumableSessions` is how many live sessions the server already holds for this
+   * device, which is what tells a first pairing from a workspace being picked back
+   * up. Zero from a server too old to report it, which shows the code as before.
+   * See ADR-053.
+   */
+  onRegistered: (deviceId: string, resumableSessions: number) => void;
   onPaired: (deviceId: string) => void;
   /** Called when the server ends the session, so the CLI can stop. */
   onStop: (reason: string) => void;
@@ -192,7 +200,7 @@ export class PairingClient {
   private async dispatch(message: ServerToCliMessage): Promise<void> {
     switch (message.type) {
       case 'registered':
-        this.options.onRegistered(message.deviceId);
+        this.options.onRegistered(message.deviceId, message.resumableSessions ?? 0);
         return;
 
       case 'pair_request': {

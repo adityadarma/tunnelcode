@@ -12,7 +12,6 @@ import { PromptRunner } from './prompt-runner.js';
 import { renderQr } from './qr.js';
 import { writeErr, writeOut } from '../output.js';
 import { bold, cyanBold, dim, green, greenBold, red, yellow } from '../style.js';
-import { withSpinner } from '../spinner.js';
 import { readVersion } from '../version.js';
 
 export interface PairingSessionOptions {
@@ -42,6 +41,16 @@ export interface PairingSessionOptions {
 const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 30 * 1000;
 
+/**
+ * How long a resumable session is given to come back before the code is shown.
+ *
+ * A browser that is already open asks within a second of the CLI registering, so
+ * this is only ever waited out when nobody is holding the session: a tab that was
+ * closed, or a phone in a pocket. The code is what that user needs, and leaving the
+ * terminal saying "waiting" forever would leave them with no way forward.
+ */
+const RESUME_WAIT_MS = 15 * 1000;
+
 interface SessionState {
   paired: boolean;
   stopping: boolean;
@@ -65,6 +74,15 @@ interface SessionState {
    * connection, which drops the output rather than failing the turn. See ADR-044.
    */
   client: PairingClient | undefined;
+  /**
+   * Whether the pairing code has been put on screen.
+   *
+   * Once for the whole session rather than once per connection: the code does not
+   * change across reconnects, so printing it again would read as a second code.
+   */
+  invited: boolean;
+  /** Cancels the wait for a resume, when something arrives before it runs out. */
+  cancelResumeWait: (() => void) | undefined;
 }
 
 /**
@@ -90,11 +108,16 @@ const wait = async (ms: number, state: SessionState): Promise<void> => {
 };
 
 /**
- * Runs one pairing session: show the QR, wait for a browser, ask the user to
- * approve, then stay connected until the session ends.
+ * Runs one pairing session: wait for a browser, ask the user to approve, then stay
+ * connected until the session ends.
  *
  * The pairing code is generated once and reused across reconnects, because the
  * code is tied to this CLI session and the QR already shown must keep working.
+ *
+ * Nothing is shown until the server has answered, because until then the terminal
+ * does not know which question to ask. A workspace whose session is still live has a
+ * browser that comes back on a keypress, and a code put in front of that user is one
+ * more thing on screen than the moment calls for. See ADR-053.
  *
  * Returns the process exit code.
  */
@@ -106,11 +129,10 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
   const loginUrl = buildLoginUrl(options.serverUrl, code);
   const socketUrl = buildCliSocketUrl(options.serverUrl);
 
-  writeOut(await withSpinner('Generating...', () => renderQr(loginUrl)));
-  writeOut(`ℹ Pairing Code Generated: ${cyanBold(` ${code} `)}`);
-  writeOut(`${dim('[Pairing]')} Open ${loginUrl}`);
-  writeOut('');
-  writeOut(`${yellow('⏳')} ${bold('Waiting for browser connection request...')}`);
+  // Rendered up front and held as text, so showing it later is a plain write rather
+  // than an await inside a socket callback. It is pure string work and costs under a
+  // millisecond, which is why it is not worth a spinner of its own.
+  const qr = await renderQr(loginUrl);
 
   // Held in an object because these are only ever written from callbacks, which
   // the compiler cannot narrow through.
@@ -121,8 +143,68 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
     close: undefined,
     wake: undefined,
     client: undefined,
+    invited: false,
+    cancelResumeWait: undefined,
   };
   let delay = RECONNECT_MIN_MS;
+
+  /**
+   * Puts the code, the QR and the link on screen, once.
+   *
+   * Everything a browser needs to pair is here rather than spread across the
+   * session: a user reading this has one thing to do, and the three forms of it are
+   * the same instruction for a phone camera, a typed code and a click.
+   */
+  const invite = (): void => {
+    if (state.invited) {
+      return;
+    }
+
+    state.invited = true;
+    state.cancelResumeWait?.();
+    writeOut(qr);
+    writeOut(`ℹ Pairing Code Generated: ${cyanBold(` ${code} `)}`);
+    writeOut(`${dim('[Pairing]')} Open ${loginUrl}`);
+    writeOut('');
+    writeOut(`${yellow('⏳')} ${bold('Waiting for browser connection request...')}`);
+  };
+
+  /**
+   * Says a session is waiting to be picked up, and shows the code if it is not.
+   *
+   * The timer is what keeps this from being a dead end. A browser that is open asks
+   * to resume immediately, so the wait ends on its own; one that is closed never
+   * asks, and the user is left needing exactly the code this was holding back.
+   */
+  const awaitResume = (count: number): void => {
+    if (state.invited || state.cancelResumeWait !== undefined) {
+      return;
+    }
+
+    writeOut('');
+    writeOut(
+      `${yellow('⏳')} ${bold(
+        `Waiting for ${count === 1 ? 'the paired browser' : `${String(count)} paired browsers`} to reconnect...`,
+      )}`,
+    );
+    writeOut(`  ${dim('Open the session on your phone. Nothing to scan.')}`);
+
+    const timer = setTimeout(() => {
+      state.cancelResumeWait = undefined;
+      writeOut('');
+      writeOut(`${dim('[Pairing]')} Nothing reconnected, so here is the code for a new browser.`);
+      invite();
+    }, RESUME_WAIT_MS);
+
+    // Not worth holding the event loop open: the socket is what keeps the process
+    // alive, and a session ending mid-wait has nothing left to show a code for.
+    timer.unref();
+
+    state.cancelResumeWait = () => {
+      clearTimeout(timer);
+      state.cancelResumeWait = undefined;
+    };
+  };
 
   /**
    * Marks the session as stopping and ends whatever it is waiting on.
@@ -244,6 +326,8 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
       runner,
       fileWatcher,
       engineInstances: engines,
+      invite,
+      awaitResume,
     });
 
     if (shouldStop() || state.fatal !== undefined) {
@@ -305,6 +389,10 @@ interface ConnectionOptions extends PairingSessionOptions {
   fileWatcher: FileWatcher;
   /** Engine instances keyed by name, used for session scanning callbacks. */
   engineInstances: Map<string, Engine>;
+  /** Puts the pairing code on screen. Owned by the session, so it happens once. */
+  invite: () => void;
+  /** Announces that a live session may come back, and shows the code if it does not. */
+  awaitResume: (count: number) => void;
 }
 
 /**
@@ -330,7 +418,7 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
       models: engine.models,
     })),
 
-    onRegistered: () => {
+    onRegistered: (_deviceId, resumableSessions) => {
       local.registered = true;
       idle.start();
 
@@ -339,6 +427,17 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
         // Ensure the file watcher is running after a reconnect, since onPaired
         // does not fire again for sessions that were already paired.
         fileWatcher.start();
+        return;
+      }
+
+      // The first thing the terminal knows about who might be waiting, and the only
+      // point at which it can tell a first pairing from a workspace being picked back
+      // up. A live session means a browser that already paired can carry on with a
+      // keypress here, so the code is held back rather than shown. See ADR-053.
+      if (resumableSessions > 0) {
+        options.awaitResume(resumableSessions);
+      } else {
+        options.invite();
       }
     },
 
@@ -386,6 +485,10 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
     },
 
     onPairRequest: async (approvalNumber) => {
+      // Somebody is at the door, so the wait for a returning browser is over. Without
+      // this the code could land on screen in the middle of the approval prompt.
+      state.cancelResumeWait?.();
+
       const approved = await askApproval(approvalNumber);
       writeOut(
         approved
@@ -399,12 +502,24 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
     // spend the code on screen: that code is still what a new browser would use.
     // See ADR-040.
     onResumeRequest: async (approvalNumber) => {
+      // The browser this run was waiting for. Ends the wait rather than letting the
+      // code appear underneath a question the user is answering.
+      state.cancelResumeWait?.();
+
       const approved = await askApproval(approvalNumber, 'resume');
       writeOut(
         approved
           ? `${green('✔')} ${greenBold('Approved! Session resumed.')}`
           : `${red('✗')} Rejected. That browser has to pair again.`,
       );
+
+      // Refused, so pairing is the only way back in and the code is what does it.
+      // Held back until now because a resume needed nothing scanned.
+      if (!approved) {
+        writeOut('');
+        options.invite();
+      }
+
       return approved;
     },
 

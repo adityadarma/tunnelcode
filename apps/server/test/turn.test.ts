@@ -6,6 +6,9 @@ const input = {
   sessionId: 'session-1',
   deviceId: 'device-1',
   conversationId: 'conversation-1',
+  // A turn names the engine answering it, taken from the conversation rather than
+  // from the device, which runs several. See ADR-020.
+  engine: 'opencode',
 };
 
 test('a started turn is found for its own device', () => {

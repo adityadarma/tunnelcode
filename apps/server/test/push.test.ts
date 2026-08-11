@@ -132,6 +132,7 @@ function seedSession(handle: DbHandle, sessionId: string): void {
     engine: 'claude',
     tokenHash: `token-hash-${sessionId}`,
     runIdHash: null,
+    cliVersion: null,
   });
 }
 

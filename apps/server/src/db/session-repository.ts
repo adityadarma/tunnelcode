@@ -308,6 +308,24 @@ export class SessionRepository {
       .map((row) => row.id);
   }
 
+  /**
+   * Sessions of a device that a browser could still act on.
+   *
+   * Told to the CLI when it registers, so the terminal can say a session is waiting
+   * to be resumed instead of offering a pairing code nobody needs. The live
+   * predicate is what makes the answer worth anything: an ended or expired row
+   * cannot be resumed, so counting it would promise a reconnect that can never
+   * arrive. See ADR-053.
+   */
+  listLiveSessionIdsByDevice(deviceId: string): string[] {
+    return this.db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(and(eq(sessions.deviceId, deviceId), this.live()))
+      .all()
+      .map((row) => row.id);
+  }
+
   /** Sessions belonging to a device, used to notify their browsers. */
   listSessionIdsByDevice(deviceId: string): string[] {
     return this.db

@@ -13,6 +13,10 @@ const session = {
   // Stands in for the hash of a real token: the browser is not in this test, so
   // nothing has to be able to present it.
   tokenHash: 'token-hash-1',
+  // Nobody recognises this run and no version was reported, which is what a row
+  // written by a CLI too old to introduce itself looks like. See ADR-043.
+  runIdHash: null,
+  cliVersion: null,
 };
 
 test('an approved pairing is persisted', async () => {
@@ -55,7 +59,7 @@ test('messages are stored in order', async () => {
   await withTempDb(async (handle) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const conversation = conversations.create('session-1');
+    const conversation = conversations.create('session-1', 'opencode');
 
     conversations.appendMessage(conversation.id, 'user', 'first');
     conversations.appendMessage(conversation.id, 'assistant', 'second');
@@ -72,7 +76,7 @@ test('the title comes from the first user message only', async () => {
   await withTempDb(async (handle) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const conversation = conversations.create('session-1');
+    const conversation = conversations.create('session-1', 'opencode');
 
     assert.equal(conversation.title, null);
 
@@ -93,7 +97,7 @@ test('a long title is truncated', async () => {
   await withTempDb(async (handle) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const conversation = conversations.create('session-1');
+    const conversation = conversations.create('session-1', 'opencode');
 
     conversations.appendMessage(conversation.id, 'user', 'x'.repeat(200));
 
@@ -109,9 +113,9 @@ test('conversations are listed per session', async () => {
     new SessionRepository(handle.db).persistApproved({ ...session, sessionId: 'session-2' });
     const conversations = new ConversationRepository(handle.db);
 
-    conversations.create('session-1');
-    conversations.create('session-1');
-    conversations.create('session-2');
+    conversations.create('session-1', 'opencode');
+    conversations.create('session-1', 'opencode');
+    conversations.create('session-2', 'opencode');
 
     assert.equal(conversations.listBySession('session-1').length, 2);
     assert.equal(conversations.listBySession('session-2').length, 1);
@@ -163,8 +167,8 @@ test('conversations from several sessions are read as one list', async () => {
     sessions.persistApproved({ ...session, sessionId: 'session-2' });
     const conversations = new ConversationRepository(handle.db);
 
-    const first = conversations.create('session-1');
-    const second = conversations.create('session-2');
+    const first = conversations.create('session-1', 'opencode');
+    const second = conversations.create('session-2', 'opencode');
 
     // Ordered by age, so re-pairing does not reshuffle what the user already knows.
     assert.deepEqual(
@@ -187,7 +191,7 @@ test('history survives reopening the database', async () => {
   await withTempDb(async (handle, file) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const conversation = conversations.create('session-1');
+    const conversation = conversations.create('session-1', 'opencode');
     conversations.appendMessage(conversation.id, 'user', 'does this survive');
     conversations.appendMessage(conversation.id, 'assistant', 'yes');
     handle.close();
@@ -219,7 +223,7 @@ test('deleting a conversation removes its messages and activities', async () => 
   await withTempDb(async (handle) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const conversation = conversations.create('session-1');
+    const conversation = conversations.create('session-1', 'opencode');
     conversations.appendMessage(conversation.id, 'user', 'hello');
     conversations.appendActivity(conversation.id, 'id3', 'Bash', 'ls');
 
@@ -235,7 +239,7 @@ test('activities are stored in order', async () => {
   await withTempDb(async (handle) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const conversation = conversations.create('session-1');
+    const conversation = conversations.create('session-1', 'opencode');
 
     conversations.appendActivity(conversation.id, 'id1', 'Read', 'a.ts');
     conversations.appendActivity(conversation.id, 'id2', 'Write', 'b.ts');
@@ -256,7 +260,7 @@ test('an activity without a target is stored as null', async () => {
   await withTempDb(async (handle) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const conversation = conversations.create('session-1');
+    const conversation = conversations.create('session-1', 'opencode');
 
     const stored = conversations.appendActivity(conversation.id, 'id5', 'TodoWrite', undefined);
 
@@ -271,7 +275,7 @@ test('an activity never becomes a message', async () => {
   await withTempDb(async (handle) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const conversation = conversations.create('session-1');
+    const conversation = conversations.create('session-1', 'opencode');
 
     conversations.appendActivity(conversation.id, 'id2', 'Write', 'a.ts');
 
@@ -284,7 +288,7 @@ test('an activity does not name the conversation', async () => {
   await withTempDb(async (handle) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const conversation = conversations.create('session-1');
+    const conversation = conversations.create('session-1', 'opencode');
 
     conversations.appendActivity(conversation.id, 'id2', 'Write', 'a.ts');
 
@@ -301,7 +305,7 @@ test('activities survive reopening the database', async () => {
   await withTempDb(async (handle, file) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const conversation = conversations.create('session-1');
+    const conversation = conversations.create('session-1', 'opencode');
     conversations.appendActivity(conversation.id, 'id2', 'Write', 'note.txt');
     handle.close();
 
@@ -322,8 +326,8 @@ test('an imported activity gets a row id of its own', async () => {
   await withTempDb(async (handle) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const first = conversations.create('session-1');
-    const second = conversations.create('session-1');
+    const first = conversations.create('session-1', 'opencode');
+    const second = conversations.create('session-1', 'opencode');
 
     // Reading the same agent session twice replays the same tool calls, so the row
     // key cannot be anything the engine supplied.
@@ -340,7 +344,7 @@ test('a fresh conversation has no engine session', async () => {
   await withTempDb(async (handle) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const conversation = conversations.create('session-1');
+    const conversation = conversations.create('session-1', 'opencode');
 
     // Nothing to continue yet, which is also the state of every conversation
     // created before this column existed.
@@ -352,7 +356,7 @@ test('an engine session is recorded with its engine', async () => {
   await withTempDb(async (handle) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const conversation = conversations.create('session-1');
+    const conversation = conversations.create('session-1', 'opencode');
 
     conversations.setEngineSession(conversation.id, 'engine-session-1', 'claude');
 
@@ -369,7 +373,7 @@ test('a later turn replaces the recorded engine session', async () => {
   await withTempDb(async (handle) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const conversation = conversations.create('session-1');
+    const conversation = conversations.create('session-1', 'opencode');
 
     conversations.setEngineSession(conversation.id, 'first', 'claude');
     conversations.setEngineSession(conversation.id, 'second', 'claude');
@@ -384,7 +388,7 @@ test('an engine session survives reopening the database', async () => {
   await withTempDb(async (handle, file) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const conversation = conversations.create('session-1');
+    const conversation = conversations.create('session-1', 'opencode');
     conversations.setEngineSession(conversation.id, 'engine-session-1', 'claude');
     handle.close();
 
@@ -405,8 +409,8 @@ test('an engine session belongs to one conversation only', async () => {
   await withTempDb(async (handle) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const first = conversations.create('session-1');
-    const second = conversations.create('session-1');
+    const first = conversations.create('session-1', 'opencode');
+    const second = conversations.create('session-1', 'opencode');
 
     conversations.setEngineSession(first.id, 'engine-session-1', 'claude');
 
@@ -420,7 +424,7 @@ test('recording an engine session does not name the conversation', async () => {
   await withTempDb(async (handle) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const conversation = conversations.create('session-1');
+    const conversation = conversations.create('session-1', 'opencode');
 
     conversations.setEngineSession(conversation.id, 'engine-session-1', 'claude');
 
@@ -433,8 +437,8 @@ test('activities belong to their own conversation', async () => {
   await withTempDb(async (handle) => {
     new SessionRepository(handle.db).persistApproved(session);
     const conversations = new ConversationRepository(handle.db);
-    const first = conversations.create('session-1');
-    const second = conversations.create('session-1');
+    const first = conversations.create('session-1', 'opencode');
+    const second = conversations.create('session-1', 'opencode');
 
     conversations.appendActivity(first.id, 'id6', 'Read', 'a.ts');
 
