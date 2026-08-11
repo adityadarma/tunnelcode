@@ -91,6 +91,26 @@ to the version it ships as and leaves an empty one behind.
 
 ### Fixed
 
+- A tool call Antigravity refused now raises a notification while the page is open in
+  another tab. Antigravity is headless and cannot ask, so a call it will not make is
+  reported as a refusal rather than as an approval card, and the page raised nothing
+  for one. The server sends a push for it, but only when no browser holds the session,
+  so a hidden tab was the one place the agent could stop with nothing anywhere saying
+  so.
+
+- An approval now raises a notification while the browser is behind another
+  application. The page decided whether to raise one from tab visibility alone, and
+  the front tab of a window counts as visible even when that window is behind a
+  terminal or an editor, so switching applications left the agent waiting silently.
+  Focus is read as well, so only a page the user is actually in front of stays quiet.
+
+- A second notification of the same kind now announces itself instead of arriving in
+  silence. Notifications are tagged so a long session does not stack up a screenful,
+  and a replacement under an existing tag is silent by default, which meant an ask
+  raised while an earlier notification was still on screen was never heard. An
+  approval and a refusal also stay on screen until they are dealt with, and are tagged
+  per conversation, so one conversation no longer replaces another's notification.
+
 - The same agent conversation can be picked up more than once. Importing one a second
   time failed outright, because the tool calls were stored under the ids the engine
   gave them and reading the same conversation again reports the same ids, so the second

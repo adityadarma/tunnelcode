@@ -20,7 +20,12 @@ import { PermissionPrompt } from '../components/PermissionPrompt.js';
 import type { PermissionAsk, PermissionDecision } from '../components/PermissionPrompt.js';
 import { ResumeApproval } from '../components/ResumeApproval.js';
 import { ThemeToggle } from '../components/ThemeToggle.js';
-import { notifyPermission, notifyTurnDone, refreshSubscription } from '../notifications.js';
+import {
+  notifyBlocked,
+  notifyPermission,
+  notifyTurnDone,
+  refreshSubscription,
+} from '../notifications.js';
 import {
   readStoredActiveConversationId,
   readStoredTheme,
@@ -290,6 +295,14 @@ export function ConversationPage({
    */
   const notifiedAsksRef = useRef<Set<string>>(new Set());
 
+  /**
+   * The refusals already reported, keyed by activity id.
+   *
+   * Same reason as the asks above: an activity is replayed when the transcript is
+   * refetched, and a refusal announced twice reads as a second call being stopped.
+   */
+  const notifiedBlocksRef = useRef<Set<string>>(new Set());
+
   const selectActiveId = useCallback((id: string | undefined): void => {
     setActiveId(id);
     if (id !== undefined) {
@@ -456,6 +469,24 @@ export function ConversationPage({
       }
 
       case 'activity': {
+        // Checked before the conversation filter below, because a refusal is worth
+        // telling the user about whichever conversation it happened in, exactly like
+        // an ask. For an engine that cannot raise an ask this is the only thing that
+        // reports the agent has stopped short of the work.
+        if (event.blocked === true && typeof event.reason === 'string') {
+          const blockKey = String(event.id);
+
+          if (!notifiedBlocksRef.current.has(blockKey)) {
+            notifiedBlocksRef.current.add(blockKey);
+            notifyBlocked(
+              String(event.tool),
+              event.reason,
+              typeof event.conversationId === 'string' ? event.conversationId : undefined,
+              event.conversationId !== activeIdRef.current,
+            );
+          }
+        }
+
         if (event.conversationId !== activeIdRef.current) {
           return;
         }
@@ -554,7 +585,12 @@ export function ConversationPage({
 
         if (!notifiedAsksRef.current.has(askKey)) {
           notifiedAsksRef.current.add(askKey);
-          notifyPermission(ask.title, ask.target, ask.conversationId !== activeIdRef.current);
+          notifyPermission(
+            ask.title,
+            ask.target,
+            ask.conversationId,
+            ask.conversationId !== activeIdRef.current,
+          );
         }
 
         // Replayed on every attach, so the same ask can arrive more than once.
@@ -588,6 +624,7 @@ export function ConversationPage({
         // for. The answer stands as the body when one arrived in this turn.
         notifyTurnDone(
           lastAnswerRef.current === '' ? 'The agent finished working.' : lastAnswerRef.current,
+          typeof event.conversationId === 'string' ? event.conversationId : undefined,
           event.conversationId !== activeIdRef.current,
         );
         lastAnswerRef.current = '';

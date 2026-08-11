@@ -157,6 +157,11 @@ self.addEventListener('push', (event) => {
       // One notification per kind per conversation, so a long session does not
       // stack up a screenful of them.
       tag: typeof payload.conversationId === 'string' ? `${kind}-${payload.conversationId}` : kind,
+      // Collapsing is silent by default: a second ask would replace the first with
+      // no sound and no banner, which for somebody who left the page is the same as
+      // never having been told. The tag is there to avoid a screenful, not to hide
+      // events behind one another.
+      renotify: true,
       // An approval holds the agent still until it is answered, and a blocked call
       // ended the work, so both stay on screen. A finished answer does not need to
       // be dismissed by hand.

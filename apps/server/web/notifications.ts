@@ -14,9 +14,31 @@ import { ensureServiceWorker, serviceWorkerSupported } from './service-worker.js
 /** What the user can be told, from the point of view of the button that offers it. */
 export type NotificationState = 'unsupported' | 'default' | 'granted' | 'denied';
 
-/** A notification already on screen is replaced rather than stacked. */
-const PERMISSION_TAG = 'permission';
-const TURN_TAG = 'turn';
+/**
+ * Notification options plus `renotify`, which the DOM types leave out.
+ *
+ * It is part of the notification standard and is what every browser that honours
+ * tags reads to decide whether a replacement alerts the user or arrives in silence.
+ * TypeScript describes only the subset shared by the page and service worker forms.
+ * Declared once here so the remaining options stay checked rather than cast away at
+ * each call.
+ */
+interface AlertingNotificationOptions extends NotificationOptions {
+  renotify?: boolean;
+}
+
+/**
+ * A notification already on screen is replaced rather than stacked, scoped to the
+ * conversation it came from.
+ *
+ * The same scoping the service worker uses for a push, so the two places that raise
+ * a notification collapse onto the same one rather than showing two of it. Unscoped
+ * tags meant a second conversation replaced the first one's notification, which read
+ * as the first ask having been answered.
+ */
+function tagFor(kind: 'permission' | 'blocked' | 'turn', conversationId?: string): string {
+  return conversationId === undefined ? kind : `${kind}-${conversationId}`;
+}
 
 export function notificationsSupported(): boolean {
   return serviceWorkerSupported() && 'Notification' in window && 'PushManager' in window;
@@ -234,64 +256,133 @@ export async function refreshSubscription(): Promise<void> {
 }
 
 /**
+ * Whether the user is actually looking at this page.
+ *
+ * Visibility alone is not enough. A tab that is the front tab of its window is
+ * `visible` even while the window is behind another application or another browser
+ * window, so a user who switched to their terminal was treated as watching and told
+ * nothing. Focus is what separates the two, and both have to hold for the page to be
+ * what is in front of the user.
+ *
+ * The cost of reading it this way is a notification for a page that is on a second
+ * screen the user can see but is not typing into. That is the right side to err on:
+ * an unseen approval expires into a refusal, while a notification for something
+ * already on screen is a banner that repeats it.
+ */
+function watching(): boolean {
+  return !document.hidden && document.hasFocus();
+}
+
+/**
  * Shows a notification from the page.
  *
- * Raised when the user is not looking at the event: either the tab is hidden, or the
- * event belongs to a conversation that is not on screen. A visible tab showing the
- * exact conversation raises nothing, because the answer or the ask is already there.
- * Shown through the service worker rather than as a page notification, because that
- * is the form Android requires.
+ * Raised when the user is not looking at the event: the page is not in front of them,
+ * or the event belongs to a conversation that is not on screen. A focused page showing
+ * the exact conversation raises nothing, because the answer or the ask is already
+ * there. Shown through the service worker rather than as a page notification, because
+ * that is the form Android requires.
  */
-async function show(title: string, body: string, tag: string, force = false): Promise<void> {
+async function show(
+  title: string,
+  body: string,
+  tag: string,
+  options: { force?: boolean; sticky?: boolean } = {},
+): Promise<void> {
   if (notificationState() !== 'granted') {
     return;
   }
 
-  // Skip only when the tab is visible AND the caller did not say to force it (meaning
-  // the event is for the conversation on screen). Hidden always shows.
-  if (!document.hidden && !force) {
+  // Skip only when the page is in front of the user AND the caller did not say to
+  // force it (meaning the event is for the conversation on screen).
+  if (watching() && options.force !== true) {
     return;
   }
 
-  // Chrome suppresses showNotification from a service worker while a tab on this
-  // origin is visible. A page-level Notification works regardless, and is what the
-  // user proved they wanted when they granted permission. The service worker path is
-  // kept for the hidden-tab case, where it is the only form Android accepts.
+  // Replacing a notification that carries the same tag is silent by default: no
+  // sound, no banner, nothing the user in another tab would notice. A session that
+  // asks twice would have raised the second ask into a notification nobody was
+  // alerted to. `renotify` is what makes the replacement announce itself.
+  //
+  // `requireInteraction` keeps an ask on screen until it is dealt with, matching what
+  // the service worker does for a push: an approval holds the agent still, so a
+  // banner that hides itself after a few seconds is the whole notification missed.
+  const shared: AlertingNotificationOptions = {
+    body,
+    tag,
+    renotify: true,
+    icon: '/icon-192.png',
+    ...(options.sticky === true ? { requireInteraction: true } : {}),
+  };
+
+  // Which form to use is decided by visibility rather than by focus, because
+  // visibility is what the browser itself keys on: Chrome suppresses
+  // showNotification from a service worker while a tab on this origin is visible,
+  // and a window sitting unfocused behind another application still counts as
+  // visible. A page-level Notification works regardless, and is what the user proved
+  // they wanted when they granted permission. The service worker path is kept for the
+  // hidden case, where it is the only form Android accepts.
   if (!document.hidden) {
-    new Notification(title, { body, tag, icon: '/icon-192.png' });
+    new Notification(title, shared);
     return;
   }
 
   const registration = await ensureServiceWorker();
 
   if (registration !== undefined) {
-    await registration.showNotification(title, {
-      body,
-      icon: '/icon-192.png',
-      badge: '/icon-192.png',
-      tag,
-    });
+    await registration.showNotification(title, { ...shared, badge: '/icon-192.png' });
     return;
   }
 
-  new Notification(title, { body, tag, icon: '/icon-192.png' });
+  new Notification(title, shared);
 }
 
 /** The agent has stopped and is waiting to be allowed to do something. */
 export function notifyPermission(
   title: string,
   target: string | undefined,
+  conversationId?: string,
   otherConversation = false,
 ): void {
   void show(
     'Approval needed',
     target === undefined ? title : `${title}: ${target}`,
-    PERMISSION_TAG,
-    otherConversation,
+    tagFor('permission', conversationId),
+    { force: otherConversation, sticky: true },
   );
 }
 
+/**
+ * A tool call the engine was not allowed to make.
+ *
+ * The other half of an ask, for an engine that cannot raise one. Antigravity is
+ * headless and decides alone, so the thing worth telling the user about arrives as a
+ * refusal that has already happened rather than as a question. The server already
+ * pushes it when no page is open; without this, a hidden tab was the one place it was
+ * reported nowhere at all, because being attached is what stops the push. See
+ * ADR-031 and ADR-045.
+ *
+ * Sticky for the same reason the service worker makes it sticky: the refusal ended
+ * that piece of work, and it takes a grant to get past it.
+ */
+export function notifyBlocked(
+  tool: string,
+  reason: string,
+  conversationId?: string,
+  otherConversation = false,
+): void {
+  void show('Tool call refused', `${tool}: ${reason}`, tagFor('blocked', conversationId), {
+    force: otherConversation,
+    sticky: true,
+  });
+}
+
 /** The turn is over, one way or another. */
-export function notifyTurnDone(body: string, otherConversation = false): void {
-  void show('The answer is ready', body, TURN_TAG, otherConversation);
+export function notifyTurnDone(
+  body: string,
+  conversationId?: string,
+  otherConversation = false,
+): void {
+  void show('The answer is ready', body, tagFor('turn', conversationId), {
+    force: otherConversation,
+  });
 }
