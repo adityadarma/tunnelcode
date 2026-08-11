@@ -764,6 +764,20 @@ export function ConversationPage({
     })();
   };
 
+  /**
+   * Takes the conversation an agent session was imported into.
+   *
+   * Appended and opened in one step, the same way a created conversation is: the
+   * server has already stored the imported messages and activities, so selecting it
+   * is what sends the effect below to fetch them. Landing anywhere else would leave
+   * the user to find a conversation they just asked for in the list, and the point
+   * of importing is to carry on from that history right away.
+   */
+  const handleImport = (conversation: Conversation): void => {
+    setConversations((current) => [...current, conversation]);
+    selectActiveId(conversation.id);
+  };
+
   const removeConversation = (id: string): void => {
     void (async () => {
       try {
@@ -982,18 +996,26 @@ export function ConversationPage({
           conversations={conversations}
           activeId={activeId}
           engines={session?.engines ?? []}
+          sessionId={sessionId}
           // The device default is only a starting point for the picker now that an
           // engine belongs to a conversation. See ADR-020.
           defaultEngine={session?.engine}
           // The engine list describes what the running CLI can serve, so there is
           // nothing to create against while the device is offline.
           createDisabled={offline}
+          // Importing has to scan the machine as it happens, so it needs the device
+          // reachable now rather than by the time a prompt is sent.
+          online={!offline}
           onSelect={(id) => {
             selectActiveId(id);
             setMenuOpen(false);
           }}
           onCreate={(engine, model) => {
             create(engine, model);
+            setMenuOpen(false);
+          }}
+          onImport={(conversation) => {
+            handleImport(conversation);
             setMenuOpen(false);
           }}
           onOpenModal={() => {

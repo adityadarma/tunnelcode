@@ -82,6 +82,39 @@ export interface Conversation {
   updatedAt: number;
 }
 
+/**
+ * One agent session found on the paired machine, as the CLI reported it.
+ *
+ * Only enough to recognise a session in the picker: the transcript itself is
+ * fetched when the reader chooses one to import.
+ */
+export interface SessionSummary {
+  /** Identifier the engine stores the session under, passed back to import it. */
+  id: string;
+  /** Derived from the first thing the user said, so it reads as a subject line. */
+  title: string;
+  /** ISO 8601, used to order the list and shown as a relative time. */
+  lastActiveAt: string;
+  /** User and assistant messages together. */
+  messageCount: number;
+  /** Tail of the last answer, truncated by the CLI. */
+  preview: string;
+}
+
+/**
+ * The answer to "what has this engine got on that machine?".
+ *
+ * `sessions` alone cannot say why it is empty, and the two reasons want different
+ * sentences: an engine that cannot be read at all is not an engine that was read
+ * and held nothing. `supported: false` means the scan will never work here and
+ * `reason` says why in words the CLI already wrote for a reader.
+ */
+export interface AgentSessionListing {
+  sessions: SessionSummary[];
+  supported: boolean;
+  reason?: string;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -234,6 +267,57 @@ export async function createConversation(
     method: 'POST',
     ...(hasChoice ? { body: JSON.stringify(choice) } : {}),
   });
+}
+
+/**
+ * Lists the agent sessions the paired machine holds for one engine.
+ *
+ * The server relays the question to the CLI, which scans that engine's local
+ * storage. The array comes back ordered by `lastActiveAt` descending, and is
+ * passed on in that order rather than sorted again here.
+ *
+ * The whole body is returned rather than just the list, because `supported` and
+ * `reason` are what let the picker say "this cannot be read" instead of "you have
+ * no history". `supported` falls back to true so a server that predates the field
+ * still reads as scannable, matching the protocol's own default.
+ */
+export async function listAgentSessions(
+  sessionId: string,
+  engine: string,
+): Promise<AgentSessionListing> {
+  const body = await request<{
+    sessions: SessionSummary[];
+    supported?: boolean;
+    reason?: string;
+  }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/agent-sessions?engine=${encodeURIComponent(engine)}`,
+  );
+
+  return {
+    sessions: body.sessions,
+    supported: body.supported ?? true,
+    ...(body.reason !== undefined ? { reason: body.reason } : {}),
+  };
+}
+
+/**
+ * Imports one of those agent sessions as a new conversation.
+ *
+ * The conversation comes back with its messages and activities already stored, so
+ * the transcript endpoint has everything the moment it is made active.
+ */
+export async function importAgentSession(
+  sessionId: string,
+  engine: string,
+  agentSessionId: string,
+): Promise<Conversation> {
+  return request<Conversation>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/conversations/import`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ engine, sessionId: agentSessionId }),
+    },
+  );
 }
 
 /**

@@ -1,3 +1,9 @@
+import { access, readdir, readFile, stat } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { homedir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { createInterface } from 'node:readline';
+
 import { readActivityTarget } from '../activity.js';
 import { captureOutput, isOnPath } from '../which.js';
 import { RpcFailure, startJsonRpc } from './json-rpc.js';
@@ -11,6 +17,12 @@ import type {
   EnginePermissionRequest,
   PromptOptions,
 } from '../types.js';
+import type {
+  SessionSummary,
+  SessionContent,
+  SessionMessage,
+  SessionActivity,
+} from '../session.js';
 
 const COMMAND = 'kiro-cli';
 
@@ -366,6 +378,202 @@ export class KiroEngine implements Engine {
     }
 
     return models;
+  }
+
+  /**
+   * Lists local Kiro sessions for the given working directory.
+   *
+   * kiro-cli keeps every session it has ever opened in one flat directory,
+   * `~/.kiro/sessions/cli/`, as a triple of files sharing a uuid stem: a `.json`
+   * sidecar of metadata, a `.jsonl` transcript, and a `.history` of REPL input
+   * that is no part of the conversation and is never read.
+   *
+   * Which workspace a session belongs to is only knowable from inside its sidecar,
+   * so every one of them has to be opened. The candidates are ordered by mtime
+   * first and the walk stops as soon as it has 50 matches: the newest sessions are
+   * the ones a person is looking for, and a store that grows without limit would
+   * otherwise be read from end to end on every listing.
+   */
+  async listLocalSessions(cwd: string): Promise<SessionSummary[]> {
+    const dir = kiroSessionsDir();
+
+    let entries: string[];
+    try {
+      entries = await readdir(dir);
+    } catch {
+      return [];
+    }
+
+    const wanted = resolve(cwd);
+    const candidates: { stem: string; mtime: Date }[] = [];
+
+    for (const entry of entries) {
+      // `.jsonl` does not end in `.json`, so only the sidecars match here.
+      if (!entry.endsWith(SIDECAR_SUFFIX)) {
+        continue;
+      }
+
+      try {
+        const info = await stat(join(dir, entry));
+        candidates.push({ stem: entry.slice(0, -SIDECAR_SUFFIX.length), mtime: info.mtime });
+      } catch {
+        continue;
+      }
+    }
+
+    candidates.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+
+    const summaries: SessionSummary[] = [];
+
+    for (const candidate of candidates) {
+      if (summaries.length >= SESSION_LIMIT) {
+        break;
+      }
+
+      try {
+        const sidecar = await readSidecar(join(dir, `${candidate.stem}${SIDECAR_SUFFIX}`));
+
+        if (sidecar === undefined || typeof sidecar.session_id !== 'string') {
+          continue;
+        }
+
+        if (typeof sidecar.cwd !== 'string' || resolve(sidecar.cwd) !== wanted) {
+          continue;
+        }
+
+        const transcript = join(dir, `${candidate.stem}${TRANSCRIPT_SUFFIX}`);
+
+        // A sidecar whose transcript is gone is a session with nothing to import.
+        await access(transcript);
+
+        const read = await readTranscriptSummary(transcript);
+
+        summaries.push({
+          id: sidecar.session_id,
+          title: readTitle(sidecar.title, read.firstPrompt),
+          lastActiveAt: readLastActive(sidecar.updated_at, candidate.mtime),
+          messageCount: read.messageCount,
+          preview: read.lastAssistantText.slice(0, PREVIEW_MAX_LENGTH),
+        });
+      } catch {
+        // A sidecar that cannot be read is skipped rather than failing the listing:
+        // one unreadable session is not a reason to report the rest as missing.
+        continue;
+      }
+    }
+
+    summaries.sort(
+      (a, b) => new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime(),
+    );
+
+    return summaries.slice(0, SESSION_LIMIT);
+  }
+
+  /**
+   * Reads the full content of a local Kiro session for import.
+   *
+   * The cwd the other method filters on is not taken here: the store is flat, so
+   * the id alone names the files, and a session is imported by the id the listing
+   * already matched against a workspace.
+   *
+   * Throws when the id does not name a session on this machine. Nothing about this
+   * read is unsupported: the transcript is a text file, so there is no store that
+   * could be out of reach.
+   */
+  async readSessionContent(sessionId: string): Promise<SessionContent> {
+    const dir = kiroSessionsDir();
+
+    // The id reaches the file system, so anything but a bare name is refused rather
+    // than resolved: an id carrying a separator would read outside the store.
+    if (sessionId === '' || /[/\\]/.test(sessionId) || sessionId.startsWith('.')) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    const sidecarPath = join(dir, `${sessionId}${SIDECAR_SUFFIX}`);
+    const transcriptPath = join(dir, `${sessionId}${TRANSCRIPT_SUFFIX}`);
+
+    try {
+      await access(sidecarPath);
+      await access(transcriptPath);
+    } catch {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    const sidecar = await readSidecar(sidecarPath);
+    const engineSessionId =
+      typeof sidecar?.session_id === 'string' && sidecar.session_id !== ''
+        ? sidecar.session_id
+        : null;
+
+    const messages: SessionMessage[] = [];
+    const activities: SessionActivity[] = [];
+    const byToolUseId = new Map<string, SessionActivity>();
+
+    for await (const record of readTranscript(transcriptPath)) {
+      const content = readContentBlocks(record);
+
+      if (record.kind === 'Prompt') {
+        const text = readBlockText(content);
+
+        if (text !== '') {
+          messages.push({ role: 'user', content: text });
+        }
+
+        continue;
+      }
+
+      if (record.kind === 'AssistantMessage') {
+        const text = readBlockText(content);
+
+        if (text !== '') {
+          messages.push({ role: 'assistant', content: text });
+        }
+
+        // Tool calls live inside the assistant turn that made them, as blocks of
+        // kind `toolUse` beside the text. Their results arrive in a `ToolResults`
+        // record of their own, keyed by the same toolUseId.
+        for (const block of content) {
+          if (block.kind !== 'toolUse') {
+            continue;
+          }
+
+          const use = readToolUse(block.data);
+
+          if (use === undefined) {
+            continue;
+          }
+
+          const activity: SessionActivity = {
+            id: use.id,
+            tool: use.tool,
+            target: use.target,
+            output: null,
+          };
+
+          activities.push(activity);
+          byToolUseId.set(use.id, activity);
+        }
+
+        continue;
+      }
+
+      if (record.kind === 'ToolResults') {
+        for (const block of content) {
+          if (block.kind !== 'toolResult') {
+            continue;
+          }
+
+          const result = readToolResult(block.data);
+          const activity = result === undefined ? undefined : byToolUseId.get(result.id);
+
+          if (activity !== undefined && result !== undefined && result.output !== '') {
+            activity.output = result.output;
+          }
+        }
+      }
+    }
+
+    return { engineSessionId, messages, activities };
   }
 
   prompt(text: string, options: PromptOptions): AsyncGenerator<EngineEvent> {
@@ -965,4 +1173,294 @@ function readModelJson(output: string): EngineModel[] {
   }
 
   return models;
+}
+
+// ---------------------------------------------------------------------------
+// Kiro session helpers
+// ---------------------------------------------------------------------------
+
+/** The sidecar of metadata kiro-cli writes beside each transcript. */
+const SIDECAR_SUFFIX = '.json';
+
+/** The transcript itself, one JSON record per line. */
+const TRANSCRIPT_SUFFIX = '.jsonl';
+
+/** How many sessions a listing offers, newest first. */
+const SESSION_LIMIT = 50;
+
+/** Keeps a preview to a line or two of the last thing the agent said. */
+const PREVIEW_MAX_LENGTH = 200;
+
+/**
+ * Keeps a title to a heading's worth of text.
+ *
+ * Applied to the sidecar's own title as well as to the fallback, because kiro-cli
+ * writes the opening prompt there verbatim: the stored title is as long as
+ * whatever was asked, so left uncut it would put a paragraph in a list.
+ */
+const TITLE_MAX_LENGTH = 100;
+
+/**
+ * Where kiro-cli keeps its sessions.
+ *
+ * Flat rather than per-project: every session on the machine sits in this one
+ * directory, whatever workspace it was opened in.
+ *
+ * The older store under `~/Library/Application Support/kiro-cli` is deliberately
+ * not read. This directory is what the CLI this adapter drives writes to.
+ */
+function kiroSessionsDir(): string {
+  return join(homedir(), '.kiro', 'sessions', 'cli');
+}
+
+/** The metadata sidecar, of which only the fields a listing needs are read. */
+interface KiroSidecar {
+  session_id?: unknown;
+  cwd?: unknown;
+  updated_at?: unknown;
+  /** Written as null for a session kiro-cli never named. */
+  title?: unknown;
+}
+
+/**
+ * One block of a record's content.
+ *
+ * `text` and `thinking` carry a string, `toolUse` and `toolResult` carry an object
+ * of their own, so the payload is read per kind rather than typed once.
+ */
+interface KiroBlock {
+  kind?: unknown;
+  data?: unknown;
+}
+
+/** One line of the transcript. */
+interface KiroRecord {
+  kind?: unknown;
+  data?: unknown;
+}
+
+/** Reads a sidecar, or undefined when it is missing or not JSON. */
+async function readSidecar(path: string): Promise<KiroSidecar | undefined> {
+  let raw: string;
+
+  try {
+    raw = await readFile(path, 'utf8');
+  } catch {
+    return undefined;
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return typeof parsed === 'object' && parsed !== null ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Walks the transcript a record at a time.
+ *
+ * Streamed rather than read whole: a transcript carries every tool result it ever
+ * produced, and the ones on this machine reach a megabyte.
+ */
+async function* readTranscript(path: string): AsyncGenerator<KiroRecord> {
+  const stream = createReadStream(path, { encoding: 'utf-8' });
+  const lines = createInterface({ input: stream, crlfDelay: Infinity });
+
+  try {
+    for await (const line of lines) {
+      if (line.trim() === '') {
+        continue;
+      }
+
+      let parsed: unknown;
+
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        // One truncated line is not a reason to abandon the rest of a transcript.
+        continue;
+      }
+
+      if (typeof parsed === 'object' && parsed !== null) {
+        yield parsed;
+      }
+    }
+  } finally {
+    lines.close();
+    stream.destroy();
+  }
+}
+
+/** The content blocks of a record, which is where everything it says lives. */
+function readContentBlocks(record: KiroRecord): KiroBlock[] {
+  const data = record.data;
+  const content =
+    typeof data === 'object' && data !== null ? (data as { content?: unknown }).content : undefined;
+
+  return Array.isArray(content) ? (content as KiroBlock[]) : [];
+}
+
+/**
+ * Joins the text of a record's blocks.
+ *
+ * Only `text` is read. A `thinking` block is the model working itself out, so it
+ * belongs beside an answer rather than inside it, and an imported transcript has
+ * nowhere to put it. See ADR-037.
+ */
+function readBlockText(blocks: KiroBlock[]): string {
+  return blocks
+    .filter((block) => block.kind === 'text' && typeof block.data === 'string' && block.data !== '')
+    .map((block) => block.data as string)
+    .join('\n');
+}
+
+/**
+ * Reads a toolUse block: the call, the tool that made it, and what it acted on.
+ *
+ * The `read` tool describes its files in an `operations` array rather than in a
+ * path of its own, so that is looked into when the ordinary argument keys find
+ * nothing. Without it every file read would be reported as a tool acting on
+ * nothing.
+ */
+function readToolUse(
+  data: unknown,
+): { id: string; tool: string; target: string | null } | undefined {
+  if (typeof data !== 'object' || data === null) {
+    return undefined;
+  }
+
+  const use = data as { toolUseId?: unknown; name?: unknown; input?: unknown };
+
+  if (typeof use.toolUseId !== 'string' || use.toolUseId === '') {
+    return undefined;
+  }
+
+  const tool = typeof use.name === 'string' && use.name !== '' ? use.name : 'tool';
+  const operations =
+    typeof use.input === 'object' && use.input !== null
+      ? (use.input as { operations?: unknown }).operations
+      : undefined;
+  const first = Array.isArray(operations) ? (operations[0] as unknown) : undefined;
+
+  const target = readActivityTarget(use.input) ?? readActivityTarget(first) ?? null;
+
+  return { id: use.toolUseId, tool, target };
+}
+
+/**
+ * Reads a toolResult block: the call it answers and what the tool reported.
+ *
+ * A result arrives as text or as the tool's own JSON, and which one depends on the
+ * tool: `read` reports the file as text where `shell` reports an object holding
+ * the exit status and both streams. The JSON is serialised rather than picked
+ * apart, since it is the only place a command's output exists.
+ */
+function readToolResult(data: unknown): { id: string; output: string } | undefined {
+  if (typeof data !== 'object' || data === null) {
+    return undefined;
+  }
+
+  const result = data as { toolUseId?: unknown; content?: unknown };
+
+  if (typeof result.toolUseId !== 'string' || result.toolUseId === '') {
+    return undefined;
+  }
+
+  const blocks = Array.isArray(result.content) ? (result.content as KiroBlock[]) : [];
+  const parts: string[] = [];
+
+  for (const block of blocks) {
+    if (block.kind === 'text' && typeof block.data === 'string') {
+      parts.push(block.data);
+      continue;
+    }
+
+    if (block.kind === 'json' && block.data !== undefined) {
+      try {
+        parts.push(JSON.stringify(block.data));
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  return { id: result.toolUseId, output: parts.filter((part) => part !== '').join('\n') };
+}
+
+/**
+ * Titles a session.
+ *
+ * The sidecar's own title is preferred, but kiro-cli writes null there for a
+ * session it never named, which is why the opening prompt is the fallback and a
+ * session with no prompt at all still reads as something.
+ */
+function readTitle(stated: unknown, firstPrompt: string): string {
+  const title = typeof stated === 'string' ? stated.trim() : '';
+
+  if (title !== '') {
+    return title.slice(0, TITLE_MAX_LENGTH);
+  }
+
+  return firstPrompt === '' ? 'Untitled session' : firstPrompt.slice(0, TITLE_MAX_LENGTH);
+}
+
+/**
+ * When the session was last worked in.
+ *
+ * The sidecar's own timestamp is authoritative, since it is what kiro-cli records
+ * the turn against. The file's mtime is the fallback for a sidecar that is missing
+ * it or spells it in a way Date cannot read, which is a worse answer than the
+ * engine's but a better one than none.
+ */
+function readLastActive(stated: unknown, mtime: Date): string {
+  if (typeof stated === 'string' && stated !== '') {
+    const parsed = new Date(stated);
+
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  }
+
+  return mtime.toISOString();
+}
+
+/**
+ * Reads what a listing needs from one transcript.
+ *
+ * A session with no messages is still reported: the sidecar is kiro-cli's own
+ * record that the session exists, and an empty transcript belongs to one that was
+ * opened and never answered rather than to one that is unreadable.
+ */
+async function readTranscriptSummary(
+  path: string,
+): Promise<{ messageCount: number; firstPrompt: string; lastAssistantText: string }> {
+  let messageCount = 0;
+  let firstPrompt = '';
+  let lastAssistantText = '';
+
+  for await (const record of readTranscript(path)) {
+    if (record.kind !== 'Prompt' && record.kind !== 'AssistantMessage') {
+      continue;
+    }
+
+    messageCount++;
+    const text = readBlockText(readContentBlocks(record));
+
+    if (record.kind === 'Prompt') {
+      if (firstPrompt === '') {
+        firstPrompt = text;
+      }
+
+      continue;
+    }
+
+    // An assistant turn that only made a tool call carries an empty text block, so
+    // the last one that said something is kept rather than the last one there was.
+    if (text !== '') {
+      lastAssistantText = text;
+    }
+  }
+
+  return { messageCount, firstPrompt, lastAssistantText };
 }

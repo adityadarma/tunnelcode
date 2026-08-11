@@ -1,3 +1,9 @@
+import { createReadStream } from 'node:fs';
+import { readdir, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { createInterface } from 'node:readline';
+
 import { readActivityTarget } from '../activity.js';
 import { captureOutput, isOnPath } from '../which.js';
 import { RpcFailure, startJsonRpc } from './json-rpc.js';
@@ -10,6 +16,12 @@ import type {
   EnginePermissionRequest,
   PromptOptions,
 } from '../types.js';
+import type {
+  SessionSummary,
+  SessionContent,
+  SessionMessage,
+  SessionActivity,
+} from '../session.js';
 
 const COMMAND = 'codex';
 
@@ -368,6 +380,206 @@ export class CodexEngine implements Engine {
     } finally {
       connection?.close();
     }
+  }
+
+  /**
+   * Lists local Codex sessions for the given working directory.
+   *
+   * Codex stores sessions as JSONL rollout files under
+   * `~/.codex/sessions/<YYYY>/<MM>/<DD>/`, partitioned by the day the session
+   * started rather than by project, so which project a file belongs to is only
+   * knowable by reading its first line.
+   */
+  async listLocalSessions(cwd: string): Promise<SessionSummary[]> {
+    const root = codexSessionsDir();
+
+    try {
+      await readdir(root);
+    } catch {
+      return [];
+    }
+
+    const wanted = resolve(cwd);
+    const summaries: SessionSummary[] = [];
+
+    // The walk goes newest-first and stops once the cap is filled. The store keeps
+    // every session this machine has ever had, across every project, so reading all
+    // of them to then discard all but the newest 50 is work the answer never uses.
+    for await (const filePath of rolloutFiles(root)) {
+      if (summaries.length >= SESSION_LIMIT) {
+        break;
+      }
+
+      try {
+        const meta = await readSessionMeta(filePath);
+
+        if (meta === undefined || resolve(meta.cwd) !== wanted) {
+          continue;
+        }
+
+        const fileStat = await stat(filePath);
+        const summary = await parseSessionSummary(filePath, meta.id, fileStat.mtime);
+
+        if (summary !== undefined) {
+          summaries.push(summary);
+        }
+      } catch {
+        // Skip malformed/unreadable files without throwing.
+        continue;
+      }
+    }
+
+    summaries.sort((a, b) => {
+      return new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime();
+    });
+
+    return summaries.slice(0, SESSION_LIMIT);
+  }
+
+  /**
+   * Reads the full content of a local Codex session for import.
+   *
+   * Parses the rollout file whose `session_meta` carries the given id, extracting
+   * messages, tool call activities, and the engine session id for native resume.
+   * The id is the thread id `thread/resume` takes, and it is not in the file name,
+   * so the file has to be found by reading first lines.
+   *
+   * Throws when the session id does not correspond to an existing file.
+   */
+  async readSessionContent(sessionId: string, cwd: string): Promise<SessionContent> {
+    const root = codexSessionsDir();
+    const wanted = resolve(cwd);
+
+    let filePath: string | undefined;
+    let engineSessionId: string | null = null;
+
+    // Bounded the same way the listing is: the id being looked up came from a listing
+    // that only ever offered the newest 50 sessions of this project, so a search that
+    // went further would only ever read files nobody could have asked for.
+    let matched = 0;
+
+    for await (const candidate of rolloutFiles(root)) {
+      if (matched >= SESSION_LIMIT) {
+        break;
+      }
+
+      let meta: SessionMeta | undefined;
+
+      try {
+        meta = await readSessionMeta(candidate);
+      } catch {
+        // Skip malformed/unreadable files without throwing.
+        continue;
+      }
+
+      if (meta === undefined || resolve(meta.cwd) !== wanted) {
+        continue;
+      }
+
+      matched++;
+
+      if (meta.id === sessionId) {
+        filePath = candidate;
+        engineSessionId = meta.id;
+        break;
+      }
+    }
+
+    if (filePath === undefined) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    const messages: SessionMessage[] = [];
+    const activities: SessionActivity[] = [];
+    const activityMap = new Map<string, SessionActivity>();
+
+    const stream = createReadStream(filePath, { encoding: 'utf-8' });
+    const rl = createInterface({ input: stream, crlfDelay: Infinity });
+
+    try {
+      for await (const line of rl) {
+        if (line.trim() === '') continue;
+
+        let parsed: RolloutLine;
+        try {
+          parsed = JSON.parse(line) as RolloutLine;
+        } catch {
+          continue;
+        }
+
+        const payload = readPayload(parsed);
+
+        if (payload === undefined) {
+          continue;
+        }
+
+        if (parsed.type === 'event_msg') {
+          // The event messages rather than the response items, because these carry the
+          // text as it was said: the matching response items also hold the developer
+          // instructions and the tool plumbing wrapped around it.
+          const role =
+            payload['type'] === 'user_message'
+              ? 'user'
+              : payload['type'] === 'agent_message'
+                ? 'assistant'
+                : undefined;
+
+          if (role === undefined) {
+            continue;
+          }
+
+          const text = typeof payload['message'] === 'string' ? payload['message'] : '';
+
+          if (text !== '') {
+            messages.push({ role, content: text });
+          }
+          continue;
+        }
+
+        if (parsed.type !== 'response_item') {
+          continue;
+        }
+
+        const itemType = payload['type'];
+        const callId = typeof payload['call_id'] === 'string' ? payload['call_id'] : '';
+
+        if (itemType === 'function_call' || itemType === 'custom_tool_call') {
+          const tool =
+            typeof payload['name'] === 'string' && payload['name'] !== ''
+              ? payload['name']
+              : 'tool';
+          const id = callId !== '' ? callId : `call_${String(activities.length)}`;
+          const activity: SessionActivity = {
+            id,
+            tool,
+            target: readCallTarget(payload) ?? null,
+            output: null,
+          };
+
+          activities.push(activity);
+          activityMap.set(id, activity);
+          continue;
+        }
+
+        if (itemType === 'function_call_output' || itemType === 'custom_tool_call_output') {
+          const activity = callId === '' ? undefined : activityMap.get(callId);
+
+          if (activity !== undefined) {
+            activity.output = readCallOutput(payload['output']);
+          }
+          continue;
+        }
+
+        // A reasoning item carries only encrypted_content, so there is nothing in it
+        // to import. Every other response item is the conversation the event messages
+        // already reported.
+      }
+    } finally {
+      rl.close();
+      stream.destroy();
+    }
+
+    return { engineSessionId, messages, activities };
   }
 
   prompt(text: string, options: PromptOptions): AsyncGenerator<EngineEvent> {
@@ -1170,4 +1382,321 @@ function readModels(result: unknown): EngineModel[] {
   }
 
   return found;
+}
+
+// ---------------------------------------------------------------------------
+// Codex session helpers
+// ---------------------------------------------------------------------------
+
+/** How many sessions a listing offers, and how far a search for one reads. */
+const SESSION_LIMIT = 50;
+
+/**
+ * Where Codex keeps its rollout files.
+ *
+ * Read from the home directory on every call rather than computed once, so a test
+ * that isolates HOME is read rather than the developer's own history.
+ */
+function codexSessionsDir(): string {
+  return join(homedir(), '.codex', 'sessions');
+}
+
+/** One line of a rollout file: a type and the record it wraps. */
+interface RolloutLine {
+  type?: unknown;
+  payload?: unknown;
+}
+
+/** What the opening `session_meta` line says about the session as a whole. */
+interface SessionMeta {
+  id: string;
+  cwd: string;
+}
+
+/** The record a rollout line wraps, when it wraps one at all. */
+function readPayload(line: RolloutLine): Record<string, unknown> | undefined {
+  return typeof line.payload === 'object' && line.payload !== null
+    ? (line.payload as Record<string, unknown>)
+    : undefined;
+}
+
+/**
+ * The directory names inside a path, newest first.
+ *
+ * Codex names the year, month and day directories with zero-padded numbers, so
+ * sorting them as text sorts them by date.
+ */
+async function descendingDirs(path: string): Promise<string[]> {
+  try {
+    const entries = await readdir(path, { withFileTypes: true });
+
+    return entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort()
+      .reverse();
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Every rollout file under the sessions root, newest first.
+ *
+ * Yielded one at a time rather than collected, so a caller that has what it needs
+ * can stop the walk instead of paying for the whole tree.
+ */
+async function* rolloutFiles(root: string): AsyncGenerator<string> {
+  for (const year of await descendingDirs(root)) {
+    for (const month of await descendingDirs(join(root, year))) {
+      for (const day of await descendingDirs(join(root, year, month))) {
+        const dayDir = join(root, year, month, day);
+
+        let names: string[];
+        try {
+          names = await readdir(dayDir);
+        } catch {
+          continue;
+        }
+
+        // A file name starts with the timestamp the session started, so sorting the
+        // day's files as text and reversing continues the newest-first walk inside it.
+        for (const name of names
+          .filter((name) => name.endsWith('.jsonl'))
+          .sort()
+          .reverse()) {
+          yield join(dayDir, name);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Reads the opening `session_meta` line of a rollout file.
+ *
+ * Returns undefined when the first line is not a session_meta or names no session,
+ * which is what makes a file that is not a rollout skippable rather than fatal.
+ *
+ * `session_id` is the current spelling and `id` is what older Codex releases wrote;
+ * both are read, because a session recorded by an older CLI is still resumable by
+ * the one installed now.
+ */
+async function readSessionMeta(filePath: string): Promise<SessionMeta | undefined> {
+  const stream = createReadStream(filePath, { encoding: 'utf-8' });
+  const rl = createInterface({ input: stream, crlfDelay: Infinity });
+
+  try {
+    for await (const line of rl) {
+      if (line.trim() === '') continue;
+
+      let parsed: RolloutLine;
+      try {
+        parsed = JSON.parse(line) as RolloutLine;
+      } catch {
+        return undefined;
+      }
+
+      if (parsed.type !== 'session_meta') {
+        return undefined;
+      }
+
+      const payload = readPayload(parsed);
+
+      if (payload === undefined) {
+        return undefined;
+      }
+
+      const id =
+        typeof payload['session_id'] === 'string' && payload['session_id'] !== ''
+          ? payload['session_id']
+          : typeof payload['id'] === 'string'
+            ? payload['id']
+            : '';
+      const cwd = typeof payload['cwd'] === 'string' ? payload['cwd'] : '';
+
+      return id === '' || cwd === '' ? undefined : { id, cwd };
+    }
+  } finally {
+    rl.close();
+    stream.destroy();
+  }
+
+  return undefined;
+}
+
+/** The files a patch names, in the order the patch names them. */
+function readPatchPaths(input: string): string[] {
+  const paths: string[] = [];
+
+  for (const match of input.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm)) {
+    const path = match[1]?.trim() ?? '';
+
+    if (path !== '') {
+      paths.push(path);
+    }
+  }
+
+  return [...new Set(paths)];
+}
+
+/**
+ * What a recorded tool call acted on.
+ *
+ * A `function_call` carries its arguments as a JSON string, in which Codex names a
+ * command line `cmd`; that name is checked before the shared keys because the shell
+ * is by far the most common call and nothing else would describe it.
+ *
+ * A `custom_tool_call` carries its input as plain text instead: `apply_patch` sends
+ * a patch, so the files it touches are the target, and `exec` sends the script it
+ * runs, which is read as itself because it is what the call did.
+ */
+function readCallTarget(payload: Record<string, unknown>): string | undefined {
+  const raw =
+    typeof payload['arguments'] === 'string'
+      ? payload['arguments']
+      : typeof payload['input'] === 'string'
+        ? payload['input']
+        : '';
+
+  if (raw.trim() === '') {
+    return undefined;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    const paths = readPatchPaths(raw);
+    return paths.length > 0 ? paths.join(', ') : raw.replace(/\s+/g, ' ').trim();
+  }
+
+  const record =
+    typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {};
+  const cmd = record['cmd'];
+
+  if (typeof cmd === 'string' && cmd.trim() !== '') {
+    return cmd.replace(/\s+/g, ' ').trim();
+  }
+
+  return readActivityTarget(parsed);
+}
+
+/**
+ * The text a recorded tool call produced, or null when it produced none.
+ *
+ * Codex has written this three ways: a plain string, a JSON object carrying the
+ * output beside its own metadata, and a list of text blocks. All three are read,
+ * because which one a file holds depends on the tool and on the CLI that wrote it.
+ */
+function readCallOutput(value: unknown): string | null {
+  const text = readOutputText(value);
+  return text === '' ? null : text;
+}
+
+function readOutputText(value: unknown): string {
+  if (typeof value === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(value);
+
+      if (typeof parsed === 'object' && parsed !== null) {
+        return readOutputText(parsed);
+      }
+    } catch {
+      // Not JSON, so the value is the output itself.
+    }
+
+    return value.trimEnd();
+  }
+
+  if (Array.isArray(value)) {
+    return (value as { text?: unknown }[])
+      .map((block) => (typeof block.text === 'string' ? block.text : ''))
+      .join('')
+      .trimEnd();
+  }
+
+  if (typeof value === 'object' && value !== null) {
+    const inner = (value as { output?: unknown }).output;
+    return inner === undefined ? '' : readOutputText(inner);
+  }
+
+  return '';
+}
+
+/**
+ * Parses a rollout file to produce a SessionSummary.
+ *
+ * Returns undefined if the file holds no messages, which is what a session someone
+ * opened and never prompted leaves behind.
+ */
+async function parseSessionSummary(
+  filePath: string,
+  sessionId: string,
+  mtime: Date,
+): Promise<SessionSummary | undefined> {
+  let title: string | undefined;
+  let lastAssistantText = '';
+  let messageCount = 0;
+
+  const stream = createReadStream(filePath, { encoding: 'utf-8' });
+  const rl = createInterface({ input: stream, crlfDelay: Infinity });
+
+  try {
+    for await (const line of rl) {
+      if (line.trim() === '') continue;
+
+      let parsed: RolloutLine;
+      try {
+        parsed = JSON.parse(line) as RolloutLine;
+      } catch {
+        continue;
+      }
+
+      if (parsed.type !== 'event_msg') {
+        continue;
+      }
+
+      const payload = readPayload(parsed);
+
+      if (payload === undefined) {
+        continue;
+      }
+
+      const text = typeof payload['message'] === 'string' ? payload['message'] : '';
+
+      if (payload['type'] === 'user_message') {
+        messageCount++;
+
+        if (title === undefined && text !== '') {
+          title = text.slice(0, 100);
+        }
+        continue;
+      }
+
+      if (payload['type'] === 'agent_message') {
+        messageCount++;
+
+        if (text !== '') {
+          lastAssistantText = text;
+        }
+      }
+    }
+  } finally {
+    rl.close();
+    stream.destroy();
+  }
+
+  // If there are no messages at all, skip this file
+  if (messageCount === 0) {
+    return undefined;
+  }
+
+  return {
+    id: sessionId,
+    title: title ?? 'Untitled session',
+    lastActiveAt: mtime.toISOString(),
+    messageCount,
+    preview: lastAssistantText.slice(0, 200),
+  };
 }

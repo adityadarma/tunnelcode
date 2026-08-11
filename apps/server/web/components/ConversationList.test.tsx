@@ -47,6 +47,18 @@ const engines = [
   { name: 'claude', label: 'Claude Code', models: [{ id: 'sonnet', label: 'sonnet' }] },
 ];
 
+/**
+ * The import props, which the list only passes through.
+ *
+ * Spread into every case rather than named in each, because no case here is about
+ * them: what they reach is covered where the session picker is tested.
+ */
+const importProps = {
+  sessionId: 'session-1',
+  online: true,
+  onImport: vi.fn(),
+};
+
 describe('ConversationList', () => {
   test('says so when there is nothing yet', () => {
     render(
@@ -57,6 +69,7 @@ describe('ConversationList', () => {
         createDisabled={false}
         onSelect={vi.fn()}
         onCreate={vi.fn()}
+        {...importProps}
       />,
     );
 
@@ -72,6 +85,7 @@ describe('ConversationList', () => {
         createDisabled={false}
         onSelect={vi.fn()}
         onCreate={vi.fn()}
+        {...importProps}
       />,
     );
 
@@ -89,6 +103,7 @@ describe('ConversationList', () => {
         createDisabled={false}
         onSelect={vi.fn()}
         onCreate={vi.fn()}
+        {...importProps}
       />,
     );
 
@@ -107,6 +122,7 @@ describe('ConversationList', () => {
         createDisabled={false}
         onSelect={vi.fn()}
         onCreate={vi.fn()}
+        {...importProps}
       />,
     );
 
@@ -128,6 +144,7 @@ describe('ConversationList', () => {
         createDisabled={false}
         onSelect={onSelect}
         onCreate={vi.fn()}
+        {...importProps}
       />,
     );
 
@@ -146,6 +163,7 @@ describe('ConversationList', () => {
         createDisabled={false}
         onSelect={vi.fn()}
         onCreate={onCreate}
+        {...importProps}
       />,
     );
 
@@ -165,6 +183,7 @@ describe('ConversationList', () => {
         createDisabled={false}
         onSelect={vi.fn()}
         onCreate={onCreate}
+        {...importProps}
       />,
     );
 
@@ -201,6 +220,7 @@ describe('ConversationList', () => {
         createDisabled={false}
         onSelect={vi.fn()}
         onCreate={vi.fn()}
+        {...importProps}
       />,
     );
 
@@ -225,6 +245,7 @@ describe('ConversationList', () => {
         createDisabled={false}
         onSelect={vi.fn()}
         onCreate={vi.fn()}
+        {...importProps}
       />,
     );
 
@@ -240,6 +261,8 @@ describe('ConversationList', () => {
         createDisabled
         onSelect={vi.fn()}
         onCreate={vi.fn()}
+        {...importProps}
+        online={false}
       />,
     );
 

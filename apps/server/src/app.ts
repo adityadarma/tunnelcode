@@ -15,6 +15,7 @@ import { RunApprovals } from './services/run-approvals.js';
 import { SessionService } from './services/session.js';
 import { TurnService } from './services/turn.js';
 import { PermissionService } from './services/permission.js';
+import { SessionImportService } from './services/session-import.js';
 import { CliRegistry } from './ws/registry.js';
 import { BrowserRegistry } from './ws/browser-registry.js';
 import { TurnRelay } from './ws/turn-relay.js';
@@ -151,6 +152,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     registry,
     push,
   });
+  const sessionImport = new SessionImportService(registry);
   const lifecycle = createLifecycle();
 
   // Marked before anything is torn down, so socket close handlers know not to
@@ -239,6 +241,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     relay,
     lifecycle,
     push,
+    sessionImport,
     ...authTimeout,
     ...reconnectGrace,
   });
@@ -259,7 +262,12 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   registerPairRoutes(app, { devices, sessions, registry });
   registerSessionRoutes(app, { sessionRepository, devices });
   registerPushRoutes(app, { push, sessionRepository });
-  registerConversationRoutes(app, { conversationRepository, sessionRepository, devices });
+  registerConversationRoutes(app, {
+    conversationRepository,
+    sessionRepository,
+    devices,
+    sessionImport,
+  });
   await registerWeb(app);
 
   return app;

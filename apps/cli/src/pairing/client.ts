@@ -82,6 +82,17 @@ export interface PairingClientOptions {
     resume: string | undefined,
     grant: 'writes',
   ) => Promise<void>;
+
+  /** Called when the server requests a list of local agent sessions. */
+  onListSessionsRequest?: (requestId: string, engine: string, cwd: string) => Promise<void>;
+
+  /** Called when the server requests full content of a session for import. */
+  onImportSessionRequest?: (
+    requestId: string,
+    engine: string,
+    sessionId: string,
+    cwd: string,
+  ) => Promise<void>;
 }
 
 /**
@@ -248,6 +259,23 @@ export class PairingClient {
           message.resume,
           message.grant,
         );
+        return;
+
+      case 'list_sessions_request':
+        if (this.options.onListSessionsRequest) {
+          await this.options.onListSessionsRequest(message.requestId, message.engine, message.cwd);
+        }
+        return;
+
+      case 'import_session_request':
+        if (this.options.onImportSessionRequest) {
+          await this.options.onImportSessionRequest(
+            message.requestId,
+            message.engine,
+            message.sessionId,
+            message.cwd,
+          );
+        }
         return;
 
       case 'pong':

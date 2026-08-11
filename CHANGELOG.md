@@ -45,6 +45,24 @@ to the version it ships as and leaves an empty one behind.
   A conversation on an engine that cannot count shows nothing rather than zero, and
   an engine that sends two zeros is read the same way as one that sends nothing.
 
+- A conversation the agent already had on this machine can be picked up here, on Codex,
+  Kiro, GitHub Copilot and OpenCode as well as Claude Code. Each engine's history is
+  read where that engine keeps it, and the newest fifty conversations started in this
+  workspace are offered newest first, each with the question that opened it and the last
+  thing the agent said. Importing one brings the transcript and the tool calls across,
+  and where the engine reports a session id of its own it is kept, so the next prompt
+  continues inside the context the agent already has rather than starting from a
+  transcript it has to be told about.
+
+  The picker now says when an engine cannot be read, and what stopped it, instead of
+  reporting that there is no history. An engine that was read and holds nothing and an
+  engine that was never read are different facts, and only one of them means there is
+  nothing to come back to. Copilot and OpenCode keep their history in SQLite, which is
+  read through Node's own `node:sqlite`, so listing those two needs Node 24 or newer: on
+  an older Node the picker says that is what is missing, and the other engines are
+  unaffected. A database held open by a running agent, or one this user cannot read, is
+  reported the same way rather than as an empty list.
+
 ### Changed
 
 - A device now registers its models as `{ id, label }` rather than as bare strings, and
@@ -72,6 +90,14 @@ to the version it ships as and leaves an empty one behind.
   `environment`. The volume mount is corrected to `/app/data`.
 
 ### Fixed
+
+- The same agent conversation can be picked up more than once. Importing one a second
+  time failed outright, because the tool calls were stored under the ids the engine
+  gave them and reading the same conversation again reports the same ids, so the second
+  import collided with the rows the first one had written. An imported tool call is
+  given an id of its own, the way an imported message already was, and two imports are
+  two independent conversations. Two unrelated conversations whose tool calls happen to
+  share an id can also both be brought across.
 
 - `Never allow` now reaches Antigravity grants. It had no point of entry for this
   engine at all: the ceiling was checked when an ask was settled, and Antigravity

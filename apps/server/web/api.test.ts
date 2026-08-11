@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { createConversation, listConversations, startPairing } from './api.js';
+import { createConversation, listAgentSessions, listConversations, startPairing } from './api.js';
 
 interface Call {
   url: string;
@@ -70,5 +70,31 @@ describe('api', () => {
 
     // A raw id would let a crafted session id reach another route.
     expect(calls.at(0)?.url).toBe('/api/sessions/a%2F..%2Fb/conversations');
+  });
+
+  test('an unscannable engine keeps its reason', async () => {
+    captureFetch({
+      sessions: [],
+      supported: false,
+      reason: 'Reading this engine’s sessions needs Node 24 or newer.',
+    });
+
+    const listing = await listAgentSessions('session-1', 'opencode');
+
+    // Dropping these left the picker telling people their history was missing
+    // when it was only unreadable.
+    expect(listing.supported).toBe(false);
+    expect(listing.reason).toBe('Reading this engine’s sessions needs Node 24 or newer.');
+  });
+
+  test('a server that never sends supported reads as scannable', async () => {
+    captureFetch({ sessions: [] });
+
+    const listing = await listAgentSessions('session-1', 'claude');
+
+    // An older server only answered because it had scanned, so its empty list
+    // really does mean nothing was found.
+    expect(listing.supported).toBe(true);
+    expect(listing.reason).toBeUndefined();
   });
 });

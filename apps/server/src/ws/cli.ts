@@ -15,6 +15,7 @@ import { startAuthTimeout } from './auth-timeout.js';
 import { startHeartbeat } from './heartbeat.js';
 import { requestResume } from './resume.js';
 import { fileChangesCache } from './file-changes-cache.js';
+import type { SessionImportService } from '../services/session-import.js';
 import type { Lifecycle } from '../lifecycle.js';
 
 /**
@@ -43,6 +44,11 @@ interface CliSocketOptions {
    * notifications has nothing to forget. See ADR-045.
    */
   push?: PushForget;
+  /**
+   * Resolves pending session scan/import requests when the CLI responds. Optional,
+   * since a server without the import feature simply ignores those messages.
+   */
+  sessionImport?: SessionImportService;
   /** Shortened by tests, which cannot wait out the real one. */
   authTimeoutMs?: number;
   /** Shortened by tests, which cannot wait out the real one. */
@@ -57,8 +63,18 @@ interface CliSocketOptions {
  * pairing request belonging to another. See ADR-014.
  */
 export function registerCliSocket(app: FastifyInstance, options: CliSocketOptions): void {
-  const { devices, sessions, registry, browsers, runs, sessionRepository, relay, lifecycle, push } =
-    options;
+  const {
+    devices,
+    sessions,
+    registry,
+    browsers,
+    runs,
+    sessionRepository,
+    relay,
+    lifecycle,
+    push,
+    sessionImport,
+  } = options;
 
   app.get('/ws/cli', { websocket: true }, (socket: WebSocket) => {
     let deviceId: string | undefined;
@@ -358,6 +374,18 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
             }
           }
           return;
+
+        case 'list_sessions_response':
+          if (deviceId !== undefined && sessionImport) {
+            sessionImport.resolveListSessions(message.requestId, message);
+          }
+          return;
+
+        case 'import_session_response':
+          if (deviceId !== undefined && sessionImport) {
+            sessionImport.resolveImportSession(message.requestId, message);
+          }
+          return;
       }
     };
 
@@ -404,6 +432,13 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
       // broadcast online again upon registering.
       if (!lifecycle.isClosing()) {
         relay.status(sessionRepository.listSessionIdsByDevice(deviceId), false);
+      }
+
+      // Reject any pending session scan/import requests immediately. A reconnecting
+      // CLI would create a new SessionImportService context anyway, and browsers
+      // should not wait the full timeout when the device is already gone.
+      if (sessionImport) {
+        sessionImport.rejectAllForDevice(new Error('Device disconnected.'));
       }
 
       // A brief network blip drops the socket while the engine keeps working on

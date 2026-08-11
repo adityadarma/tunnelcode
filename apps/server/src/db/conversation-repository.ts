@@ -330,6 +330,106 @@ export class ConversationRepository {
   }
 
   /**
+   * Appends a message with an explicit timestamp, for imported historical records.
+   *
+   * Like `appendMessage` but uses the provided `createdAt` instead of `Date.now()`,
+   * and does NOT bump the conversation's `updatedAt` since these are backfilled
+   * historical records rather than live activity. The title is still derived from
+   * the first user message if the conversation does not yet have one.
+   */
+  appendMessageWithTimestamp(
+    conversationId: string,
+    role: MessageRole,
+    content: string,
+    createdAt: number,
+  ): StoredMessage {
+    const message: StoredMessage = {
+      id: randomUUID(),
+      role,
+      content,
+      partial: false,
+      interruption: null,
+      createdAt,
+    };
+
+    this.db
+      .insert(messages)
+      .values({
+        id: message.id,
+        conversationId,
+        role,
+        content,
+        partial: false,
+        interruption: null,
+        createdAt,
+      })
+      .run();
+
+    // Set title from first user message if conversation doesn't have one yet
+    if (role === 'user') {
+      const existing = this.findById(conversationId);
+      if (existing?.title === null) {
+        const title = deriveTitle(content);
+        this.db
+          .update(conversations)
+          .set({ title })
+          .where(eq(conversations.id, conversationId))
+          .run();
+      }
+    }
+
+    return message;
+  }
+
+  /**
+   * Appends an activity with an explicit timestamp, for imported historical records.
+   *
+   * Like `appendActivity` but uses the provided `createdAt` instead of `Date.now()`,
+   * and does NOT bump the conversation's `updatedAt` since these are backfilled
+   * historical records rather than live activity.
+   *
+   * The row id is minted here rather than taken from the engine's tool-call id, the
+   * way `appendMessageWithTimestamp` mints one. Reading the same agent session again
+   * replays the same tool-call ids, and `activities.id` is a primary key across every
+   * conversation, so trusting the engine's id made a second import of one session
+   * collide with the first. An imported call is already finished and carries its
+   * output inline, so nothing arriving later has to find it by the engine's id.
+   */
+  appendActivityWithTimestamp(
+    conversationId: string,
+    tool: string,
+    target: string | undefined,
+    output: string | null,
+    createdAt: number,
+  ): StoredActivity {
+    const activity: StoredActivity = {
+      id: randomUUID(),
+      tool,
+      target: target ?? null,
+      blocked: false,
+      reason: null,
+      output,
+      createdAt,
+    };
+
+    this.db
+      .insert(activities)
+      .values({
+        id: activity.id,
+        conversationId,
+        tool,
+        target: activity.target,
+        blocked: false,
+        reason: null,
+        output: activity.output,
+        createdAt,
+      })
+      .run();
+
+    return activity;
+  }
+
+  /**
    * Updates an existing activity with its tool output.
    */
   updateActivityOutput(activityId: string, output: string): void {

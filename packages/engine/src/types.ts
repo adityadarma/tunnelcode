@@ -1,3 +1,5 @@
+import type { SessionSummary, SessionContent } from './session.js';
+
 /**
  * Text produced by the engine, forwarded to the browser as it arrives.
  */
@@ -265,4 +267,19 @@ export interface Engine {
    * the workspace alive after the session that needed it ended.
    */
   stop?(): void;
+
+  /**
+   * Lists local chat sessions for the given working directory.
+   *
+   * Optional. Engines that do not store local history return undefined,
+   * which the caller treats as an empty array.
+   */
+  listLocalSessions?(cwd: string): Promise<SessionSummary[]>;
+
+  /**
+   * Reads the full content of a local session for import.
+   *
+   * Throws when the session id does not correspond to an existing file.
+   */
+  readSessionContent?(sessionId: string, cwd: string): Promise<SessionContent>;
 }

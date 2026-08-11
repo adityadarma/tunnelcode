@@ -1,5 +1,9 @@
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
 import { captureOutput, isOnPath } from '../which.js';
 import { readActivityTarget } from '../activity.js';
+import { openSqliteReadonly } from '../sqlite.js';
 import { readResultBody } from './opencode-output.js';
 import { startOpenCodeServer } from './opencode-server.js';
 import type { OpenCodeServerHandle, StartOpenCodeServer } from './opencode-server.js';
@@ -12,6 +16,12 @@ import type {
   EnginePermissionRequest,
   PromptOptions,
 } from '../types.js';
+import type {
+  SessionActivity,
+  SessionContent,
+  SessionMessage,
+  SessionSummary,
+} from '../session.js';
 
 const COMMAND = 'opencode';
 
@@ -303,6 +313,239 @@ export class OpenCodeEngine implements Engine {
       .map((line) => line.trim())
       .filter((line) => MODEL_PATTERN.test(line))
       .map(labelledById);
+  }
+
+  /**
+   * Lists local opencode sessions started in the given working directory.
+   *
+   * opencode keeps its history in one SQLite database shared by every workspace,
+   * which is why the directory is a column to filter on rather than a folder to
+   * look in. The filtering, the ordering and the cap all happen in SQL: the
+   * database is hundreds of megabytes of tool output on a machine that has used
+   * opencode for a while, and reading it into this process to sort it afterwards
+   * would cost the whole file to answer a question about fifty rows.
+   *
+   * Returns an empty array when there is no database, which is what an install
+   * that has never run a session looks like. A database that exists and cannot
+   * be read raises instead, so the caller can say why rather than reporting the
+   * history as empty.
+   */
+  async listLocalSessions(cwd: string): Promise<SessionSummary[]> {
+    const database = await openSqliteReadonly(openCodeDatabasePath());
+
+    if (database === undefined) {
+      return [];
+    }
+
+    try {
+      const rows = database.all<SessionRow>(
+        `select id, title, time_created as timeCreated, time_updated as timeUpdated
+           from session
+          where directory = ?
+          order by time_updated desc
+          limit ?`,
+        cwd,
+        SESSION_LIMIT,
+      );
+
+      // Read into a shape of this adapter's own before anything else is asked of
+      // the database, so a row it cannot make sense of is dropped rather than
+      // carried through the queries that follow it.
+      const listed: { id: string; title: string; lastActiveAt: string }[] = [];
+
+      for (const row of rows) {
+        const id = typeof row.id === 'string' ? row.id : '';
+        // Falls back to when the session started, because a row whose update time
+        // cannot be read is still a session worth offering. Dropped only when
+        // neither timestamp makes sense, since then nothing dates it.
+        const lastActiveAt = readTimestamp(row.timeUpdated) ?? readTimestamp(row.timeCreated);
+
+        if (id === '' || lastActiveAt === undefined) {
+          continue;
+        }
+
+        const title = typeof row.title === 'string' ? row.title.trim() : '';
+        listed.push({ id, title, lastActiveAt });
+      }
+
+      if (listed.length === 0) {
+        return [];
+      }
+
+      const ids = listed.map((session) => session.id);
+      const list = ids.map(() => '?').join(', ');
+
+      // Both counted in one grouped query rather than one query per session: the
+      // message table holds every message of every workspace, so fifty round
+      // trips would each scan the same index for a figure one pass already has.
+      const counts = new Map<string, number>();
+      for (const row of database.all<CountRow>(
+        `select session_id as sessionId, count(*) as count
+           from message
+          where session_id in (${list})
+            and json_extract(data, '$.role') in ('user', 'assistant')
+          group by session_id`,
+        ...ids,
+      )) {
+        counts.set(row.sessionId, typeof row.count === 'number' ? row.count : 0);
+      }
+
+      // The last thing the assistant said, cut in SQL. A single answer can run to
+      // tens of kilobytes and only the opening line is ever shown.
+      const previews = new Map<string, string>();
+      for (const row of database.all<TextRow>(
+        `select sessionId, substr(text, 1, ?) as text
+           from (${textPerSession('assistant', 'desc', list)})
+          where ordinal = 1`,
+        PREVIEW_MAX_LENGTH,
+        ...ids,
+      )) {
+        previews.set(row.sessionId, typeof row.text === 'string' ? row.text : '');
+      }
+
+      // opencode titles a session itself, so the first user message is only read
+      // for the sessions whose title is still empty. Asked for unconditionally it
+      // would be the most expensive query here, in aid of nothing.
+      const untitled = listed.filter((session) => session.title === '').map((s) => s.id);
+      const openings = new Map<string, string>();
+
+      if (untitled.length > 0) {
+        for (const row of database.all<TextRow>(
+          `select sessionId, substr(text, 1, ?) as text
+             from (${textPerSession('user', 'asc', untitled.map(() => '?').join(', '))})
+            where ordinal = 1`,
+          TITLE_MAX_LENGTH,
+          ...untitled,
+        )) {
+          openings.set(row.sessionId, typeof row.text === 'string' ? row.text : '');
+        }
+      }
+
+      return listed.map((session) => {
+        const opening = openings.get(session.id)?.trim() ?? '';
+
+        return {
+          id: session.id,
+          title:
+            session.title !== '' ? session.title : opening !== '' ? opening : 'Untitled session',
+          lastActiveAt: session.lastActiveAt,
+          messageCount: counts.get(session.id) ?? 0,
+          preview: previews.get(session.id) ?? '',
+        };
+      });
+    } finally {
+      database.close();
+    }
+  }
+
+  /**
+   * Reads the full content of a local opencode session for import.
+   *
+   * A message's role lives in its own JSON, and its text lives in the `text`
+   * parts hanging off it, so the transcript is one join read in the order the
+   * conversation happened. Tool calls are parts of the same list, which is why
+   * they come out of the same pass as the messages.
+   *
+   * Throws when no session with that id was started in this directory. That is a
+   * stale id rather than a machine that cannot be read, so it is a plain error.
+   */
+  async readSessionContent(sessionId: string, cwd: string): Promise<SessionContent> {
+    const database = await openSqliteReadonly(openCodeDatabasePath());
+
+    if (database === undefined) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    try {
+      const found = database.all<{ id: string }>(
+        'select id from session where id = ? and directory = ? limit 1',
+        sessionId,
+        cwd,
+      );
+
+      if (found.length === 0) {
+        throw new Error(`Session not found: ${sessionId}`);
+      }
+
+      // The messages are capped, and the parts follow from the messages, so a
+      // session that somehow holds a hundred thousand of them cannot pull the
+      // whole database through this process. The cap is far above any real
+      // conversation: the longest recorded here runs to a few hundred.
+      const rows = database.all<TranscriptRow>(
+        `select m.id as messageId,
+                json_extract(m.data, '$.role') as role,
+                p.id as partId,
+                p.data as part
+           from message m
+           join part p on p.message_id = m.id
+          where m.session_id = ?
+            and m.id in (
+              select id from message where session_id = ? order by time_created, id limit ?
+            )
+          order by m.time_created, m.id, p.time_created, p.id`,
+        sessionId,
+        sessionId,
+        TRANSCRIPT_MESSAGE_LIMIT,
+      );
+
+      const messages: SessionMessage[] = [];
+      const activities: SessionActivity[] = [];
+
+      let openMessage = '';
+      let role: SessionMessage['role'] | undefined;
+      let spoken: string[] = [];
+
+      const close = (): void => {
+        if (role !== undefined && spoken.length > 0) {
+          messages.push({ role, content: spoken.join('\n') });
+        }
+      };
+
+      for (const row of rows) {
+        if (row.messageId !== openMessage) {
+          close();
+          openMessage = typeof row.messageId === 'string' ? row.messageId : '';
+          role = readRole(row.role);
+          spoken = [];
+        }
+
+        let part: StoredPart;
+        try {
+          part = JSON.parse(typeof row.part === 'string' ? row.part : '') as StoredPart;
+        } catch {
+          // One unreadable part is not worth losing the conversation around it.
+          continue;
+        }
+
+        if (part.type === 'text') {
+          if (role !== undefined && typeof part.text === 'string' && part.text !== '') {
+            spoken.push(part.text);
+          }
+          continue;
+        }
+
+        if (part.type === 'tool') {
+          const activity = readStoredActivity(row.partId, part);
+
+          if (activity !== undefined) {
+            activities.push(activity);
+          }
+        }
+
+        // Everything else is bookkeeping rather than content. Recorded sessions
+        // carry `step-start`, `step-finish`, `patch` and `snapshot` parts, and
+        // `reasoning` holds what the model was working out rather than what it
+        // said. Nothing is matched by name here: only text and tool calls are read
+        // out, so a part type opencode adds later is ignored rather than relayed
+        // into the transcript as though the assistant had said it.
+      }
+
+      close();
+
+      return { engineSessionId: sessionId, messages, activities };
+    } finally {
+      database.close();
+    }
   }
 
   prompt(text: string, options: PromptOptions): AsyncGenerator<EngineEvent> {
@@ -847,4 +1090,210 @@ function readModel(model: string | undefined): {
   return {
     model: { providerID: model.slice(0, separator), modelID: model.slice(separator + 1) },
   };
+}
+
+// ---------------------------------------------------------------------------
+// OpenCode session helpers
+// ---------------------------------------------------------------------------
+
+/** How many sessions a listing offers, newest first. */
+const SESSION_LIMIT = 50;
+
+/** How much of an answer a preview shows. */
+const PREVIEW_MAX_LENGTH = 200;
+
+/** How much of a first message stands in for a missing title. */
+const TITLE_MAX_LENGTH = 100;
+
+/**
+ * How many messages one import reads.
+ *
+ * Far above any conversation recorded here, where the longest runs to a few
+ * hundred. It is a bound on the pathological case rather than a product
+ * decision: the parts of a message hold whole tool outputs, so a session with a
+ * runaway loop in it could otherwise pull a large share of a database that
+ * reaches hundreds of megabytes into this process.
+ */
+const TRANSCRIPT_MESSAGE_LIMIT = 2000;
+
+/** One row of the session listing, as this adapter's SQL selects it. */
+interface SessionRow {
+  id: unknown;
+  title: unknown;
+  timeCreated: unknown;
+  timeUpdated: unknown;
+}
+
+interface CountRow {
+  sessionId: string;
+  count: unknown;
+}
+
+interface TextRow {
+  sessionId: string;
+  text: unknown;
+}
+
+interface TranscriptRow {
+  messageId: unknown;
+  role: unknown;
+  partId: unknown;
+  part: unknown;
+}
+
+/** A part as opencode stored it, which is the shape its events carry too. */
+interface StoredPart {
+  type?: unknown;
+  text?: unknown;
+  tool?: unknown;
+  callID?: unknown;
+  state?: ToolState;
+}
+
+/**
+ * Where opencode keeps the database holding every session.
+ *
+ * One file for the whole machine, under the XDG data directory, which opencode
+ * honours when it is set and otherwise defaults the same way this does.
+ */
+function openCodeDatabasePath(): string {
+  const data = process.env['XDG_DATA_HOME'];
+  const root = data !== undefined && data.trim() !== '' ? data : join(homedir(), '.local', 'share');
+
+  return join(root, 'opencode', 'opencode.db');
+}
+
+/**
+ * The text parts of one role, numbered within each session so the outer query
+ * can take the first or the last of them.
+ *
+ * Written as a subquery rather than a join per session: the message and part
+ * tables hold every workspace's history, and asking once per listed session
+ * would walk the same indexes fifty times over. `direction` picks which end is
+ * wanted, since a preview is the latest thing said and a title stand-in is the
+ * earliest.
+ */
+function textPerSession(
+  role: 'user' | 'assistant',
+  direction: 'asc' | 'desc',
+  list: string,
+): string {
+  const order = direction === 'desc' ? 'desc' : 'asc';
+
+  return `select p.session_id as sessionId,
+                 json_extract(p.data, '$.text') as text,
+                 row_number() over (
+                   partition by p.session_id
+                   order by m.time_created ${order}, m.id ${order},
+                            p.time_created ${order}, p.id ${order}
+                 ) as ordinal
+            from part p
+            join message m on m.id = p.message_id
+           where p.session_id in (${list})
+             and json_extract(p.data, '$.type') = 'text'
+             and json_extract(m.data, '$.role') = '${role}'
+             and json_extract(p.data, '$.text') <> ''`;
+}
+
+/** Only the two roles a transcript is made of. Anything else is not a message. */
+function readRole(value: unknown): SessionMessage['role'] | undefined {
+  return value === 'user' || value === 'assistant' ? value : undefined;
+}
+
+/**
+ * Reads a stored tool part as an activity.
+ *
+ * The call id is preferred over the part id because it is what the engine's own
+ * events use, so an imported call and a live one are named the same way. A
+ * refusal or a failure is carried as the output: what a tool call came to is more
+ * use to a reader than a blank.
+ */
+function readStoredActivity(partId: unknown, part: StoredPart): SessionActivity | undefined {
+  if (typeof part.tool !== 'string' || part.tool === '') {
+    return undefined;
+  }
+
+  const id =
+    typeof part.callID === 'string' && part.callID !== ''
+      ? part.callID
+      : typeof partId === 'string' && partId !== ''
+        ? partId
+        : undefined;
+
+  if (id === undefined) {
+    return undefined;
+  }
+
+  const state = part.state ?? {};
+  const output = typeof state.output === 'string' && state.output !== '' ? state.output : '';
+  const error = typeof state.error === 'string' && state.error !== '' ? state.error : '';
+
+  // The read tool answers in an envelope naming the file it just read, which the
+  // target already says. Unwrapped here for the same reason a live turn unwraps
+  // it: the shape belongs to this engine.
+  const body = output !== '' && part.tool === 'read' ? readResultBody(output) : output;
+
+  return {
+    id,
+    tool: part.tool,
+    target: readActivityTarget(state.input) ?? null,
+    output: body !== '' ? body : error !== '' ? error : null,
+  };
+}
+
+/**
+ * Where a plain integer stops looking like milliseconds and starts looking like
+ * seconds. Around 1973 in milliseconds and the year 5138 in seconds, so no real
+ * timestamp is anywhere near it.
+ */
+const EPOCH_SECONDS_CEILING = 1e11;
+
+/**
+ * Reads one of opencode's timestamps as an ISO 8601 string.
+ *
+ * Stored as epoch milliseconds in the databases read here: the session recorded
+ * on this machine carries `1786264956645`. The column is only declared `integer`
+ * though, and SQLite lets a text date sit in one, so a seconds figure and the
+ * `YYYY-MM-DD HH:MM:SS` form SQLite's own date helpers produce are both read
+ * rather than assumed away.
+ *
+ * Returns undefined for anything that is not a date, which the caller treats as
+ * a row it cannot place in time.
+ */
+function readTimestamp(value: unknown): string | undefined {
+  if (typeof value === 'number' || typeof value === 'bigint') {
+    return fromEpoch(Number(value));
+  }
+
+  if (typeof value !== 'string' || value.trim() === '') {
+    return undefined;
+  }
+
+  const numeric = Number(value);
+
+  if (Number.isFinite(numeric) && numeric !== 0) {
+    return fromEpoch(numeric);
+  }
+
+  // SQLite writes a date with a space where ISO has a T and no zone at all, and
+  // it means UTC by it. Left unmarked, Date would read it as local time and the
+  // listing would be hours out.
+  const text = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(value)
+    ? `${value.replace(' ', 'T')}Z`
+    : value;
+  const parsed = Date.parse(text);
+
+  return Number.isNaN(parsed) ? undefined : new Date(parsed).toISOString();
+}
+
+/** An epoch figure as an ISO string, in whichever unit it was written. */
+function fromEpoch(value: number): string | undefined {
+  if (!Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+
+  const milliseconds = value < EPOCH_SECONDS_CEILING ? value * 1000 : value;
+  const date = new Date(milliseconds);
+
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }

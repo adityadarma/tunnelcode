@@ -1,3 +1,9 @@
+import { access, readdir, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { createReadStream } from 'node:fs';
+import { createInterface } from 'node:readline';
+
 import { isOnPath } from '../which.js';
 import { streamProcess } from '../process.js';
 import type { ProcessChannel } from '../process.js';
@@ -11,6 +17,12 @@ import type {
   EnginePermissionRequest,
   PromptOptions,
 } from '../types.js';
+import type {
+  SessionSummary,
+  SessionContent,
+  SessionMessage,
+  SessionActivity,
+} from '../session.js';
 
 const COMMAND = 'claude';
 
@@ -230,6 +242,177 @@ export class ClaudeEngine implements Engine {
    */
   async listModels(): Promise<EngineModel[]> {
     return (await isOnPath(COMMAND)) ? MODEL_ALIASES.map(labelledById) : [];
+  }
+
+  /**
+   * Lists local Claude Code sessions for the given working directory.
+   *
+   * Claude Code stores sessions as JSONL files in
+   * `~/.claude/projects/<encoded-path>/` where the path is the absolute cwd
+   * with slashes replaced by dashes.
+   */
+  async listLocalSessions(cwd: string): Promise<SessionSummary[]> {
+    const projectDir = claudeProjectDir(cwd);
+
+    let entries: string[];
+    try {
+      entries = await readdir(projectDir);
+    } catch {
+      return [];
+    }
+
+    const jsonlFiles = entries.filter((e) => e.endsWith('.jsonl'));
+    const summaries: SessionSummary[] = [];
+
+    for (const file of jsonlFiles) {
+      try {
+        const filePath = join(projectDir, file);
+        const fileStat = await stat(filePath);
+        const summary = await parseSessionSummary(
+          filePath,
+          file.replace(/\.jsonl$/, ''),
+          fileStat.mtime,
+        );
+        if (summary !== undefined) {
+          summaries.push(summary);
+        }
+      } catch {
+        // Skip malformed/unreadable files without throwing.
+        continue;
+      }
+    }
+
+    summaries.sort((a, b) => {
+      return new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime();
+    });
+
+    return summaries.slice(0, 50);
+  }
+
+  /**
+   * Reads the full content of a local Claude Code session for import.
+   *
+   * Parses the JSONL file identified by sessionId, extracting messages,
+   * tool call activities, and the engine session id for native resume.
+   *
+   * Throws when the session id does not correspond to an existing file.
+   */
+  async readSessionContent(sessionId: string, cwd: string): Promise<SessionContent> {
+    const projectDir = claudeProjectDir(cwd);
+    const filePath = join(projectDir, `${sessionId}.jsonl`);
+
+    try {
+      await access(filePath);
+    } catch {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    const messages: SessionMessage[] = [];
+    const activities: SessionActivity[] = [];
+    const activityMap = new Map<string, SessionActivity>();
+    let engineSessionId: string | null = null;
+
+    const stream = createReadStream(filePath, { encoding: 'utf-8' });
+    const rl = createInterface({ input: stream, crlfDelay: Infinity });
+
+    try {
+      for await (const line of rl) {
+        if (line.trim() === '') continue;
+
+        let parsed: ClaudeJsonlLine;
+        try {
+          parsed = JSON.parse(line) as ClaudeJsonlLine;
+        } catch {
+          continue;
+        }
+
+        if (parsed.type === 'result') {
+          if (typeof parsed.session_id === 'string' && parsed.session_id !== '') {
+            engineSessionId = parsed.session_id;
+          }
+          continue;
+        }
+
+        if (parsed.type === 'user') {
+          const content = parsed.message?.content;
+
+          if (typeof content === 'string') {
+            messages.push({ role: 'user', content });
+            continue;
+          }
+
+          if (!Array.isArray(content)) continue;
+
+          const blocks = content as ContentBlock[];
+          const textParts: string[] = [];
+          let hasToolResult = false;
+
+          for (const block of blocks) {
+            if (block.type === 'text' && typeof (block as { text?: string }).text === 'string') {
+              textParts.push((block as { text: string }).text);
+            } else if (block.type === 'tool_result') {
+              hasToolResult = true;
+              const toolUseId = typeof block.tool_use_id === 'string' ? block.tool_use_id : '';
+              if (toolUseId !== '') {
+                const activity = activityMap.get(toolUseId);
+                if (activity !== undefined) {
+                  activity.output = readResultText(block.content);
+                }
+              }
+            }
+          }
+
+          // Only add as a user message if it has text content and is not purely
+          // a tool_result line
+          if (textParts.length > 0 && !hasToolResult) {
+            messages.push({ role: 'user', content: textParts.join('\n') });
+          }
+          continue;
+        }
+
+        if (parsed.type === 'assistant') {
+          const content = parsed.message?.content;
+          if (!Array.isArray(content)) continue;
+
+          const blocks = content as ContentBlock[];
+          const textParts: string[] = [];
+
+          for (const block of blocks) {
+            if (block.type === 'text' && typeof (block as { text?: string }).text === 'string') {
+              textParts.push((block as { text: string }).text);
+            } else if (
+              block.type === 'tool_use' &&
+              typeof block.name === 'string' &&
+              block.name !== ''
+            ) {
+              const id =
+                typeof block.id === 'string' && block.id !== ''
+                  ? block.id
+                  : `call_${Math.random().toString(36).substring(2, 8)}`;
+              const target = readActivityTarget(block.input) ?? null;
+              const activity: SessionActivity = {
+                id,
+                tool: block.name,
+                target,
+                output: null,
+              };
+              activities.push(activity);
+              activityMap.set(id, activity);
+            }
+          }
+
+          if (textParts.length > 0) {
+            messages.push({ role: 'assistant', content: textParts.join('\n') });
+          }
+          continue;
+        }
+      }
+    } finally {
+      rl.close();
+      stream.destroy();
+    }
+
+    return { engineSessionId, messages, activities };
   }
 
   prompt(text: string, options: PromptOptions): AsyncGenerator<EngineEvent> {
@@ -565,4 +748,109 @@ export class ClaudeEngine implements Engine {
       mapLine,
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Claude Code session helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Computes the project directory path for Claude Code session storage.
+ *
+ * Claude Code stores sessions in `~/.claude/projects/<encoded-path>/` where
+ * the encoded path is the absolute cwd with every `/` replaced by `-`.
+ * For example `/Users/foo/bar` becomes `-Users-foo-bar`.
+ */
+function claudeProjectDir(cwd: string): string {
+  const absolute = resolve(cwd);
+  const encoded = absolute.replace(/\//g, '-');
+  return join(homedir(), '.claude', 'projects', encoded);
+}
+
+interface ClaudeJsonlLine {
+  type?: string;
+  message?: {
+    content?: unknown;
+  };
+  sessionId?: string;
+  session_id?: string;
+}
+
+/**
+ * Extracts the text content from a user or assistant message's content array.
+ * Returns the concatenation of all `text` blocks.
+ */
+function extractTextContent(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+
+  const parts: string[] = [];
+  for (const block of content as { type?: string; text?: string }[]) {
+    if (block.type === 'text' && typeof block.text === 'string') {
+      parts.push(block.text);
+    }
+  }
+  return parts.join('\n');
+}
+
+/**
+ * Parses a JSONL session file to produce a SessionSummary.
+ * Returns undefined if the file has no meaningful content.
+ */
+async function parseSessionSummary(
+  filePath: string,
+  sessionId: string,
+  mtime: Date,
+): Promise<SessionSummary | undefined> {
+  let title: string | undefined;
+  let lastAssistantText = '';
+  let messageCount = 0;
+
+  const stream = createReadStream(filePath, { encoding: 'utf-8' });
+  const rl = createInterface({ input: stream, crlfDelay: Infinity });
+
+  try {
+    for await (const line of rl) {
+      if (line.trim() === '') continue;
+
+      let parsed: ClaudeJsonlLine;
+      try {
+        parsed = JSON.parse(line) as ClaudeJsonlLine;
+      } catch {
+        continue;
+      }
+
+      if (parsed.type === 'user') {
+        messageCount++;
+        if (title === undefined) {
+          const text = extractTextContent(parsed.message?.content);
+          if (text !== '') {
+            title = text.slice(0, 100);
+          }
+        }
+      } else if (parsed.type === 'assistant') {
+        messageCount++;
+        const text = extractTextContent(parsed.message?.content);
+        if (text !== '') {
+          lastAssistantText = text;
+        }
+      }
+    }
+  } finally {
+    rl.close();
+    stream.destroy();
+  }
+
+  // If there are no messages at all, skip this file
+  if (messageCount === 0) {
+    return undefined;
+  }
+
+  return {
+    id: sessionId,
+    title: title ?? 'Untitled session',
+    lastActiveAt: mtime.toISOString(),
+    messageCount,
+    preview: lastAssistantText.slice(0, 200),
+  };
 }

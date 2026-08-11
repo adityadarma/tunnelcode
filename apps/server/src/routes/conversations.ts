@@ -4,11 +4,16 @@ import { authenticate } from '../session-auth.js';
 import type { ConversationRepository } from '../db/conversation-repository.js';
 import type { SessionDetail, SessionRepository } from '../db/session-repository.js';
 import type { DeviceService } from '../services/device.js';
+import type { SessionImportService } from '../services/session-import.js';
+
+/** Engines the system recognizes for import. */
+const VALID_ENGINES = ['opencode', 'claude', 'antigravity', 'kiro', 'codex', 'copilot', 'cursor'];
 
 interface ConversationRoutesOptions {
   conversationRepository: ConversationRepository;
   sessionRepository: SessionRepository;
   devices: DeviceService;
+  sessionImport: SessionImportService;
 }
 
 type Authorized =
@@ -26,7 +31,7 @@ export function registerConversationRoutes(
   app: FastifyInstance,
   options: ConversationRoutesOptions,
 ): void {
-  const { conversationRepository, sessionRepository, devices } = options;
+  const { conversationRepository, sessionRepository, devices, sessionImport } = options;
 
   /**
    * Checks that the session presented in the header is entitled to a conversation.
@@ -275,5 +280,204 @@ export function registerConversationRoutes(
     }
 
     return reply.send({ success: true });
+  });
+
+  /**
+   * Lists agent sessions available on the paired CLI device for a given engine.
+   *
+   * The browser calls this to populate the "Continue from Agent" picker. The
+   * server relays the request to the CLI, which scans local storage and reports
+   * what it finds.
+   */
+  app.get('/api/sessions/:sessionId/agent-sessions', async (request, reply) => {
+    const params = request.params as { sessionId?: string };
+    const sessionId = params.sessionId;
+
+    if (sessionId === undefined || sessionId === '') {
+      return reply.code(400).send({ error: 'Missing session id.' });
+    }
+
+    const allowed = authorizeSession(request.headers.cookie, sessionId);
+
+    if (!allowed.ok) {
+      return reply.code(allowed.status).send({ error: allowed.error });
+    }
+
+    const detail = allowed.caller;
+    const query = request.query as { engine?: string };
+    const engine = query.engine;
+
+    if (engine === undefined || engine === '') {
+      return reply.code(400).send({ error: 'Engine name is required.' });
+    }
+
+    if (!VALID_ENGINES.includes(engine)) {
+      return reply.code(400).send({ error: 'Invalid engine name.' });
+    }
+
+    const device = devices.findById(detail.deviceId);
+
+    if (device === undefined) {
+      return reply.code(409).send({ error: 'Device is offline.' });
+    }
+
+    try {
+      const response = await sessionImport.listSessions(detail.deviceId, engine, detail.workspace);
+
+      if (response.error) {
+        if (response.error.toLowerCase().includes('not found')) {
+          return await reply.code(404).send({ error: response.error });
+        }
+        return await reply.code(500).send({ error: response.error });
+      }
+
+      // `supported` and `reason` are relayed rather than dropped: an engine that
+      // cannot be scanned at all returns the same empty list as one that was
+      // scanned and held nothing, and only these two fields tell them apart. The
+      // reason is passed through verbatim, since the CLI wrote it for a reader.
+      return await reply.send({
+        sessions: response.sessions,
+        supported: response.supported,
+        ...(response.reason !== undefined ? { reason: response.reason } : {}),
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error.';
+
+      if (message === 'Device is offline.') {
+        return reply.code(409).send({ error: message });
+      }
+      if (message === 'Request timed out.') {
+        return reply.code(504).send({ error: message });
+      }
+
+      return reply.code(500).send({ error: message });
+    }
+  });
+
+  /**
+   * Imports an agent session from the CLI into a new tunnelcode conversation.
+   *
+   * The browser calls this after the user picks a session from the listing. The
+   * server fetches the full content from the CLI, creates a conversation, stores
+   * all messages and activities with monotonic timestamps, and optionally records
+   * the engine session id for native resume.
+   */
+  app.post('/api/sessions/:sessionId/conversations/import', async (request, reply) => {
+    const params = request.params as { sessionId?: string };
+    const sessionId = params.sessionId;
+
+    if (sessionId === undefined || sessionId === '') {
+      return reply.code(400).send({ error: 'Missing session id.' });
+    }
+
+    const allowed = authorizeSession(request.headers.cookie, sessionId);
+
+    if (!allowed.ok) {
+      return reply.code(allowed.status).send({ error: allowed.error });
+    }
+
+    const detail = allowed.caller;
+    const body = request.body as { engine?: string; sessionId?: string } | null | undefined;
+
+    if (body === undefined || body === null) {
+      return reply.code(400).send({ error: 'Engine name and session id are required.' });
+    }
+
+    const engine = body.engine;
+    const agentSessionId = body.sessionId;
+
+    if (engine === undefined || engine === '') {
+      return reply.code(400).send({ error: 'Engine name is required.' });
+    }
+
+    if (agentSessionId === undefined || agentSessionId === '') {
+      return reply.code(400).send({ error: 'Session id is required.' });
+    }
+
+    if (!VALID_ENGINES.includes(engine)) {
+      return reply.code(400).send({ error: 'Invalid engine name.' });
+    }
+
+    const device = devices.findById(detail.deviceId);
+
+    if (device === undefined) {
+      return reply.code(409).send({ error: 'Device is offline.' });
+    }
+
+    // Ensure the engine is actually available on the device.
+    const deviceEngine = devices.findEngine(detail.deviceId, engine);
+
+    if (deviceEngine === undefined) {
+      return reply.code(400).send({ error: 'That engine is not available on this device.' });
+    }
+
+    try {
+      const content = await sessionImport.importSession(
+        detail.deviceId,
+        engine,
+        agentSessionId,
+        detail.workspace,
+      );
+
+      if (content.error) {
+        if (content.error.toLowerCase().includes('not found')) {
+          return await reply.code(404).send({ error: content.error });
+        }
+        return await reply.code(500).send({ error: content.error });
+      }
+
+      // Create the conversation on the engine it was imported from.
+      const conversation = conversationRepository.create(sessionId, engine);
+
+      // Store imported messages and activities with monotonic timestamps to
+      // preserve chronological order.
+      const baseTime = Date.now() - (content.messages.length + content.activities.length) * 10;
+      let offset = 0;
+
+      for (const msg of content.messages) {
+        conversationRepository.appendMessageWithTimestamp(
+          conversation.id,
+          msg.role,
+          msg.content,
+          baseTime + offset,
+        );
+        offset += 10;
+      }
+
+      // The engine's own tool-call id is deliberately not carried into the row:
+      // reading the same session again replays it, and it would collide with the
+      // rows the first import already wrote. See appendActivityWithTimestamp.
+      for (const activity of content.activities) {
+        conversationRepository.appendActivityWithTimestamp(
+          conversation.id,
+          activity.tool,
+          activity.target ?? undefined,
+          activity.output,
+          baseTime + offset,
+        );
+        offset += 10;
+      }
+
+      // If the CLI reported a native session id, store it for resume.
+      if (content.engineSessionId) {
+        conversationRepository.setEngineSession(conversation.id, content.engineSessionId, engine);
+      }
+
+      // Re-read the conversation so the response includes the derived title.
+      const stored = conversationRepository.findById(conversation.id) ?? conversation;
+
+      return await reply.code(201).send(stored);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error.';
+
+      if (message === 'Device is offline.') {
+        return reply.code(409).send({ error: message });
+      }
+      if (message === 'Request timed out.') {
+        return reply.code(504).send({ error: message });
+      }
+
+      return reply.code(500).send({ error: message });
+    }
   });
 }

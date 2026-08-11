@@ -115,6 +115,35 @@ const usageSchema = z.object({
 export type UsagePayload = z.output<typeof usageSchema>;
 
 /**
+ * Lightweight summary of a local agent session, used in list responses.
+ */
+const sessionSummarySchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  lastActiveAt: z.string().min(1),
+  messageCount: z.number().int().min(0),
+  preview: z.string().max(200),
+});
+
+/**
+ * A message as read from an agent's local session file.
+ */
+const importedMessageSchema = z.object({
+  role: z.enum(['user', 'assistant']),
+  content: z.string().max(ENGINE_TEXT_MAX_LENGTH),
+});
+
+/**
+ * A tool call as read from an agent's local session file.
+ */
+const importedActivitySchema = z.object({
+  id: z.string().min(1),
+  tool: z.string().min(1),
+  target: z.string().nullable(),
+  output: z.string().max(ENGINE_TEXT_MAX_LENGTH).nullable(),
+});
+
+/**
  * Messages the CLI sends to the server.
  *
  * The CLI registers a code, then answers pairing requests. Only the CLI can
@@ -332,6 +361,61 @@ export const cliMessageSchema = z.discriminatedUnion('type', [
       }),
     ),
   }),
+  /**
+   * Response to a list_sessions_request, carrying summaries of local agent sessions.
+   *
+   * Sent after the CLI scans the engine's local storage. The sessions array is
+   * capped at 100. An error field is present when the scan failed.
+   */
+  z.object({
+    type: z.literal('list_sessions_response'),
+    requestId: z.string().min(1),
+    engine: z.string().min(1),
+    sessions: z.array(sessionSummarySchema).max(100),
+    /**
+     * False when this engine cannot be scanned for local sessions at all.
+     *
+     * An empty list answers two different questions the same way, and the browser
+     * owes the person a different sentence for each: an engine that keeps no local
+     * history is not an engine that looked and found nothing, and offering "no
+     * sessions yet" for the first invites them to go and make one. Reported rather
+     * than inferred from a name, because whether a scan is possible depends on the
+     * machine as much as the engine — the OpenCode reader needs a newer Node than
+     * the CLI is guaranteed to be running under.
+     *
+     * Defaults to true, so a CLI from before this field still reads as supported.
+     * That is the safe reading of silence: an older CLI only replied at all because
+     * it had scanned, so its empty list really does mean nothing was found. Note
+     * the default makes this required for everything that builds the message and
+     * optional for everything that parses one, which is the asymmetry we want.
+     */
+    supported: z.boolean().default(true),
+    error: z.string().optional(),
+    /**
+     * Why scanning is not possible, in words a person can act on.
+     *
+     * Carried alongside `supported: false` rather than folded into `error`, because
+     * the two are not the same news: an error is a scan that went wrong and is worth
+     * retrying, this is a scan that will never happen and retrying is a waste of the
+     * user's tap. Absent when the engine is supported.
+     */
+    reason: z.string().optional(),
+  }),
+  /**
+   * Response to an import_session_request, carrying the full content of a session.
+   *
+   * Sent after the CLI reads the session file. An error field is present when the
+   * read failed, and the arrays are empty in that case.
+   */
+  z.object({
+    type: z.literal('import_session_response'),
+    requestId: z.string().min(1),
+    sessionId: z.string().min(1),
+    engineSessionId: z.string().nullable(),
+    messages: z.array(importedMessageSchema),
+    activities: z.array(importedActivitySchema),
+    error: z.string().optional(),
+  }),
 ]);
 
 /**
@@ -453,6 +537,31 @@ export const serverToCliMessageSchema = z.discriminatedUnion('type', [
      * `command(*)` rather than anything scoped to a workspace. See ADR-031.
      */
     grant: z.literal('writes'),
+  }),
+  /**
+   * Request a list of local agent sessions from the CLI.
+   *
+   * Sent when the browser wants to show available sessions for import. The CLI
+   * scans the engine's local storage and responds with a list_sessions_response.
+   */
+  z.object({
+    type: z.literal('list_sessions_request'),
+    requestId: z.string().min(1),
+    engine: z.string().min(1),
+    cwd: z.string().min(1),
+  }),
+  /**
+   * Request full content of a specific agent session for import.
+   *
+   * Sent when the browser confirms an import. The CLI reads the session file and
+   * responds with an import_session_response containing all messages and activities.
+   */
+  z.object({
+    type: z.literal('import_session_request'),
+    requestId: z.string().min(1),
+    engine: z.string().min(1),
+    sessionId: z.string().min(1),
+    cwd: z.string().min(1),
   }),
 ]);
 

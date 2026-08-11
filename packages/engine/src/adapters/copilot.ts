@@ -1,4 +1,10 @@
+import { createReadStream } from 'node:fs';
+import { homedir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { createInterface } from 'node:readline';
+
 import { readActivityTarget } from '../activity.js';
+import { openSqliteReadonly } from '../sqlite.js';
 import { isOnPath } from '../which.js';
 import { startJsonRpc } from './json-rpc.js';
 import type { RpcConnection, RpcRequest } from './json-rpc.js';
@@ -10,6 +16,12 @@ import type {
   EnginePermissionRequest,
   PromptOptions,
 } from '../types.js';
+import type {
+  SessionActivity,
+  SessionContent,
+  SessionMessage,
+  SessionSummary,
+} from '../session.js';
 
 const COMMAND = 'copilot';
 
@@ -19,6 +31,24 @@ const COMMAND = 'copilot';
  * rather than working around.
  */
 const PROTOCOL_VERSION = 1;
+
+/** How many past conversations a listing offers, newest first. */
+const SESSION_LIMIT = 50;
+
+/** How much of the opening question stands in for the conversation's name. */
+const TITLE_MAX_LENGTH = 100;
+
+/** How much of the last answer is shown beside a session in a listing. */
+const PREVIEW_MAX_LENGTH = 200;
+
+/**
+ * How much of a tool call's output is imported.
+ *
+ * A single call can report a great deal — a glob across a repository lists every
+ * path it matched — and the protocol refuses an output longer than this. One
+ * refused message loses the whole import, so the output is cut instead.
+ */
+const OUTPUT_MAX_LENGTH = 500_000;
 
 interface ContentBlock {
   type?: unknown;
@@ -477,6 +507,126 @@ export class CopilotEngine implements Engine {
     }
   }
 
+  /**
+   * Lists local Copilot conversations held in the given working directory.
+   *
+   * Copilot keeps every conversation in one SQLite database at
+   * `~/.copilot/session-store.db`: a row per session, and a row per turn carrying
+   * both what was asked and what was answered. Filtering, ordering and the cap are
+   * left to SQL, which is what the store indexes for, so the rows that arrive here
+   * are already the ones to report.
+   *
+   * A missing database is no history rather than a failure. A database that cannot
+   * be read is neither, and that is raised rather than answered with an empty list.
+   */
+  async listLocalSessions(cwd: string): Promise<SessionSummary[]> {
+    const database = await openSqliteReadonly(sessionStorePath());
+
+    if (database === undefined) {
+      return [];
+    }
+
+    let rows: SessionListRow[];
+
+    try {
+      rows = database.all<SessionListRow>(LIST_SESSIONS_SQL, resolve(cwd));
+    } finally {
+      database.close();
+    }
+
+    const summaries: SessionSummary[] = [];
+
+    for (const row of rows) {
+      // A row with no id of its own is not a session anything can be continued
+      // from, so it is skipped rather than offered as one that will not open.
+      if (typeof row.id !== 'string' || row.id === '') {
+        continue;
+      }
+
+      const title = readColumn(row.title).trim();
+
+      summaries.push({
+        id: row.id,
+        // The stored summary column is not used: Copilot leaves it empty on every
+        // row, so the question that opened the conversation is the only title there
+        // is.
+        title: title === '' ? 'Untitled session' : title,
+        lastActiveAt: readTimestamp(row.updated_at, row.created_at),
+        messageCount: readCount(row.message_count),
+        preview: readColumn(row.preview),
+      });
+    }
+
+    return summaries;
+  }
+
+  /**
+   * Reads a local Copilot conversation whole, for import.
+   *
+   * One turn row holds both sides of an exchange, so each becomes a user message
+   * followed by the answer to it. A turn still being answered has no answer stored
+   * yet, and no message is written for one: a blank assistant bubble reads as an
+   * answer that said nothing.
+   *
+   * The session id is Copilot's own, which is what `session/load` takes back, so an
+   * imported conversation continues inside the context the agent already has.
+   *
+   * Throws when the id names no session held in this directory, which is a session
+   * that is not there rather than a store that cannot be read.
+   */
+  async readSessionContent(sessionId: string, cwd: string): Promise<SessionContent> {
+    const database = await openSqliteReadonly(sessionStorePath());
+
+    if (database === undefined) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    let turns: SessionTurnRow[];
+
+    try {
+      // Scoped to the directory as the listing is, so an id belonging to another
+      // workspace is not read into a conversation that never offered it.
+      const found = database.all<{ id: unknown }>(
+        'select id from sessions where id = ? and cwd = ? limit 1',
+        sessionId,
+        resolve(cwd),
+      );
+
+      if (found.length === 0) {
+        throw new Error(`Session not found: ${sessionId}`);
+      }
+
+      turns = database.all<SessionTurnRow>(
+        'select user_message, assistant_response from turns where session_id = ? order by turn_index',
+        sessionId,
+      );
+    } finally {
+      database.close();
+    }
+
+    const messages: SessionMessage[] = [];
+
+    for (const turn of turns) {
+      const asked = readColumn(turn.user_message);
+
+      if (asked !== '') {
+        messages.push({ role: 'user', content: asked });
+      }
+
+      const answered = readColumn(turn.assistant_response);
+
+      if (answered !== '') {
+        messages.push({ role: 'assistant', content: answered });
+      }
+    }
+
+    return {
+      engineSessionId: sessionId,
+      messages,
+      activities: await readSessionActivities(sessionId),
+    };
+  }
+
   prompt(text: string, options: PromptOptions): AsyncGenerator<EngineEvent> {
     return this.run(text, options);
   }
@@ -855,4 +1005,251 @@ async function chooseModel(
       error instanceof Error ? error.message : 'the model was refused'
     }. Answering with its default instead.`;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Copilot session store
+// ---------------------------------------------------------------------------
+
+/** The database Copilot writes every conversation it holds into. */
+function sessionStorePath(): string {
+  return join(homedir(), '.copilot', 'session-store.db');
+}
+
+/**
+ * One row of the listing below.
+ *
+ * Every column is unknown because nothing checks the store's shape: it belongs to
+ * Copilot, which is free to change it, and a column that has moved should read as
+ * a missing value rather than as a type the compiler was promised.
+ */
+interface SessionListRow {
+  id: unknown;
+  updated_at: unknown;
+  created_at: unknown;
+  title: unknown;
+  preview: unknown;
+  message_count: unknown;
+}
+
+/** One exchange, as stored: a question and the answer to it on the same row. */
+interface SessionTurnRow {
+  user_message: unknown;
+  assistant_response: unknown;
+}
+
+/**
+ * Everything a listing needs, in one statement.
+ *
+ * The title, the preview and the count are read as subqueries against the turns
+ * of each session rather than by querying per session afterwards, which for fifty
+ * sessions would be fifty more round trips for three values each.
+ *
+ * Only the whole message bodies are left behind: a listing shows the opening
+ * hundred characters and the closing two hundred, so SQLite cuts them where they
+ * are rather than handing over every message to be cut here.
+ *
+ * Ordering is by the stored timestamp, which Copilot writes as an ISO instant in
+ * UTC, so SQLite's text comparison runs oldest to newest exactly as time does.
+ *
+ * The lengths and the cap are written into the SQL because they are constants of
+ * this file. The directory is the one value that comes from outside, and it is
+ * bound.
+ */
+const LIST_SESSIONS_SQL = `
+  select
+    s.id as id,
+    s.updated_at as updated_at,
+    s.created_at as created_at,
+    (
+      select substr(t.user_message, 1, ${String(TITLE_MAX_LENGTH)})
+      from turns t
+      where t.session_id = s.id and t.user_message is not null and t.user_message <> ''
+      order by t.turn_index
+      limit 1
+    ) as title,
+    (
+      select substr(t.assistant_response, 1, ${String(PREVIEW_MAX_LENGTH)})
+      from turns t
+      where t.session_id = s.id and t.assistant_response is not null and t.assistant_response <> ''
+      order by t.turn_index desc
+      limit 1
+    ) as preview,
+    (
+      select coalesce(sum(
+        (case when t.user_message is not null and t.user_message <> '' then 1 else 0 end) +
+        (case when t.assistant_response is not null and t.assistant_response <> '' then 1 else 0 end)
+      ), 0)
+      from turns t
+      where t.session_id = s.id
+    ) as message_count
+  from sessions s
+  where s.cwd = ?
+  order by s.updated_at desc
+  limit ${String(SESSION_LIMIT)}
+`;
+
+/** Reads a text column, treating anything else stored there as nothing. */
+function readColumn(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+/**
+ * Reads a counted column.
+ *
+ * SQLite hands back a bigint for an integer too large to be a number, which a
+ * count of messages will never be, but converting is cheaper than assuming.
+ */
+function readCount(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, Math.trunc(value));
+  }
+
+  return typeof value === 'bigint' ? Math.max(0, Number(value)) : 0;
+}
+
+/**
+ * Normalises a stored timestamp to an ISO 8601 instant, taking the first of the
+ * given columns that reads as a time.
+ *
+ * Copilot writes an ISO instant already, so this converts nothing in practice. It
+ * is written defensively because the columns also carry a SQLite default of
+ * `datetime('now')`, which is UTC spelled without saying so — read as it stands,
+ * that would be taken as local time and moved by hours.
+ */
+function readTimestamp(...values: unknown[]): string {
+  for (const value of values) {
+    const text = readColumn(value).trim();
+
+    if (text === '') {
+      continue;
+    }
+
+    const stated = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(text)
+      ? `${text.replace(' ', 'T')}Z`
+      : text;
+    const parsed = new Date(stated);
+
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  }
+
+  // A session whose store holds no readable time still exists, and the epoch puts
+  // it last wherever it is sorted rather than dropping it from the listing.
+  return new Date(0).toISOString();
+}
+
+/** One line of a session's event log. */
+interface SessionEvent {
+  type?: unknown;
+  data?: unknown;
+}
+
+/**
+ * Reads the tool calls of a session.
+ *
+ * The turns table carries none: it stores what was said, and everything the agent
+ * did between the question and the answer is written to
+ * `~/.copilot/session-state/<id>/events.jsonl` instead, as a `tool.execution_start`
+ * naming the tool and its arguments and a `tool.execution_complete` carrying what
+ * it reported. Both name the same call id, which is how the two halves are joined.
+ *
+ * A session that never used a tool has no such file, and neither does one Copilot
+ * pruned, so an unreadable log is no activities rather than a failure: the messages
+ * are the import, and losing the whole conversation over the calls inside it would
+ * be worse than importing it without them.
+ */
+async function readSessionActivities(sessionId: string): Promise<SessionActivity[]> {
+  const path = join(homedir(), '.copilot', 'session-state', sessionId, 'events.jsonl');
+  const activities: SessionActivity[] = [];
+  const byId = new Map<string, SessionActivity>();
+
+  const stream = createReadStream(path, { encoding: 'utf-8' });
+  const lines = createInterface({ input: stream, crlfDelay: Infinity });
+
+  try {
+    for await (const line of lines) {
+      if (line.trim() === '') {
+        continue;
+      }
+
+      let event: SessionEvent;
+
+      try {
+        event = JSON.parse(line) as SessionEvent;
+      } catch {
+        // A log is appended to while the agent runs, so its last line can be half
+        // written. Skipping it keeps everything before it.
+        continue;
+      }
+
+      const data =
+        typeof event.data === 'object' && event.data !== null
+          ? (event.data as {
+              toolCallId?: unknown;
+              toolName?: unknown;
+              arguments?: unknown;
+              result?: unknown;
+              success?: unknown;
+            })
+          : undefined;
+      const id = typeof data?.toolCallId === 'string' ? data.toolCallId : '';
+
+      if (data === undefined || id === '') {
+        continue;
+      }
+
+      if (event.type === 'tool.execution_start') {
+        const activity: SessionActivity = {
+          id,
+          tool: typeof data.toolName === 'string' && data.toolName !== '' ? data.toolName : 'tool',
+          target: readActivityTarget(data.arguments) ?? null,
+          output: null,
+        };
+
+        activities.push(activity);
+        byId.set(id, activity);
+        continue;
+      }
+
+      if (event.type !== 'tool.execution_complete') {
+        continue;
+      }
+
+      const activity = byId.get(id);
+
+      if (activity === undefined) {
+        continue;
+      }
+
+      const result =
+        typeof data.result === 'object' && data.result !== null
+          ? (data.result as { content?: unknown })
+          : undefined;
+      // Only the plain content is read. The detailed half of a result repeats it
+      // with a diff of the whole file around it, which would put a file body in
+      // the transcript.
+      const output = typeof result?.content === 'string' ? result.content : '';
+
+      if (output !== '') {
+        activity.output = output.slice(0, OUTPUT_MAX_LENGTH);
+        continue;
+      }
+
+      // A call that failed reported nothing, and an answer that worked around it
+      // otherwise has no visible cause.
+      if (data.success === false) {
+        activity.output = 'The tool call failed.';
+      }
+    }
+  } catch {
+    // Whatever was read before the log became unreadable is still what happened.
+    return activities;
+  } finally {
+    lines.close();
+    stream.destroy();
+  }
+
+  return activities;
 }

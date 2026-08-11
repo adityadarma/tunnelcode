@@ -38,3 +38,7 @@ export type {
   EngineUsage,
   PromptOptions,
 } from './types.js';
+export { SessionScanUnsupportedError } from './session.js';
+export type { SessionSummary, SessionMessage, SessionActivity, SessionContent } from './session.js';
+export { openSqliteReadonly } from './sqlite.js';
+export type { ReadonlyDatabase } from './sqlite.js';

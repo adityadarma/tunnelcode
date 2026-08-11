@@ -1,4 +1,4 @@
-import { createEngine } from '@tunnelcode/engine';
+import { SessionScanUnsupportedError, createEngine } from '@tunnelcode/engine';
 import type { AvailableEngine, Engine } from '@tunnelcode/engine';
 import { ceilingRefusing } from './antigravity-ceiling.js';
 import { Caffeinate } from './caffeinate.js';
@@ -243,6 +243,7 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
       idle,
       runner,
       fileWatcher,
+      engineInstances: engines,
     });
 
     if (shouldStop() || state.fatal !== undefined) {
@@ -302,6 +303,8 @@ interface ConnectionOptions extends PairingSessionOptions {
   runner: PromptRunner;
   /** Watches git changes and reports them to the browser. */
   fileWatcher: FileWatcher;
+  /** Engine instances keyed by name, used for session scanning callbacks. */
+  engineInstances: Map<string, Engine>;
 }
 
 /**
@@ -309,7 +312,7 @@ interface ConnectionOptions extends PairingSessionOptions {
  * which decides how long to wait before trying again.
  */
 async function runConnection(options: ConnectionOptions): Promise<boolean> {
-  const { state, idle, runner, fileWatcher } = options;
+  const { state, idle, runner, fileWatcher, engineInstances } = options;
   const local = { registered: false };
 
   const client = new PairingClient({
@@ -434,6 +437,119 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
         state.fatal = message;
         options.stop();
         client.close();
+      }
+    },
+
+    /**
+     * Scans one engine's local history, or says why it cannot be scanned.
+     *
+     * Two of the answers here are empty lists, and they are not the same news. An
+     * engine with no reader will never have sessions to offer, so it is reported
+     * unsupported with a reason: telling the user "no sessions yet" would send them
+     * off to make one and bring them back to the same empty modal. A scan that was
+     * possible and broke stays supported and carries `error` instead, because that
+     * one is worth a second tap. See the protocol notes on the two fields.
+     */
+    onListSessionsRequest: async (requestId, engineName, cwd) => {
+      const engine = engineInstances.get(engineName);
+
+      if (!engine?.listLocalSessions) {
+        client.report({
+          type: 'list_sessions_response',
+          requestId,
+          engine: engineName,
+          sessions: [],
+          supported: false,
+          // The two cases read the same from here — no reader to call — but they are
+          // different facts about the machine, and only one of them is the user's to
+          // fix. An engine missing from the map was never registered by this CLI, so
+          // there is nothing on this machine to read; one that is registered without a
+          // reader is a gap on our side, and no amount of installing helps.
+          reason:
+            engine === undefined
+              ? `${engineName} was not found on this machine, so it has no sessions to read here. Install it and start the session again.`
+              : `${engine.label} sessions cannot be read yet, so there is nothing here to import. Start a new conversation instead.`,
+        });
+        return;
+      }
+
+      try {
+        const sessions = await engine.listLocalSessions(cwd);
+        client.report({
+          type: 'list_sessions_response',
+          requestId,
+          engine: engineName,
+          sessions,
+          supported: true,
+        });
+      } catch (err) {
+        // The reader exists and refused to run here, and it already said why in a
+        // sentence meant for a person. Passed through as it stands: the detail that
+        // makes it actionable belongs to the reader, and this code does not know it.
+        if (err instanceof SessionScanUnsupportedError) {
+          client.report({
+            type: 'list_sessions_response',
+            requestId,
+            engine: engineName,
+            sessions: [],
+            supported: false,
+            reason: err.message,
+          });
+          return;
+        }
+
+        // Still supported: this engine can be scanned here and this attempt failed,
+        // which is what `error` means. Retrying it is not a waste of the user's tap.
+        client.report({
+          type: 'list_sessions_response',
+          requestId,
+          engine: engineName,
+          sessions: [],
+          supported: true,
+          error: 'Failed to scan sessions.',
+        });
+      }
+    },
+
+    onImportSessionRequest: async (requestId, engineName, sessionId, cwd) => {
+      const engine = engineInstances.get(engineName);
+      if (!engine?.readSessionContent) {
+        client.report({
+          type: 'import_session_response',
+          requestId,
+          sessionId,
+          engineSessionId: null,
+          messages: [],
+          activities: [],
+          error: 'Engine does not support session import.',
+        });
+        return;
+      }
+      try {
+        const content = await engine.readSessionContent(sessionId, cwd);
+        client.report({
+          type: 'import_session_response',
+          requestId,
+          sessionId,
+          engineSessionId: content.engineSessionId,
+          messages: content.messages,
+          activities: content.activities,
+        });
+      } catch (err) {
+        // A read that cannot run here arrives as a SessionScanUnsupportedError, whose
+        // message is already the sentence to show. There is no `supported` field on
+        // this response, so `error` is where it goes, and it is reported verbatim
+        // rather than replaced by the generic line: an import that failed because the
+        // reader needs a newer Node says so, instead of leaving the user guessing.
+        client.report({
+          type: 'import_session_response',
+          requestId,
+          sessionId,
+          engineSessionId: null,
+          messages: [],
+          activities: [],
+          error: err instanceof Error ? err.message : 'Failed to read session.',
+        });
       }
     },
   });

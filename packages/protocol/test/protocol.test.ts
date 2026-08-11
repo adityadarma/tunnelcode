@@ -380,3 +380,42 @@ test('an answer longer than the limit is not a message', () => {
   // the browser waiting forever for an answer that had already arrived.
   assert.equal(parseCliMessage(done), undefined);
 });
+
+test('a session list says whether the engine could be scanned at all', () => {
+  const listed = parseCliMessage(
+    JSON.stringify({
+      type: 'list_sessions_response',
+      requestId: 'req-1',
+      engine: 'codex',
+      sessions: [],
+      supported: false,
+      reason: 'Codex CLI stores no local history',
+    }),
+  );
+
+  // An empty list on its own cannot tell "nothing found" from "nothing to find",
+  // and the browser owes the person a different sentence for each.
+  assert.equal(listed?.type, 'list_sessions_response');
+  assert.equal(listed?.type === 'list_sessions_response' ? listed.supported : undefined, false);
+  assert.equal(
+    listed?.type === 'list_sessions_response' ? listed.reason : undefined,
+    'Codex CLI stores no local history',
+  );
+});
+
+test('a session list from a CLI that predates the field reads as supported', () => {
+  const older = parseCliMessage(
+    JSON.stringify({
+      type: 'list_sessions_response',
+      requestId: 'req-1',
+      engine: 'claude',
+      sessions: [],
+    }),
+  );
+
+  // Silence is the safe reading here: an older CLI only answered because it had
+  // scanned, so its empty list really does mean nothing was found. Filled in on the
+  // way through, so no reader downstream has to know the field was ever absent.
+  assert.equal(older?.type === 'list_sessions_response' ? older.supported : undefined, true);
+  assert.equal(older?.type === 'list_sessions_response' ? older.reason : undefined, undefined);
+});

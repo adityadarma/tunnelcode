@@ -4,7 +4,7 @@ import { ENGINE_NAMES, discoverEngines } from '@tunnelcode/engine';
 import { writeOut } from '../output.js';
 import { bold, cyanBold, dim, green, red, yellow } from '../style.js';
 
-const REQUIRED_NODE_MAJOR = 22;
+const REQUIRED_NODE_MAJOR = 24;
 
 interface CheckResult {
   value: GlobalConfig | undefined;

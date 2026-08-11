@@ -28,12 +28,22 @@ interface ConversationListProps {
   activeId: string | undefined;
   /** Engines the paired machine can run, offered when starting a conversation. */
   engines: DeviceEngine[];
+  /** Paired session the agent session list and import are relayed through. */
+  sessionId: string;
   /** The machine's default engine, preselected when starting a conversation. */
   defaultEngine?: string | undefined;
   /** True while the device is offline, when a new conversation cannot be created. */
   createDisabled: boolean;
+  /**
+   * Whether the paired machine is connected. Separate from `createDisabled` because
+   * importing needs the machine reachable right now to scan it, while creating only
+   * needs it reachable by the time a prompt is sent.
+   */
+  online: boolean;
   onSelect: (id: string) => void;
   onCreate: (engine: string | undefined, model: string | undefined) => void;
+  /** Receives the conversation an agent session was imported into. */
+  onImport: (conversation: Conversation) => void;
   onOpenModal?: (() => void) | undefined;
   onDelete?: (id: string) => void;
   /**
@@ -56,10 +66,13 @@ export function ConversationList({
   conversations,
   activeId,
   engines,
+  sessionId,
   defaultEngine,
   createDisabled,
+  online,
   onSelect,
   onCreate,
+  onImport,
   onOpenModal,
   onDelete,
   onHideSidebar,
@@ -88,9 +101,12 @@ export function ConversationList({
         <div className="sidebar-head-actions">
           <NewConversationButton
             engines={engines}
+            sessionId={sessionId}
             defaultEngine={defaultEngine}
             disabled={createDisabled}
+            online={online}
             onCreate={onCreate}
+            onImport={onImport}
             onOpenModal={onOpenModal}
           />
           {onHideSidebar && (

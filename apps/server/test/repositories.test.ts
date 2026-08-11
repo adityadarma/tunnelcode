@@ -318,6 +318,24 @@ test('activities survive reopening the database', async () => {
   });
 });
 
+test('an imported activity gets a row id of its own', async () => {
+  await withTempDb(async (handle) => {
+    new SessionRepository(handle.db).persistApproved(session);
+    const conversations = new ConversationRepository(handle.db);
+    const first = conversations.create('session-1');
+    const second = conversations.create('session-1');
+
+    // Reading the same agent session twice replays the same tool calls, so the row
+    // key cannot be anything the engine supplied.
+    const before = conversations.appendActivityWithTimestamp(first.id, 'fsRead', 'a.ts', 'a', 1000);
+    const after = conversations.appendActivityWithTimestamp(second.id, 'fsRead', 'a.ts', 'a', 1000);
+
+    assert.notEqual(before.id, after.id);
+    assert.equal(conversations.listActivities(first.id).length, 1);
+    assert.equal(conversations.listActivities(second.id).length, 1);
+  });
+});
+
 test('a fresh conversation has no engine session', async () => {
   await withTempDb(async (handle) => {
     new SessionRepository(handle.db).persistApproved(session);
