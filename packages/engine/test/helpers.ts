@@ -1,6 +1,6 @@
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { delimiter, dirname, join } from 'node:path';
+import { delimiter, join } from 'node:path';
 
 const isWindows = process.platform === 'win32';
 
@@ -57,7 +57,13 @@ export async function withEmptyPath<T>(run: () => Promise<T>): Promise<T> {
     ? [join(process.env['SystemRoot'] ?? 'C:\\Windows', 'System32')]
     : ['/usr/bin', '/bin'];
 
-  process.env['PATH'] = [dir, dirname(process.execPath), ...system].join(delimiter);
+  if (isWindows) {
+    await writeFile(join(dir, 'node.cmd'), `@call "${process.execPath}" %*\r\n`, 'utf8');
+  } else {
+    await symlink(process.execPath, join(dir, 'node'));
+  }
+
+  process.env['PATH'] = [dir, ...system].join(delimiter);
 
   try {
     return await run();

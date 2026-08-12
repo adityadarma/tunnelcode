@@ -10,53 +10,7 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
-### Changed
-
-- The token pill now climbs while an answer is being written, instead of appearing only
-  once the turn is over. OpenCode, Codex, Claude Code and Antigravity all report what
-  they have spent as they work, and those figures are forwarded once a second. The `in`
-  and `out` figures are the running turn's, and `total` is everything this conversation
-  has spent including that turn, so both move while you watch. Kiro and Copilot report
-  only when a turn ends, and Cursor reports nothing, so on those the pill behaves as
-  before.
-
-  A reload mid-turn keeps the running turn's figures, because the latest ones are stored
-  as they move. What the conversation is charged is still written once, when the turn
-  ends, so a turn that reported ten times is not billed ten times.
-
-  The tooltip says whether the figures are settled: while a turn runs it reads "This
-  turn" and adds that the engine may still revise them. Nothing is estimated — a count
-  is shown only where an engine reported one. See ADR-055.
-
-### Fixed
-
-- A pairing code no longer appears after a browser has reconnected. The terminal used to
-  show the QR, the code and the link about fifteen seconds after a resumed session was
-  approved and already answering prompts, saying nothing had reconnected while the phone
-  was online. The wait for a returning browser was started while that browser's approval
-  number was on screen, because the server asked to resume before it answered the CLI's
-  registration, and nothing ended that wait once the session resumed. The server now
-  answers registration first, and the terminal will not wait for a browser that is
-  already at the door or connected.
-
-- Approving from a piped stdin works again, which is what a script or a test uses. The
-  question was printed and every answer sent to it was ignored, because the menu leaves
-  stdin paused on purpose and a paused stream does not start flowing again just because
-  something listens to it. Approving in a real terminal was never affected.
-
-- An approval request now always raises a notification. Before this, a notification was
-  only sent when the server believed nobody was watching, and a background tab counted
-  as watching even after the browser had frozen it: the tab ran no code, the server sent
-  no push, and an approval that holds the agent still was announced nowhere until it
-  expired into a refusal five minutes later. This is why a notification sometimes never
-  arrived when a second tab was open in the same browser.
-
-  Notifications are now sent from both the server and the open page, for every event,
-  whatever is on screen. They still collapse into one notification per conversation, and
-  only the first of them makes a sound, so the same request is not announced twice. The
-  trade is that a finished answer or an approval is also announced while you are looking
-  at it. Notifications for an approval are dismissed when it is answered, wherever it was
-  answered from. See ADR-054.
+## [0.4.0] - 2026-08-12
 
 ### Added
 
@@ -112,6 +66,22 @@ to the version it ships as and leaves an empty one behind.
   reported the same way rather than as an empty list.
 
 ### Changed
+
+- The token pill now climbs while an answer is being written, instead of appearing only
+  once the turn is over. OpenCode, Codex, Claude Code and Antigravity all report what
+  they have spent as they work, and those figures are forwarded once a second. The `in`
+  and `out` figures are the running turn's, and `total` is everything this conversation
+  has spent including that turn, so both move while you watch. Kiro and Copilot report
+  only when a turn ends, and Cursor reports nothing, so on those the pill behaves as
+  before.
+
+  A reload mid-turn keeps the running turn's figures, because the latest ones are stored
+  as they move. What the conversation is charged is still written once, when the turn
+  ends, so a turn that reported ten times is not billed ten times.
+
+  The tooltip says whether the figures are settled: while a turn runs it reads "This
+  turn" and adds that the engine may still revise them. Nothing is estimated — a count
+  is shown only where an engine reported one. See ADR-055.
 
 - **Deprecated, not yet breaking.** A device now registers its models as
   `{ id, label }` rather than as bare strings, and reports a label for each engine.
@@ -193,8 +163,35 @@ to the version it ships as and leaves an empty one behind.
 - The database is backed up to a `.pre-migration` file before migrations run, so a
   bad upgrade can be rolled back by restoring that copy.
 
-
 ### Fixed
+
+- A pairing code no longer appears after a browser has reconnected. The terminal used to
+  show the QR, the code and the link about fifteen seconds after a resumed session was
+  approved and already answering prompts, saying nothing had reconnected while the phone
+  was online. The wait for a returning browser was started while that browser's approval
+  number was on screen, because the server asked to resume before it answered the CLI's
+  registration, and nothing ended that wait once the session resumed. The server now
+  answers registration first, and the terminal will not wait for a browser that is
+  already at the door or connected.
+
+- Approving from a piped stdin works again, which is what a script or a test uses. The
+  question was printed and every answer sent to it was ignored, because the menu leaves
+  stdin paused on purpose and a paused stream does not start flowing again just because
+  something listens to it. Approving in a real terminal was never affected.
+
+- An approval request now always raises a notification. Before this, a notification was
+  only sent when the server believed nobody was watching, and a background tab counted
+  as watching even after the browser had frozen it: the tab ran no code, the server sent
+  no push, and an approval that holds the agent still was announced nowhere until it
+  expired into a refusal five minutes later. This is why a notification sometimes never
+  arrived when a second tab was open in the same browser.
+
+  Notifications are now sent from both the server and the open page, for every event,
+  whatever is on screen. They still collapse into one notification per conversation, and
+  only the first of them makes a sound, so the same request is not announced twice. The
+  trade is that a finished answer or an approval is also announced while you are looking
+  at it. Notifications for an approval are dismissed when it is answered, wherever it was
+  answered from. See ADR-054.
 
 - A tool call Antigravity refused now raises a notification while the page is open in
   another tab. Antigravity is headless and cannot ask, so a call it will not make is
