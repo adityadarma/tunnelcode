@@ -12,6 +12,35 @@ to the version it ships as and leaves an empty one behind.
 
 ## [0.4.0] - 2026-08-12
 
+This release does not upgrade an existing deployment on its own. Four things break, and
+two of them break quietly: read this before starting it against data from 0.3.16. Each
+item is written out in full under `Changed`.
+
+### Breaking changes
+
+- **VAPID keys are now configuration, not state.** Web push signing keys are read from
+  `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`, and the server refuses to start without
+  them. Carry the existing key over from the `push_keys` table, or generate a fresh pair
+  and expect every browser to ask for notification permission again. `push_keys` is no
+  longer part of the schema.
+
+- **A database from 0.3.16 is not migrated, and nothing says so.** The sixteen migrations
+  were squashed into one `0000_initial`, which is stamped older than everything such a
+  database has already applied, so the migrator finds no work and the server starts on
+  the old schema. Notifications and the token pill then fail on the first request that
+  touches them. Start on an empty data directory, or convert the old file by hand as
+  described below.
+
+- **The compose data mount was wrong and is now right.** `./data` is mounted at
+  `/app/data` and `.env` is read through `env_file`. An existing compose deployment
+  comes up on an empty database, with its real one still in the anonymous volume the
+  old `./data:/data` mount left behind. Copy that out before removing the container.
+
+- **Paths in this repo moved.** `apps/tunnelcode-cli` is now `apps/cli`,
+  `apps/tunnelcode-server` is now `apps/server`, and the workspace is driven by pnpm.
+  Anything that names those paths needs updating. The published package name and the
+  image name are unchanged, so installing and running TunnelCode is unaffected.
+
 ### Added
 
 - Cursor Agent CLI is supported as a seventh engine, selectable in Setup and in the
