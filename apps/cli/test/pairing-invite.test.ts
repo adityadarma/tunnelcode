@@ -92,24 +92,72 @@ function startCli(fixture: Fixture): ChildProcess {
  * is absent as in what is there.
  */
 async function readUntil(child: ChildProcess, pattern: RegExp): Promise<string> {
-  return await new Promise<string>((resolve, reject) => {
-    let seen = '';
-    const timer = setTimeout(() => {
-      reject(new Error(`Timed out waiting for ${String(pattern)}. Saw: ${seen}`));
-    }, 20000);
+  return await collect(child).until(pattern);
+}
 
-    const onData = (chunk: Buffer): void => {
-      seen += chunk.toString('utf8');
+/**
+ * Everything the CLI has written so far, and a way to wait for more.
+ *
+ * Attached once per child and remembered on it, because a test that waits twice is
+ * still reading one transcript: listeners added for the second wait would start from
+ * empty and miss a line that had already gone by.
+ */
+interface Collector {
+  readonly text: () => string;
+  readonly until: (pattern: RegExp) => Promise<string>;
+}
 
-      if (pattern.test(seen)) {
-        clearTimeout(timer);
-        resolve(seen);
-      }
-    };
+const collectors = new WeakMap<ChildProcess, Collector>();
 
-    child.stdout?.on('data', onData);
-    child.stderr?.on('data', onData);
-  });
+function collect(child: ChildProcess): Collector {
+  const existing = collectors.get(child);
+
+  if (existing !== undefined) {
+    return existing;
+  }
+
+  let seen = '';
+  const waiters = new Set<(text: string) => void>();
+
+  const onData = (chunk: Buffer): void => {
+    seen += chunk.toString('utf8');
+
+    for (const notify of [...waiters]) {
+      notify(seen);
+    }
+  };
+
+  child.stdout?.on('data', onData);
+  child.stderr?.on('data', onData);
+
+  const collector: Collector = {
+    text: () => seen,
+    until: async (pattern) =>
+      await new Promise<string>((resolve, reject) => {
+        const finish = (text: string): void => {
+          if (!pattern.test(text)) {
+            return;
+          }
+
+          clearTimeout(timer);
+          waiters.delete(finish);
+          resolve(text);
+        };
+
+        const timer = setTimeout(() => {
+          waiters.delete(finish);
+          reject(new Error(`Timed out waiting for ${String(pattern)}. Saw: ${seen}`));
+        }, 20000);
+
+        waiters.add(finish);
+        // Checked against what is already there, so a line that arrived before this
+        // wait started still counts.
+        finish(seen);
+      }),
+  };
+
+  collectors.set(child, collector);
+  return collector;
 }
 
 /**
@@ -192,6 +240,76 @@ test('a workspace with a live session waits for it instead of offering a code', 
       }
     });
   });
+});
+
+/**
+ * A resumed session must never end up with a pairing code under it.
+ *
+ * The order here is the one that caused it: the ask arrives before the answer to
+ * register, so the terminal learns there is a session to wait for while the browser
+ * holding it is already at the door. The wait that started then ran to its end and
+ * printed a code for a session that was connected and working.
+ */
+test('a browser approved while registering does not get a code printed after it', async () => {
+  const server = new WebSocketServer({ port: 0, path: '/ws/cli' });
+  const sockets: WebSocket[] = [];
+
+  server.on('connection', (socket) => {
+    sockets.push(socket);
+    socket.on('message', (raw: Buffer) => {
+      const message = JSON.parse(raw.toString('utf8')) as { type: string };
+
+      if (message.type === 'register') {
+        socket.send(
+          JSON.stringify({
+            type: 'resume_request',
+            requestId: 'request-1',
+            approvalNumber: '1588',
+          }),
+        );
+        socket.send(
+          JSON.stringify({ type: 'registered', deviceId: 'device-1', resumableSessions: 1 }),
+        );
+        return;
+      }
+
+      if (message.type === 'approve') {
+        socket.send(JSON.stringify({ type: 'paired', deviceId: 'device-1' }));
+      }
+    });
+  });
+
+  await new Promise<void>((resolve) => {
+    server.on('listening', resolve);
+  });
+
+  const address = server.address();
+  const port = typeof address === 'object' && address !== null ? address.port : 0;
+
+  try {
+    await withFixture(`http://127.0.0.1:${String(port)}`, async (fixture) => {
+      const child = startCli(fixture);
+
+      try {
+        await readUntil(child, /Reconnect request/);
+        child.stdin?.write('y\n');
+        const output = await readUntil(child, /Device connected/);
+
+        // The announcement and the timer that prints the code are created together,
+        // so a transcript without the announcement cannot grow a code later.
+        assert.doesNotMatch(output, /Waiting for the paired browser to reconnect/);
+        assert.doesNotMatch(output, /Pairing Code Generated/);
+        assert.doesNotMatch(output, /Nothing reconnected/);
+      } finally {
+        child.kill('SIGKILL');
+      }
+    });
+  } finally {
+    for (const socket of sockets) {
+      socket.terminate();
+    }
+    server.close();
+  }
 });
 
 test('a server too old to report live sessions still shows the code', async () => {

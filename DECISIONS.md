@@ -2541,8 +2541,17 @@ this device, and the terminal decides from it what to show:
 The code still exists in either case, is still generated once per run, and is still
 what a new browser would use. Only whether it is shown changes.
 
-A resumable session that nobody claims within ten seconds shows the code, prefaced by
-the reason. A resume that is refused in the terminal shows it too.
+A resumable session that nobody claims within fifteen seconds shows the code, prefaced
+by the reason. A resume that is refused in the terminal shows it too.
+
+`registered` is sent before any `resume_request` for that connection, and the terminal
+never starts the wait while an approval is on screen or while a browser is connected.
+Both are needed for the same reason: the two messages are answers to different things
+and arrive together. Asked in the other order, the terminal learned there was a session
+to wait for while the browser holding it was already being approved, started the wait,
+and fifteen seconds later put a QR code and a pairing code underneath a session that was
+connected and answering prompts — telling the user nothing had reconnected while their
+phone was online.
 
 Model lists are remembered between runs in `engines.json`, beside the settings, keyed
 on the engine name and the resolved path of its executable, for twelve hours and for

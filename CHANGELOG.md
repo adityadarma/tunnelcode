@@ -30,6 +30,20 @@ to the version it ships as and leaves an empty one behind.
 
 ### Fixed
 
+- A pairing code no longer appears after a browser has reconnected. The terminal used to
+  show the QR, the code and the link about fifteen seconds after a resumed session was
+  approved and already answering prompts, saying nothing had reconnected while the phone
+  was online. The wait for a returning browser was started while that browser's approval
+  number was on screen, because the server asked to resume before it answered the CLI's
+  registration, and nothing ended that wait once the session resumed. The server now
+  answers registration first, and the terminal will not wait for a browser that is
+  already at the door or connected.
+
+- Approving from a piped stdin works again, which is what a script or a test uses. The
+  question was printed and every answer sent to it was ignored, because the menu leaves
+  stdin paused on purpose and a paused stream does not start flowing again just because
+  something listens to it. Approving in a real terminal was never affected.
+
 - An approval request now always raises a notification. Before this, a notification was
   only sent when the server believed nobody was watching, and a background tab counted
   as watching even after the browser had frozen it: the tab ran no code, the server sent

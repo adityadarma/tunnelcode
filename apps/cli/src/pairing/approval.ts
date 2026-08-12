@@ -79,6 +79,15 @@ function readKey(stdin: NodeJS.ReadStream): Promise<boolean> {
 }
 
 function readLine(stdin: NodeJS.ReadStream): Promise<boolean> {
+  // The menu ran before this and left stdin paused and unref'd, both deliberately.
+  // A stream paused by hand does not start flowing again just because something
+  // listens for data, so without these the question would sit there unanswerable:
+  // every keypress from a pipe would be held in the stream and read as nobody being
+  // there. Only reachable from a script or a test, since a terminal takes the raw
+  // path above.
+  stdin.ref();
+  stdin.resume();
+
   return new Promise((resolve) => {
     const finish = (approved: boolean): void => {
       stdin.off('data', onData);

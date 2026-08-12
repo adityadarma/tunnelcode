@@ -83,6 +83,16 @@ interface SessionState {
   invited: boolean;
   /** Cancels the wait for a resume, when something arrives before it runs out. */
   cancelResumeWait: (() => void) | undefined;
+  /**
+   * Whether an approval question is on screen right now.
+   *
+   * The server asks a returning browser's question before it answers register, so the
+   * terminal can learn there is a resumable session while the user is already looking
+   * at that session's number. Waiting for a browser that is standing at the door is
+   * not something to announce, and the code that wait ends in must not appear over an
+   * approved session.
+   */
+  approving: boolean;
 }
 
 /**
@@ -145,6 +155,7 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
     client: undefined,
     invited: false,
     cancelResumeWait: undefined,
+    approving: false,
   };
   let delay = RECONNECT_MIN_MS;
 
@@ -177,7 +188,12 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
    * asks, and the user is left needing exactly the code this was holding back.
    */
   const awaitResume = (count: number): void => {
-    if (state.invited || state.cancelResumeWait !== undefined) {
+    // A browser that is already paired, or one whose number is on screen waiting to
+    // be approved, is not something to wait for: it is here. The server asks that
+    // question before it answers register, so this runs with the approval prompt
+    // already up, and starting the wait would end in a code being printed over a
+    // session the user just resumed.
+    if (state.invited || state.paired || state.approving || state.cancelResumeWait !== undefined) {
       return;
     }
 
@@ -191,6 +207,14 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
 
     const timer = setTimeout(() => {
       state.cancelResumeWait = undefined;
+
+      // Checked again rather than trusted from when the timer was set: something
+      // arrived in the meantime if a browser paired or is being approved right now,
+      // and the code exists for the case where nobody did.
+      if (state.paired || state.approving || state.stopping) {
+        return;
+      }
+
       writeOut('');
       writeOut(`${dim('[Pairing]')} Nothing reconnected, so here is the code for a new browser.`);
       invite();
@@ -488,14 +512,19 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
       // Somebody is at the door, so the wait for a returning browser is over. Without
       // this the code could land on screen in the middle of the approval prompt.
       state.cancelResumeWait?.();
+      state.approving = true;
 
-      const approved = await askApproval(approvalNumber);
-      writeOut(
-        approved
-          ? `${green('✔')} ${greenBold('Approved! Session established.')}`
-          : `${red('✗')} Rejected.`,
-      );
-      return approved;
+      try {
+        const approved = await askApproval(approvalNumber);
+        writeOut(
+          approved
+            ? `${green('✔')} ${greenBold('Approved! Session established.')}`
+            : `${red('✗')} Rejected.`,
+        );
+        return approved;
+      } finally {
+        state.approving = false;
+      }
     },
 
     // A browser that paired before this process started. Approving it does not
@@ -505,22 +534,30 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
       // The browser this run was waiting for. Ends the wait rather than letting the
       // code appear underneath a question the user is answering.
       state.cancelResumeWait?.();
+      // Held for the whole question, because register is answered after this is
+      // asked: the wait this would otherwise start is a wait for the browser whose
+      // number is on screen. See ADR-053.
+      state.approving = true;
 
-      const approved = await askApproval(approvalNumber, 'resume');
-      writeOut(
-        approved
-          ? `${green('✔')} ${greenBold('Approved! Session resumed.')}`
-          : `${red('✗')} Rejected. That browser has to pair again.`,
-      );
+      try {
+        const approved = await askApproval(approvalNumber, 'resume');
+        writeOut(
+          approved
+            ? `${green('✔')} ${greenBold('Approved! Session resumed.')}`
+            : `${red('✗')} Rejected. That browser has to pair again.`,
+        );
 
-      // Refused, so pairing is the only way back in and the code is what does it.
-      // Held back until now because a resume needed nothing scanned.
-      if (!approved) {
-        writeOut('');
-        options.invite();
+        // Refused, so pairing is the only way back in and the code is what does it.
+        // Held back until now because a resume needed nothing scanned.
+        if (!approved) {
+          writeOut('');
+          options.invite();
+        }
+
+        return approved;
+      } finally {
+        state.approving = false;
       }
-
-      return approved;
     },
 
     onStop: (reason) => {
@@ -536,6 +573,10 @@ async function runConnection(options: ConnectionOptions): Promise<boolean> {
 
     onPaired: () => {
       state.paired = true;
+      // A wait that is still running has been answered by this: the browser it was
+      // waiting for is connected, and the code that wait ends in would be an
+      // instruction to pair a session that is already running.
+      state.cancelResumeWait?.();
       idle.reset();
       fileWatcher.start();
       writeOut('');

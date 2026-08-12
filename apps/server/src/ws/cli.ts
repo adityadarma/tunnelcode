@@ -162,6 +162,21 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
           // earlier session learn it is reachable again after a reconnect.
           relay.status(known, true);
 
+          // What the terminal needs to decide whether to put a pairing code on
+          // screen. Counted from the live rows rather than from `known`, which
+          // includes the ended ones: those keep their history and resume nothing.
+          //
+          // Sent before any resume is asked for, so the terminal has the answer to
+          // register before it has a question to put in front of the user. Asked
+          // first, the CLI learned there was a session to wait for while the browser
+          // holding it was already being approved, and started a wait that ended in a
+          // pairing code printed under a connected session. See ADR-053.
+          reply({
+            type: 'registered',
+            deviceId: device.id,
+            resumableSessions: sessionRepository.listLiveSessionIdsByDevice(device.id).length,
+          });
+
           // A browser is already sitting on one of these sessions, and after a
           // restart nobody has said it may still drive this machine. Asking here
           // rather than waiting for its next prompt means the phone shows the number
@@ -172,15 +187,6 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
             }
           }
 
-          // What the terminal needs to decide whether to put a pairing code on
-          // screen. Counted from the live rows rather than from `known`, which
-          // includes the ended ones: those keep their history and resume nothing.
-          // See ADR-053.
-          reply({
-            type: 'registered',
-            deviceId: device.id,
-            resumableSessions: sessionRepository.listLiveSessionIdsByDevice(device.id).length,
-          });
           return;
         }
 
