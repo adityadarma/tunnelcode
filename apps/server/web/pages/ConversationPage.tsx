@@ -21,6 +21,7 @@ import type { PermissionAsk, PermissionDecision } from '../components/Permission
 import { ResumeApproval } from '../components/ResumeApproval.js';
 import { ThemeToggle } from '../components/ThemeToggle.js';
 import {
+  dismissPermission,
   notifyBlocked,
   notifyPermission,
   notifyTurnDone,
@@ -213,6 +214,19 @@ export function ConversationPage({
    * to explain why. See ADR-022.
    */
   const [asks, setAsks] = useState<PermissionAsk[]>([]);
+  /**
+   * What the turn that is running has spent so far, as the engine last reported it.
+   *
+   * Held apart from the conversation's stored figures because the two are different
+   * things: the conversation's total is what it has been charged, and this is a turn
+   * still in progress that has not been charged yet. Added to the total on screen so
+   * the pill counts what is happening now, and dropped when the turn ends, at which
+   * point the stored total carries it instead. See ADR-055.
+   */
+  const [liveUsage, setLiveUsage] = useState<
+    | { conversationId: string; turnId: string; inputTokens: number; outputTokens: number }
+    | undefined
+  >(undefined);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => readStoredTheme() ?? 'dark');
   const [error, setError] = useState<string | undefined>(undefined);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -328,6 +342,11 @@ export function ConversationPage({
         // what stops a reconnect from leaving an answered ask on screen.
         setAsks([]);
 
+        // The same reasoning for what a turn is spending: the figures come from the
+        // server, and the next report replaces them. Kept, they would be added to a
+        // total that may already count the turn they belong to.
+        setLiveUsage(undefined);
+
         // Thinking is not kept for a browser that was away: the fragments are
         // relayed and forgotten, and the stored block arrives once the model stops
         // thinking. Left as it was, a reconnect would show a live thought nothing
@@ -398,6 +417,10 @@ export function ConversationPage({
         }
 
         setRunningTurn({ conversationId: event.conversationId, turnId: event.turnId });
+
+        // A new turn has spent nothing that anybody has reported yet, so what the
+        // last one was spending is no longer what is happening.
+        setLiveUsage(undefined);
 
         // Raises the indicator for the conversation on screen, including in a second
         // tab that did not send the prompt. Left alone when text has already arrived,
@@ -482,7 +505,7 @@ export function ConversationPage({
               String(event.tool),
               event.reason,
               typeof event.conversationId === 'string' ? event.conversationId : undefined,
-              event.conversationId !== activeIdRef.current,
+              blockKey,
             );
           }
         }
@@ -576,21 +599,16 @@ export function ConversationPage({
           return;
         }
 
-        // Only when this tab is not what the user is looking at, which the
-        // notification itself decides: the card is on screen otherwise, and telling
-        // somebody about something in front of them is noise. Tracked separately
-        // from the cards because an ask is replayed on every attach, so a reconnect
-        // must not notify a second time.
+        // Raised whatever this tab is showing and whatever the user is looking at:
+        // the agent is stopped until somebody answers, and judging that the card is
+        // already in front of them is how an ask went unannounced. Tracked here
+        // because an ask is replayed on every attach, so a reconnect must not notify
+        // a second time. See ADR-054.
         const askKey = `${ask.turnId}:${ask.permissionId}`;
 
         if (!notifiedAsksRef.current.has(askKey)) {
           notifiedAsksRef.current.add(askKey);
-          notifyPermission(
-            ask.title,
-            ask.target,
-            ask.conversationId,
-            ask.conversationId !== activeIdRef.current,
-          );
+          notifyPermission(ask.title, ask.target, ask.conversationId, ask.permissionId);
         }
 
         // Replayed on every attach, so the same ask can arrive more than once.
@@ -614,7 +632,52 @@ export function ConversationPage({
               item.turnId !== String(event.turnId),
           ),
         );
+
+        // The notification for it stays on screen until something takes it down, and
+        // an ask that has been dealt with must not keep asking. See ADR-054.
+        dismissPermission(
+          String(event.permissionId),
+          typeof event.conversationId === 'string' ? event.conversationId : undefined,
+        );
         return;
+
+      // What the running turn has spent so far. Written onto the conversation it
+      // belongs to, whichever one is on screen, so the pill climbs while the answer
+      // is being written instead of appearing once it is finished.
+      //
+      // Nothing is remembered beyond this: the figures replace what was there, which
+      // is what the turn has spent, and `turn_done` settles them. A browser that
+      // arrives mid-turn shows the stored figures until the next one of these. See
+      // ADR-055.
+      case 'turn_usage': {
+        const spent = readUsage(event.usage);
+
+        if (spent === undefined || typeof event.conversationId !== 'string') {
+          return;
+        }
+
+        setConversations((current) =>
+          current.map((item) =>
+            item.id === event.conversationId
+              ? {
+                  ...item,
+                  lastInputTokens: spent.inputTokens,
+                  lastOutputTokens: spent.outputTokens,
+                }
+              : item,
+          ),
+        );
+
+        // Kept separately as well, because the total on screen has to count a turn the
+        // conversation has not been charged for yet.
+        setLiveUsage({
+          conversationId: event.conversationId,
+          turnId: String(event.turnId),
+          inputTokens: spent.inputTokens,
+          outputTokens: spent.outputTokens,
+        });
+        return;
+      }
 
       // Sent for every turn that ends, including one that failed, and for turns in
       // conversations this browser is not watching. Clearing here is what frees
@@ -625,7 +688,7 @@ export function ConversationPage({
         notifyTurnDone(
           lastAnswerRef.current === '' ? 'The agent finished working.' : lastAnswerRef.current,
           typeof event.conversationId === 'string' ? event.conversationId : undefined,
-          event.conversationId !== activeIdRef.current,
+          typeof event.turnId === 'string' ? event.turnId : undefined,
         );
         lastAnswerRef.current = '';
 
@@ -663,6 +726,12 @@ export function ConversationPage({
         setRunningTurn(undefined);
         setStreaming(undefined);
         streamedRef.current = '';
+
+        // The turn has been charged now, so the stored total carries what this was
+        // standing in for. Left here it would be counted twice.
+        setLiveUsage((current) =>
+          current === undefined || current.turnId === String(event.turnId) ? undefined : current,
+        );
 
         // Nothing more is coming to close this off. The turn stores what it was
         // thinking as it ends, so anything left here is already on the timeline.
@@ -928,11 +997,31 @@ export function ConversationPage({
       ? { inputTokens: active.lastInputTokens, outputTokens: active.lastOutputTokens }
       : undefined;
 
-  /** What the conversation has spent in all, on the same terms. */
+  /** What the running turn has spent, when the one running belongs to this conversation. */
+  const spendingNow =
+    liveUsage !== undefined && liveUsage.conversationId === activeId ? liveUsage : undefined;
+
+  /**
+   * What the conversation has spent in all, on the same terms, the turn in progress
+   * included.
+   *
+   * The stored total is only what the conversation has been charged, and a turn is
+   * charged when it ends, so on its own it would sit still through the very turn the
+   * user is watching. Adding what that turn has reported is what makes this the whole
+   * of the conversation so far; it lands on the stored figure when the turn ends, and
+   * the addition is dropped at the same moment so nothing is counted twice.
+   */
   const spentInAll =
     typeof active?.inputTokens === 'number' && typeof active.outputTokens === 'number'
-      ? { inputTokens: active.inputTokens, outputTokens: active.outputTokens }
-      : undefined;
+      ? {
+          inputTokens: active.inputTokens + (spendingNow?.inputTokens ?? 0),
+          outputTokens: active.outputTokens + (spendingNow?.outputTokens ?? 0),
+        }
+      : spendingNow !== undefined
+        ? // The first turn of a conversation nobody had counted: there is no stored
+          // total to add to, and what this turn has spent is the whole of it.
+          { inputTokens: spendingNow.inputTokens, outputTokens: spendingNow.outputTokens }
+        : undefined;
 
   /**
    * Changes the model of the open conversation.
@@ -1239,6 +1328,10 @@ export function ConversationPage({
                   outputTokens={lastTurn.outputTokens}
                   totalInputTokens={spentInAll?.inputTokens}
                   totalOutputTokens={spentInAll?.outputTokens}
+                  // While a turn is running these figures are that turn's, revised as
+                  // the engine reports it, so the tooltip must not call them the last
+                  // turn's and must say they are not final. See ADR-055.
+                  live={spendingNow !== undefined}
                 />
               )}
             </>

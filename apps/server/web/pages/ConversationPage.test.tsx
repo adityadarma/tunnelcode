@@ -637,6 +637,62 @@ describe('ConversationPage token counts', () => {
       expect(screen.getByText('6.0k in · 20 out · 6.0k total')).toBeDefined();
     });
   });
+
+  test('a turn that is still running shows what it has spent so far', async () => {
+    stubFetchWith({
+      ...conversation,
+      inputTokens: 6000,
+      outputTokens: 20,
+      lastInputTokens: 6000,
+      lastOutputTokens: 20,
+    });
+
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+
+    await loadPage();
+
+    // Reported as the engine revises it, so the answer says what it is costing while
+    // it is being written. The total counts the running turn as well: what the
+    // conversation has been charged sits still until the turn ends, and on its own it
+    // would not move through the very turn being watched. See ADR-055.
+    FakeSocket.latest?.deliver({
+      type: 'turn_usage',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      usage: { inputTokens: 8000, outputTokens: 25 },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('8.0k in · 25 out · 14.0k total')).toBeDefined();
+    });
+
+    // Replaced rather than added to, so a second report does not charge the turn
+    // twice.
+    FakeSocket.latest?.deliver({
+      type: 'turn_usage',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      usage: { inputTokens: 8200, outputTokens: 31 },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('8.2k in · 31 out · 14.3k total')).toBeDefined();
+    });
+
+    // The turn is charged now, so the stored total carries it and what was standing in
+    // for it is dropped. Counted twice, this would read as 22.5k.
+    FakeSocket.latest?.deliver({
+      type: 'turn_done',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      usage: { inputTokens: 8200, outputTokens: 31 },
+      total: { inputTokens: 14200, outputTokens: 51 },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('8.2k in · 31 out · 14.3k total')).toBeDefined();
+    });
+  });
 });
 
 describe('ConversationPage stopping an answer', () => {

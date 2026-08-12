@@ -80,7 +80,20 @@ interface ContentBlock {
 
 /** Carried by assistant lines and by the user lines that report tool results. */
 interface LineMessage {
+  /** The message's own id, which is what keeps one from being charged twice. */
+  id?: unknown;
   content?: unknown;
+  /**
+   * What the request behind this message cost.
+   *
+   * Reported per assistant message, which is what makes a running figure possible at
+   * all: the result line carries the turn's total and arrives only once the turn is
+   * over. See ADR-055.
+   */
+  usage?: {
+    input_tokens?: unknown;
+    output_tokens?: unknown;
+  };
 }
 
 /** The ask itself, carried by a control_request line. */
@@ -489,6 +502,30 @@ export class ClaudeEngine implements Engine {
     const ask = options.requestPermission;
     const interactive = ask !== undefined;
 
+    /**
+     * What each request of this turn has cost, by the message that reported it.
+     *
+     * Keyed and replaced rather than added up as lines arrive, because a message can be
+     * reported more than once and a request charged twice would climb past what the
+     * turn spent. Summed across messages, since a turn that stopped to run tools made a
+     * request for each of them. Replaced wholesale by the result line's own figures
+     * when the turn ends, which is the count Claude settles on. See ADR-055.
+     */
+    const spend = new Map<string, { input: number; output: number }>();
+
+    /** The turn's spend so far, which is what every usage event carries. */
+    const spent = (): { input: number; output: number } => {
+      let input = 0;
+      let output = 0;
+
+      for (const message of spend.values()) {
+        input += message.input;
+        output += message.output;
+      }
+
+      return { input, output };
+    };
+
     let channel: ProcessChannel | undefined;
 
     /**
@@ -648,13 +685,40 @@ export class ClaudeEngine implements Engine {
       // One assistant message can carry several tool calls, so every block that
       // is one becomes its own activity.
       if (parsed.type === 'assistant') {
+        const events: EngineEvent[] = [];
+
+        // What this request cost, recorded against the message that reported it. A
+        // turn that stops to run tools answers in several messages, so this is what
+        // lets the figures climb while the work is happening instead of appearing once
+        // it is finished. See ADR-055.
+        const usage = parsed.message?.usage;
+
+        if (
+          usage !== undefined &&
+          typeof usage.input_tokens === 'number' &&
+          typeof usage.output_tokens === 'number'
+        ) {
+          // A message without an id cannot be recognised again, so it is counted on its
+          // own key rather than merged into another message's spend.
+          const key =
+            typeof parsed.message?.id === 'string' && parsed.message.id !== ''
+              ? parsed.message.id
+              : `line-${String(spend.size)}`;
+
+          spend.set(key, { input: usage.input_tokens, output: usage.output_tokens });
+
+          const total = spent();
+
+          if (total.input > 0 || total.output > 0) {
+            events.push({ type: 'usage', inputTokens: total.input, outputTokens: total.output });
+          }
+        }
+
         const content = parsed.message?.content;
 
         if (!Array.isArray(content)) {
-          return undefined;
+          return events.length === 0 ? undefined : events;
         }
-
-        const activities: EngineEvent[] = [];
 
         for (const block of content as ContentBlock[]) {
           if (block.type !== 'tool_use' || typeof block.name !== 'string' || block.name === '') {
@@ -670,7 +734,7 @@ export class ClaudeEngine implements Engine {
 
           const target = readActivityTarget(block.input);
 
-          activities.push({
+          events.push({
             type: 'activity',
             id,
             tool: block.name,
@@ -678,7 +742,7 @@ export class ClaudeEngine implements Engine {
           });
         }
 
-        return activities.length === 0 ? undefined : activities;
+        return events.length === 0 ? undefined : events;
       }
 
       if (parsed.type !== 'stream_event') {

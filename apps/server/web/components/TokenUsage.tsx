@@ -3,6 +3,16 @@ interface TokenUsageProps {
   inputTokens: number;
   outputTokens: number;
   /**
+   * Whether the figures belong to a turn that is still running.
+   *
+   * Only the wording depends on it, and the wording is where this belongs: the numbers
+   * themselves are what the engine reported and are not decorated. A running turn
+   * revises its counts as it goes, so calling them the last turn's would name the
+   * wrong turn, and presenting them as settled would hide that the engine can still
+   * correct them. See ADR-055.
+   */
+  live?: boolean;
+  /**
    * Every token the conversation has spent, when anything has been counted.
    *
    * Shown beside the turn's own figures rather than instead of them: every turn
@@ -26,13 +36,13 @@ function compact(n: number): string {
 }
 
 /**
- * Displays what the last turn spent, and what the conversation has spent in all,
- * next to the model picker.
+ * Displays what the turn spent, and what the conversation has spent in all, next to
+ * the model picker.
  *
- * Read from the conversation rather than from the turn that is running, which is why
- * it says "last turn": the figures survive a refresh and a switch between
- * conversations, and they stay on screen while the next turn works instead of
- * blinking out and back.
+ * The figures are held on the conversation rather than on the turn, so they survive a
+ * refresh and a switch between conversations and stay on screen once a turn is over
+ * instead of blinking out. While a turn runs they are that turn's, revised as the
+ * engine reports what it is spending, which is what `live` says. See ADR-055.
  *
  * Shown as a compact pill so it occupies no more space than the model name beside
  * it, with the full figures in the tooltip. Absent when the engine did not report
@@ -48,6 +58,7 @@ export function TokenUsage({
   outputTokens,
   totalInputTokens,
   totalOutputTokens,
+  live = false,
 }: TokenUsageProps): React.JSX.Element {
   const total =
     totalInputTokens !== undefined && totalOutputTokens !== undefined
@@ -55,7 +66,12 @@ export function TokenUsage({
       : undefined;
 
   const title = [
-    `Last turn — input: ${inputTokens.toLocaleString()} tokens · output: ${outputTokens.toLocaleString()} tokens`,
+    `${live ? 'This turn' : 'Last turn'} — input: ${inputTokens.toLocaleString()} tokens · output: ${outputTokens.toLocaleString()} tokens`,
+    ...(live
+      ? [
+          'The turn is still running, so these are what it has spent so far and the engine may revise them when it finishes.',
+        ]
+      : []),
     ...(totalInputTokens !== undefined && totalOutputTokens !== undefined
       ? [
           `Conversation — input: ${totalInputTokens.toLocaleString()} tokens · output: ${totalOutputTokens.toLocaleString()} tokens`,

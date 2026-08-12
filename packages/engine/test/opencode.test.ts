@@ -802,8 +802,16 @@ function spent(tokens: unknown, id = 'msg-1', sessionID = SESSION): unknown {
   };
 }
 
+/**
+ * What the turn finally reported spending.
+ *
+ * The last one rather than the first: the figures are reported as opencode revises
+ * them, so the earlier ones are a turn part way through. See ADR-055.
+ */
 const usageOf = (events: EngineEvent[]): Extract<EngineEvent, { type: 'usage' }> | undefined =>
-  events.find((event): event is Extract<EngineEvent, { type: 'usage' }> => event.type === 'usage');
+  events
+    .filter((event): event is Extract<EngineEvent, { type: 'usage' }> => event.type === 'usage')
+    .at(-1);
 
 test('what a turn cost is reported, cache and thinking included', async () => {
   await withFakeOpenCode(
@@ -836,6 +844,42 @@ test('a message updated twice is charged once', async () => {
     async (engine) => {
       const events = await collect(engine.prompt('hi', base));
       assert.deepEqual(usageOf(events), { type: 'usage', inputTokens: 8598, outputTokens: 20 });
+    },
+  );
+});
+
+test('what a turn is spending is reported while it runs, and only when it moves', async () => {
+  await withFakeOpenCode(
+    {
+      events: [
+        assistantMessage,
+        spent({ input: 6742, output: 0, reasoning: 0, cache: { read: 1856, write: 0 } }),
+        // The same figures again, which opencode repeats for a message it has revised
+        // in some other way. Nothing moved, so there is nothing to say twice.
+        spent({ input: 6742, output: 0, reasoning: 0, cache: { read: 1856, write: 0 } }),
+        delta('prt-1', 'OK'),
+        spent(RECORDED_TOKENS),
+        idle,
+      ],
+    },
+    async (engine) => {
+      const events = await collect(engine.prompt('hi', base));
+      const spends = events.filter((event) => event.type === 'usage');
+
+      // Held back until the end, a turn that takes minutes says nothing about what it
+      // is costing until it is too late to act on. See ADR-055.
+      assert.deepEqual(
+        spends.map((event) => [event.inputTokens, event.outputTokens]),
+        [
+          [8598, 0],
+          [8598, 20],
+        ],
+      );
+
+      assert.ok(
+        events.indexOf(spends[0] as EngineEvent) <
+          events.findIndex((event) => event.type === 'done'),
+      );
     },
   );
 });

@@ -45,4 +45,5 @@ export type {
   EngineModelPayload,
   ServerToBrowserMessage,
   ServerToCliMessage,
+  UsagePayload,
 } from './events.js';

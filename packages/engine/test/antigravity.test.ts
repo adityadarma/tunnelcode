@@ -196,6 +196,38 @@ test('the conversation id is reported so the next prompt can continue it', async
   assert.deepEqual(session, { type: 'session', id: '97b12807-37dd-4b16-9c5c-3350e57757f9' });
 });
 
+test('a step that reports its usage twice is charged once', async () => {
+  // Antigravity reports a step as ACTIVE and then as DONE, which is a fact the text
+  // handling already turns on. Added up per report, a step that named its usage on both
+  // would be charged twice and the figure would climb past what the turn spent, with
+  // nothing anywhere to say it had. See ADR-055.
+  const repeated = `#!/usr/bin/env node
+const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+const id = 'a1b2c3d4-0000-0000-0000-000000000000';
+out({ event: 'init', conversation_id: id, init: { cwd: '/tmp', tools: [], permission_mode: 'request-review' } });
+out({ event: 'step_update', step_update: { conversation_id: id, step_index: 2, state: 'ACTIVE', step_type: 'agent_response', usage: { input_tokens: 8842, output_tokens: 100 } } });
+out({ event: 'step_update', step_update: { conversation_id: id, step_index: 2, state: 'DONE', step_type: 'agent_response', text_delta: 'ok', usage: { input_tokens: 8842, output_tokens: 177 } } });
+out({ event: 'step_update', step_update: { conversation_id: id, step_index: 3, state: 'DONE', step_type: 'agent_response', usage: { input_tokens: 8884, output_tokens: 62 } } });
+out({ event: 'result', result: { conversation_id: id, status: 'SUCCESS', response: 'ok', num_turns: 1 } });
+process.exit(0);
+`;
+
+  const events = await collect(repeated);
+  const spends = events
+    .filter((event): event is Extract<EngineEvent, { type: 'usage' }> => event.type === 'usage')
+    .map((event) => [event.inputTokens, event.outputTokens]);
+
+  // The second report of step 2 revises it rather than adding to it, so the input is
+  // 8842 and not 17684, and the last figures for each step are what the turn spent.
+  assert.deepEqual(spends.at(-1), [8842 + 8884, 177 + 62]);
+  assert.deepEqual(spends, [
+    [8842, 100],
+    [8842, 177],
+    [17726, 239],
+    [17726, 239],
+  ]);
+});
+
 test('a thinking model reports its work but never its thinking', async () => {
   const events = await collect(THINKING_MODEL);
 

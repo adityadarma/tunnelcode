@@ -122,6 +122,62 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(handleAsset(request));
 });
 
+/**
+ * Events an open page has already announced, keyed by the event, with the time it
+ * said so.
+ *
+ * The server now pushes every notification whether or not a page is attached, because
+ * an attached tab may be one the browser has frozen. A page that is alive therefore
+ * announces the same event a moment before the push arrives, and this is how the push
+ * recognises it: same tag, so one notification either way, but the second one replaces
+ * the first in silence instead of alerting again. See ADR-054.
+ */
+const announced = new Map();
+
+/** How long an announcement counts for. Long enough to cover a slow push service. */
+const ANNOUNCED_TTL_MS = 60 * 1000;
+
+function forgetStaleAnnouncements(now) {
+  for (const [key, at] of announced) {
+    if (now - at > ANNOUNCED_TTL_MS) {
+      announced.delete(key);
+    }
+  }
+}
+
+/**
+ * Whether an open page has just announced this event.
+ *
+ * Only in memory: a worker that was restarted has forgotten, and then the push alerts
+ * for something the page already showed. That costs a second sound, which is the right
+ * way to be wrong when the alternative is an approval nobody hears.
+ */
+function alreadyAnnounced(key) {
+  if (typeof key !== 'string') {
+    return false;
+  }
+
+  const now = Date.now();
+  forgetStaleAnnouncements(now);
+
+  const at = announced.get(key);
+
+  return at !== undefined && now - at <= ANNOUNCED_TTL_MS;
+}
+
+self.addEventListener('message', (event) => {
+  const message = event.data;
+
+  if (message === null || typeof message !== 'object') {
+    return;
+  }
+
+  if (message.type === 'announced' && typeof message.key === 'string') {
+    announced.set(message.key, Date.now());
+    forgetStaleAnnouncements(Date.now());
+  }
+});
+
 /** What the server said, or an empty object when it said nothing readable. */
 function readPayload(data) {
   if (data === null) {
@@ -141,6 +197,10 @@ function readPayload(data) {
  * The payload was encrypted for this browser, so nothing between here and the
  * server could read it. A message that arrives without one still gets a
  * notification: a push a browser does not show is a permission browsers withdraw.
+ *
+ * Always shown, even for an event a page has already announced. A push that showed
+ * nothing is what browsers take the permission away for, so the duplicate is made
+ * silent rather than dropped.
  */
 self.addEventListener('push', (event) => {
   const payload = readPayload(event.data);
@@ -148,6 +208,7 @@ self.addEventListener('push', (event) => {
   const title = typeof payload.title === 'string' ? payload.title : 'TunnelCode';
   const body = typeof payload.body === 'string' ? payload.body : 'The agent needs you.';
   const kind = payload.kind === 'permission' || payload.kind === 'blocked' ? payload.kind : 'turn';
+  const key = typeof payload.key === 'string' ? payload.key : undefined;
 
   event.waitUntil(
     self.registration.showNotification(title, {
@@ -161,12 +222,18 @@ self.addEventListener('push', (event) => {
       // no sound and no banner, which for somebody who left the page is the same as
       // never having been told. The tag is there to avoid a screenful, not to hide
       // events behind one another.
-      renotify: true,
+      //
+      // Withheld for an event a page has already announced, which is the one case
+      // where the replacement is not news: alerting there would be the same ask
+      // sounding twice on one device.
+      renotify: !alreadyAnnounced(key),
       // An approval holds the agent still until it is answered, and a blocked call
       // ended the work, so both stay on screen. A finished answer does not need to
       // be dismissed by hand.
       requireInteraction: kind === 'permission' || kind === 'blocked',
-      data: { url: CONVERSATION_PATH },
+      // The event travels with the notification so the page can close this exact one
+      // when the ask it is about has been answered.
+      data: { url: CONVERSATION_PATH, ...(key === undefined ? {} : { key }) },
     }),
   );
 });

@@ -132,12 +132,12 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   // Waiting asks live here rather than in SQLite: one cannot outlive the turn it
   // belongs to, and a turn cannot outlive its CLI connection. See ADR-022.
   const permissions = new PermissionService();
-  // Only reaches a browser that is not connected, which is why it is given the
-  // registry: a page that is open shows an ask on the page. See ADR-045.
+  // Sent for every notification, whether or not a browser is attached: only the
+  // browser knows where the user is looking, and a frozen tab holds its socket open
+  // while running no code. See ADR-054.
   const push = new PushService({
     keys: options.vapidKeys,
     repository: pushRepository,
-    browsers,
     log: (message, error) => {
       app.log.warn({ err: error }, message);
     },

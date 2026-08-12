@@ -10,6 +10,40 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+### Changed
+
+- The token pill now climbs while an answer is being written, instead of appearing only
+  once the turn is over. OpenCode, Codex, Claude Code and Antigravity all report what
+  they have spent as they work, and those figures are forwarded once a second. The `in`
+  and `out` figures are the running turn's, and `total` is everything this conversation
+  has spent including that turn, so both move while you watch. Kiro and Copilot report
+  only when a turn ends, and Cursor reports nothing, so on those the pill behaves as
+  before.
+
+  A reload mid-turn keeps the running turn's figures, because the latest ones are stored
+  as they move. What the conversation is charged is still written once, when the turn
+  ends, so a turn that reported ten times is not billed ten times.
+
+  The tooltip says whether the figures are settled: while a turn runs it reads "This
+  turn" and adds that the engine may still revise them. Nothing is estimated — a count
+  is shown only where an engine reported one. See ADR-055.
+
+### Fixed
+
+- An approval request now always raises a notification. Before this, a notification was
+  only sent when the server believed nobody was watching, and a background tab counted
+  as watching even after the browser had frozen it: the tab ran no code, the server sent
+  no push, and an approval that holds the agent still was announced nowhere until it
+  expired into a refusal five minutes later. This is why a notification sometimes never
+  arrived when a second tab was open in the same browser.
+
+  Notifications are now sent from both the server and the open page, for every event,
+  whatever is on screen. They still collapse into one notification per conversation, and
+  only the first of them makes a sound, so the same request is not announced twice. The
+  trade is that a finished answer or an approval is also announced while you are looking
+  at it. Notifications for an approval are dismissed when it is answered, wherever it was
+  answered from. See ADR-054.
+
 ### Added
 
 - Cursor Agent CLI is supported as a seventh engine, selectable in Setup and in the

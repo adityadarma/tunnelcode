@@ -464,6 +464,26 @@ export class ConversationRepository {
     return updated;
   }
 
+  /**
+   * Records what the turn that is running has spent, without touching the total.
+   *
+   * Only the latest figures move, and they are replaced rather than added to, so this
+   * can be written as often as the engine revises them: writing it twice leaves the
+   * same row as writing it once. The total cannot be written this way, because adding
+   * is not idempotent and a turn that reported five times would be charged five times.
+   *
+   * What it buys is a refresh mid-turn showing the turn that is running rather than
+   * the one before it. `updatedAt` is left alone for the same reason `addUsage` leaves
+   * it alone: spending tokens is not something the user said. See ADR-055.
+   */
+  setLastUsage(conversationId: string, spent: Usage): void {
+    this.db
+      .update(conversations)
+      .set({ lastInputTokens: spent.inputTokens, lastOutputTokens: spent.outputTokens })
+      .where(eq(conversations.id, conversationId))
+      .run();
+  }
+
   /** What a conversation has spent so far, or undefined when there is no such row. */
   readUsage(conversationId: string): StoredUsage | undefined {
     const rows = this.db

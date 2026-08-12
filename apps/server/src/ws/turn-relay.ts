@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { PermissionDecision, ServerToCliMessage } from '@tunnelcode/protocol';
+import type { PermissionDecision, ServerToCliMessage, UsagePayload } from '@tunnelcode/protocol';
 import type { ConversationRepository, Interruption } from '../db/conversation-repository.js';
 import type { SessionRepository } from '../db/session-repository.js';
 import type { DeviceService } from '../services/device.js';
@@ -117,6 +117,35 @@ export class TurnRelay {
       conversationId: turn.conversationId,
       turnId,
       text,
+    });
+  }
+
+  /**
+   * Forwards what the running turn has spent so far, and records it as the latest.
+   *
+   * Nothing is added up: the figures are the whole of this turn's spend, and the
+   * conversation's total is written once, when the turn ends. The session is
+   * deliberately not touched: this arrives on a clock rather than because anybody did
+   * anything, and ADR-026 keeps that out of the idle timer. See ADR-055.
+   */
+  usage(deviceId: string, turnId: string, usage: UsagePayload): void {
+    const turn = this.options.turns.findForDevice(turnId, deviceId);
+
+    if (turn === undefined) {
+      return;
+    }
+
+    // The latest figures are stored as they move, because replacing them is
+    // idempotent: a browser that reloads mid-turn then shows what the running turn has
+    // spent rather than what the turn before it spent. The conversation's total is not
+    // touched here, since adding is not idempotent. See ADR-055.
+    this.options.conversationRepository.setLastUsage(turn.conversationId, usage);
+
+    this.options.browsers.broadcast(turn.sessionId, {
+      type: 'turn_usage',
+      conversationId: turn.conversationId,
+      turnId,
+      usage,
     });
   }
 
@@ -276,6 +305,9 @@ export class TurnRelay {
       title: 'Tool call refused',
       body: `${tool}: ${reason}`,
       conversationId: turn.conversationId,
+      // The refusal this is about, so the page announcing the same one does not
+      // announce it twice. See ADR-054.
+      key: stored.id,
     });
   }
 
@@ -330,6 +362,7 @@ export class TurnRelay {
       title: 'Approval needed',
       body: ask.target === undefined ? ask.title : `${ask.title}: ${ask.target}`,
       conversationId: turn.conversationId,
+      key: ask.permissionId,
     });
   }
 
@@ -551,6 +584,7 @@ export class TurnRelay {
       title: 'The answer is ready',
       body: text === '' ? 'The agent finished working.' : text,
       conversationId: turn.conversationId,
+      key: turnId,
     });
   }
 
@@ -694,6 +728,9 @@ export class TurnRelay {
       title: 'The answer stopped',
       body: message,
       conversationId: turn.conversationId,
+      // The turn, which is what the page keys its own notification on: a failure and
+      // a finish are the same end of the same wait.
+      key: turnId,
     });
   }
 

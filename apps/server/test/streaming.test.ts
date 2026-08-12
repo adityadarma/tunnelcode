@@ -348,6 +348,72 @@ test('a failure that produced nothing is still recorded as an answer that stoppe
   });
 });
 
+test('what a running turn is spending is relayed and not stored', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const { cli, sessionId, conversationId } = await pair(baseUrl);
+
+    const browser = await connect<BrowserEvent>(baseUrl, '/ws/browser');
+    browser.send({ type: 'attach', sessionId });
+    await browser.waitFor((events) => events.some((event) => event.type === 'attached'));
+
+    browser.send({ type: 'prompt', conversationId, text: 'count' });
+    await cli.waitFor((events) => events.some((event) => event.type === 'prompt'));
+
+    const turnId = String(cli.events.find((event) => event.type === 'prompt')?.turnId);
+
+    cli.send({ type: 'turn_usage', turnId, usage: { inputTokens: 6000, outputTokens: 12 } });
+    await browser.waitFor((events) => events.some((event) => event.type === 'turn_usage'));
+
+    const relayed = browser.events.find((event) => event.type === 'turn_usage') as
+      | { conversationId?: string; usage?: { inputTokens: number; outputTokens: number } }
+      | undefined;
+
+    assert.equal(relayed?.conversationId, conversationId);
+    assert.deepEqual(relayed?.usage, { inputTokens: 6000, outputTokens: 12 });
+
+    cli.send({ type: 'turn_usage', turnId, usage: { inputTokens: 6100, outputTokens: 13 } });
+    await browser.waitFor(
+      (events) => events.filter((event) => event.type === 'turn_usage').length === 2,
+    );
+
+    const midTurn = await getJson(baseUrl, `/api/sessions/${sessionId}/conversations`);
+    const before = (midTurn.body['conversations'] as Record<string, unknown>[]).find(
+      (item) => item['id'] === conversationId,
+    );
+
+    // A figure that is still moving is not what the conversation is charged. The
+    // total is written once, from the figures the turn ends with, so a turn that
+    // reported twice is not billed twice. See ADR-050 and ADR-055.
+    assert.equal(before?.['inputTokens'], null);
+    assert.equal(before?.['outputTokens'], null);
+
+    // The latest figures are stored as they move, because replacing them says the same
+    // thing however many times it is written. That is what a browser reloading
+    // mid-turn reads, so it shows the turn that is running rather than the one before.
+    assert.equal(before?.['lastInputTokens'], 6100);
+    assert.equal(before?.['lastOutputTokens'], 13);
+
+    cli.send({
+      type: 'turn_done',
+      turnId,
+      text: 'twelve',
+      usage: { inputTokens: 6200, outputTokens: 14 },
+    });
+    await browser.waitFor((events) => events.some((event) => event.type === 'turn_done'));
+
+    const list = await getJson(baseUrl, `/api/sessions/${sessionId}/conversations`);
+    const stored = (list.body['conversations'] as Record<string, unknown>[]).find(
+      (item) => item['id'] === conversationId,
+    );
+
+    assert.equal(stored?.['inputTokens'], 6200);
+    assert.equal(stored?.['outputTokens'], 14);
+
+    browser.close();
+    cli.close();
+  });
+});
+
 test('a conversation adds up what its turns spent', async () => {
   await withServer(async ({ baseUrl }) => {
     const { cli, sessionId, conversationId } = await pair(baseUrl);

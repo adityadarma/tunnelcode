@@ -719,13 +719,23 @@ export class OpenCodeEngine implements Engine {
      */
     const spend = new Map<string, { input: number; output: number }>();
 
+    /** The last figures reported, so an update that changed nothing says nothing. */
+    let reported: { input: number; output: number } | undefined;
+
     /**
-     * The turn's total, reported once as the turn ends.
+     * The turn's spend so far, reported as opencode revises it and again as the turn
+     * ends.
      *
-     * Emitted from here rather than on each update, so what reaches the browser is
-     * what the turn cost rather than a figure that climbs while it is read. Nothing
-     * is emitted when opencode reported no counts at all, which the rest of the
-     * system reads as unknown rather than as zero.
+     * It used to be held back until the end, so that what reached the browser was
+     * what the turn cost rather than a figure climbing while it was read. That is the
+     * wrong way round for a turn that takes minutes: a cost nobody can see until it
+     * is settled is a cost nobody can act on. The last one of a turn still says what
+     * the turn cost, because every one of these carries the whole running total and a
+     * reader replaces rather than adds. See ADR-055.
+     *
+     * Nothing is emitted when opencode reported no counts at all, which the rest of
+     * the system reads as unknown rather than as zero, and nothing is emitted twice
+     * for figures that have not moved.
      */
     const usage = (): EngineEvent[] => {
       let inputTokens = 0;
@@ -736,9 +746,17 @@ export class OpenCodeEngine implements Engine {
         outputTokens += message.output;
       }
 
-      return inputTokens > 0 || outputTokens > 0
-        ? [{ type: 'usage', inputTokens, outputTokens }]
-        : [];
+      if (inputTokens === 0 && outputTokens === 0) {
+        return [];
+      }
+
+      if (reported?.input === inputTokens && reported.output === outputTokens) {
+        return [];
+      }
+
+      reported = { input: inputTokens, output: outputTokens };
+
+      return [{ type: 'usage', inputTokens, outputTokens }];
     };
 
     let buffer = '';
@@ -804,6 +822,10 @@ export class OpenCodeEngine implements Engine {
           // left them out would read as cheaper than the turn was.
           if (info?.role === 'assistant' && typeof info.id === 'string') {
             spend.set(info.id, readSpend(info.tokens));
+
+            // Said as soon as opencode revises the figures, so a long turn reports
+            // what it is costing rather than only what it cost. See ADR-055.
+            yield* usage();
           }
 
           // Only the prompted session's assistant messages, because a subagent's

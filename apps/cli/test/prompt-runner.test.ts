@@ -159,6 +159,47 @@ test('a turn that failed still reports what it spent', async () => {
   });
 });
 
+test('what a turn is spending is forwarded while it runs, and not added up', async () => {
+  // Every count an engine reports is the whole of what the turn has spent, because
+  // only the adapter knows what its engine's figures mean. Added up here, a turn that
+  // reported twice would be charged twice. See ADR-055.
+  const engine = new ScriptedEngine(
+    [
+      { type: 'usage', inputTokens: 6000, outputTokens: 12 },
+      { type: 'delta', text: 'the answer' },
+      { type: 'usage', inputTokens: 6200, outputTokens: 31 },
+      { type: 'done', exitCode: 0 },
+    ],
+    false,
+  );
+  const { sent, send } = collect();
+  const runner = new PromptRunner({
+    engines: new Map([[engine.name, engine]]),
+    cwd: process.cwd(),
+    send,
+    onActivity: () => undefined,
+    silenceTimeoutMs: 500,
+  });
+
+  await runner.run('turn-1', 'hi', engine.name, undefined, undefined);
+
+  // The first one travels as it arrives, so a long answer says what it is costing
+  // while it is being written.
+  const live = sent.find((message) => message.type === 'turn_usage');
+  assert.deepEqual(live?.type === 'turn_usage' ? live.usage : undefined, {
+    inputTokens: 6000,
+    outputTokens: 12,
+  });
+
+  // The second arrives inside the same second, so it is not sent again: what the turn
+  // finally spent travels with turn_done, which is the figure that is stored.
+  const done = sent.find((message) => message.type === 'turn_done');
+  assert.deepEqual(done?.type === 'turn_done' ? done.usage : undefined, {
+    inputTokens: 6200,
+    outputTokens: 31,
+  });
+});
+
 test('a failure that spent nothing reports no count', async () => {
   const engine = new ScriptedEngine([{ type: 'error', message: 'not logged in' }], false);
   const { sent, send } = collect();

@@ -813,6 +813,16 @@ export class CodexEngine implements Engine {
             const usage = readLastUsage(params);
             inputTokens += usage.inputTokens;
             outputTokens += usage.outputTokens;
+
+            // Reported as it arrives rather than held until the turn ends. Codex
+            // states what each request cost, so the sum climbs through a turn that
+            // makes several, and a turn that runs for minutes can say what it is
+            // spending. What travels is the running total, which is the whole of
+            // this turn's spend and never the difference. See ADR-055.
+            if (inputTokens > 0 || outputTokens > 0) {
+              push({ type: 'usage', inputTokens, outputTokens });
+            }
+
             return;
           }
 
@@ -894,6 +904,10 @@ export class CodexEngine implements Engine {
 
           finished = true;
 
+          // Said again as the turn ends, even though the same figures have already
+          // been reported: this is the one every reader is guaranteed to see, and it
+          // is the total the conversation is charged. A reader replaces, so repeating
+          // it costs nothing.
           if (inputTokens > 0 || outputTokens > 0) {
             push({ type: 'usage', inputTokens, outputTokens });
           }

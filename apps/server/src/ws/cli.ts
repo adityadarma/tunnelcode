@@ -291,6 +291,12 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
           }
           return;
 
+        case 'turn_usage':
+          if (deviceId !== undefined) {
+            relay.usage(deviceId, message.turnId, message.usage);
+          }
+          return;
+
         case 'reasoning_delta':
           if (deviceId !== undefined) {
             relay.reasoningDelta(deviceId, message.turnId, message.text);

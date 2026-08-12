@@ -140,7 +140,18 @@ export interface EnginePermissionRequest {
 export type EnginePermissionDecision = 'once' | 'always' | 'reject';
 
 /**
- * Token usage reported by the engine for this turn.
+ * What this turn has spent so far, as a running total.
+ *
+ * Emitted as soon as the engine reports a count and again whenever the figures
+ * change, so an answer that takes minutes says what it is costing while it works
+ * rather than only once it is over. The last one of a turn is what the turn cost.
+ *
+ * Each event carries the whole of the turn's spend, never the difference since the
+ * last one: the engines report in incompatible units, some repeating a running
+ * figure for one message and others stating what a single step used, and only the
+ * adapter knows which it is holding. Adding these up downstream would charge a turn
+ * several times over for the same tokens, so every reader replaces rather than
+ * accumulates. See ADR-055.
  *
  * Not every engine can report this, and not every turn carries it. Engines that
  * do not report usage simply never emit this event, which the rest of the system

@@ -34,6 +34,17 @@ function clamp(text: string): string {
  */
 const SILENCE_TIMEOUT_MS = 15 * 60 * 1000;
 
+/**
+ * How often a running turn may report what it has spent.
+ *
+ * An engine can revise its counts several times a second, and a figure that climbs
+ * that fast is not read that fast. One a second is enough for a number on screen to
+ * look live, and it keeps a socket that carries an answer from also carrying
+ * token-rate traffic. The final figures do not depend on this: they travel with
+ * `turn_done`, which is what the conversation is charged. See ADR-055.
+ */
+const USAGE_INTERVAL_MS = 1000;
+
 export interface PromptRunnerOptions {
   /**
    * Engines available on this machine, by name.
@@ -218,8 +229,17 @@ export class PromptRunner {
      */
     let thought = '';
     let failed = false;
-    /** Token usage reported by the engine, accumulated across events. */
+    /**
+     * What the engine says this turn has spent so far.
+     *
+     * Replaced rather than added to. Every usage event carries the whole of the
+     * turn's spend, because the engines report in units only their adapter can make
+     * sense of, and summing them here would charge one turn several times for the
+     * same tokens. See ADR-055.
+     */
     let usage: { inputTokens: number; outputTokens: number } | undefined;
+    /** When the figures were last sent, so a climbing count is not sent per event. */
+    let usageSentAt = 0;
 
     // Aborting kills the engine process, which ends the loop below. Without this a
     // hung engine would hold the device until the CLI is restarted.
@@ -477,16 +497,28 @@ export class PromptRunner {
             // exists either way, and losing the id would strand its context.
             send({ type: 'turn_session', turnId, engineSessionId: event.id });
             break;
-          case 'usage':
-            // Accumulated rather than replaced: an engine that reports usage per
-            // step emits several of these, and the total is what matters.
-            if (usage === undefined) {
-              usage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
-            } else {
-              usage.inputTokens += event.inputTokens;
-              usage.outputTokens += event.outputTokens;
+          case 'usage': {
+            const changed =
+              usage === undefined ||
+              usage.inputTokens !== event.inputTokens ||
+              usage.outputTokens !== event.outputTokens;
+
+            usage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
+
+            // Forwarded while the turn runs, so the browser can show what an answer
+            // is costing as it is written. Rate limited rather than sent per event: an
+            // engine can revise these several times a second, and the same figures
+            // travel again on turn_done, which is what the conversation is charged.
+            // See ADR-050 and ADR-055.
+            const now = Date.now();
+
+            if (changed && now - usageSentAt >= USAGE_INTERVAL_MS) {
+              usageSentAt = now;
+              send({ type: 'turn_usage', turnId, usage });
             }
+
             break;
+          }
           case 'error':
             failed = true;
             // Kept for the same reason a partial answer is: the user watched it

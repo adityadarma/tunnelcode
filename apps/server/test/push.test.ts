@@ -244,7 +244,7 @@ test('subscriptions end with the session they were filed against', async () => {
   });
 });
 
-test('nothing is sent while a browser is watching', async () => {
+test('a browser that is attached is notified too', async () => {
   await withTempDb(async (handle) => {
     const browsers = new BrowserRegistry();
     const repository = new PushRepository(handle.db);
@@ -252,7 +252,6 @@ test('nothing is sent while a browser is watching', async () => {
     const push = new PushService({
       keys: generateVapidKeys(),
       repository,
-      browsers,
       log: () => undefined,
     });
 
@@ -260,6 +259,9 @@ test('nothing is sent while a browser is watching', async () => {
     // not about how a browser came to be subscribed.
     seedSession(handle, 'session-1');
     repository.save({ sessionId: 'session-1', ...fakeSubscription('https://push.example.com/a') });
+    // An attached socket used to stop the push. It cannot: a tab the browser has
+    // frozen holds its socket open and runs no code, so the server has no way to tell
+    // a watcher from a page that will never announce anything. See ADR-054.
     browsers.add('session-1', { send: () => undefined });
 
     await withFetch(
@@ -273,19 +275,17 @@ test('nothing is sent while a browser is watching', async () => {
       },
     );
 
-    assert.deepEqual(sent, []);
+    assert.deepEqual(sent, ['https://push.example.com/a']);
   });
 });
 
 test('a closed browser is reached, and a dead endpoint is forgotten', async () => {
   await withTempDb(async (handle) => {
-    const browsers = new BrowserRegistry();
     const repository = new PushRepository(handle.db);
     const requests: { url: string; headers: Headers }[] = [];
     const push = new PushService({
       keys: generateVapidKeys(),
       repository,
-      browsers,
       log: () => undefined,
     });
 

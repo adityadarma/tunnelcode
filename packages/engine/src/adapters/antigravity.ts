@@ -297,8 +297,31 @@ export class AntigravityEngine implements Engine {
     const reportedOutputs = new Set<number>();
     const reportedFailures = new Set<number>();
     let sessionReported = false;
-    let totalInput = 0;
-    let totalOutput = 0;
+    /**
+     * What each step of this turn has cost, by step number.
+     *
+     * Kept per step and replaced rather than added to, for the same reason opencode
+     * keys its spend by message: a step is reported more than once, ACTIVE and then
+     * DONE, and the comment below says so about its text. Added on every report, a
+     * step that mentioned its usage twice would be charged twice, and the figure would
+     * climb past what the engine actually spent with nothing to say it had. Summed
+     * across steps, because a turn that stopped to run tools spent something on each of
+     * them. See ADR-055.
+     */
+    const spend = new Map<number, { input: number; output: number }>();
+
+    /** The turn's spend so far, which is what every usage event carries. */
+    const spent = (): { input: number; output: number } => {
+      let input = 0;
+      let output = 0;
+
+      for (const step of spend.values()) {
+        input += step.input;
+        output += step.output;
+      }
+
+      return { input, output };
+    };
 
     /**
      * Identifies a tool call.
@@ -368,15 +391,23 @@ export class AntigravityEngine implements Engine {
 
       const events: EngineEvent[] = [];
 
-      // Accumulate token usage from steps that report it.
+      // Record what this step cost and say so as it reports: a turn of many steps
+      // otherwise spends minutes with nothing said about what it is costing. The
+      // running total travels, never the step's own figures, because a reader replaces
+      // rather than adds. See ADR-055.
       const usage = step.usage;
       if (
         usage !== undefined &&
         typeof usage.input_tokens === 'number' &&
         typeof usage.output_tokens === 'number'
       ) {
-        totalInput += usage.input_tokens;
-        totalOutput += usage.output_tokens;
+        spend.set(index, { input: usage.input_tokens, output: usage.output_tokens });
+
+        const total = spent();
+
+        if (total.input > 0 || total.output > 0) {
+          events.push({ type: 'usage', inputTokens: total.input, outputTokens: total.output });
+        }
       }
 
       // Every fragment is new text, on the DONE as much as on the ACTIVE before
@@ -470,8 +501,10 @@ export class AntigravityEngine implements Engine {
       mapLine,
     );
 
-    if (totalInput > 0 || totalOutput > 0) {
-      yield { type: 'usage', inputTokens: totalInput, outputTokens: totalOutput };
+    const total = spent();
+
+    if (total.input > 0 || total.output > 0) {
+      yield { type: 'usage', inputTokens: total.input, outputTokens: total.output };
     }
   }
 }

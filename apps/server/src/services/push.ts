@@ -1,5 +1,4 @@
 import type { PushRepository, StoredSubscription } from '../db/push-repository.js';
-import type { BrowserRegistry } from '../ws/browser-registry.js';
 import { encryptPushPayload, vapidAuthorization, type VapidKeys } from './web-push.js';
 
 /**
@@ -34,26 +33,25 @@ export interface Notification {
   body: string;
   /** So a tap can open the conversation the notification came from. */
   conversationId?: string;
+  /**
+   * Identifies the event itself, so the page and this push can be recognised as one
+   * thing on the browser rather than announced twice.
+   *
+   * The ask, the refusal, or the turn: whichever of them this is about. See ADR-054.
+   */
+  key?: string;
 }
 
 export interface PushServiceOptions {
   /** The VAPID signing identity, read from environment variables at startup. */
   keys: VapidKeys;
   repository: PushRepository;
-  /**
-   * Read to find out whether anybody is watching.
-   *
-   * A browser holding the socket open shows the ask and the finished answer on the
-   * page itself, so a notification would be telling the user something already in
-   * front of them. Nothing connected is the case this exists for. See ADR-045.
-   */
-  browsers: BrowserRegistry;
   /** Failures are logged rather than raised: a turn must not depend on a push service. */
   log: (message: string, error?: unknown) => void;
 }
 
 /**
- * Sends notifications to browsers that are not connected.
+ * Sends notifications to every browser subscribed to a session.
  *
  * The signing identity is supplied at construction from environment variables, so
  * subscriptions stay valid across restarts as long as the same keys are configured.
@@ -92,16 +90,18 @@ export class PushService {
   }
 
   /**
-   * Notifies a session, unless a browser is already watching it.
+   * Notifies a session, whether or not a browser is attached.
+   *
+   * An attached socket used to be read as somebody watching, which stopped the push.
+   * It is not: a background tab the browser has frozen still holds its socket open,
+   * so the server saw a watcher, the page ran no code, and the ask was announced
+   * nowhere at all. The browser is the only thing that knows where the user is
+   * looking, so the decision is left there. See ADR-054.
    *
    * Returns without waiting. Delivery is a background matter and a caller in the
    * middle of a turn has nothing useful to do with the outcome.
    */
   notify(sessionId: string, notification: Notification): void {
-    if (this.options.browsers.has(sessionId)) {
-      return;
-    }
-
     const subscriptions = this.options.repository.listBySession(sessionId);
 
     if (subscriptions.length === 0) {
@@ -115,6 +115,7 @@ export class PushService {
       ...(notification.conversationId === undefined
         ? {}
         : { conversationId: notification.conversationId }),
+      ...(notification.key === undefined ? {} : { key: notification.key }),
     });
 
     for (const subscription of subscriptions) {

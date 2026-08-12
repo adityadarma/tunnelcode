@@ -1933,6 +1933,9 @@ using the agent, exactly as a browser attaching is not.
 
 ## Installable App, And A Notification Only When Nobody Is Watching
 
+Amended by ADR-054: a notification is raised in both places for every event, because an
+attached socket turned out not to mean anybody is watching.
+
 Decision
 
 The web app ships a manifest, icons and a service worker, so a browser can install it.
@@ -2014,6 +2017,9 @@ able to hold up an answer.
 # ADR-046
 
 ## Token Usage Is Reported When The Engine Can, And Shown When It Does
+
+Amended by ADR-055: the figures are reported while the turn is still running, and each
+one carries the whole of its spend rather than a step's own.
 
 Decision
 
@@ -2582,3 +2588,169 @@ wait.
 The spinner label moved with it. It read `Generating...`, which put a wait belonging to
 seven engine CLIs onto the QR code, and the QR code takes under a millisecond. A user
 watching that screen concluded the thing they could see was the thing that was slow.
+
+---
+
+# ADR-054
+
+## Every Notification Is Raised, And The Browser Decides Nothing
+
+Amends ADR-045.
+
+Decision
+
+The server pushes every notification for a session, whether or not a browser holds the
+socket. Being attached no longer stops a push.
+
+A page that is open raises its own notification for every event it is told about,
+whatever it is showing and wherever the user is looking.
+
+Both places carry the same tag, so the two collapse onto one notification per kind per
+conversation. Every notification carries the event it is about: the ask, the refusal,
+or the turn.
+
+A page announces to the service worker what it has just raised. A push for an event
+already announced is still shown, and is shown silently.
+
+A page notification is tried first while the tab is visible and the service worker is
+the fallback, including when the page has no notification constructor at all.
+
+An ask's notification is taken down when the ask is resolved, wherever it was answered.
+
+Reason
+
+The old split rested on a claim that turned out to be false. The browser registry was
+read as a proxy for somebody watching, so an attached socket stopped the push and left
+the page to raise its own. A browser that freezes a background tab keeps that socket
+open and runs none of the page's code, so the server saw a watcher, the page announced
+nothing, and the one event that holds the agent still was reported nowhere. It happened
+sometimes rather than always, which is what made it look like a browser quirk instead of
+a decision.
+
+Nothing on the server can tell the difference. A frozen tab, a discarded tab and an
+attentive one are the same socket. The browser is the only place that knows, and by the
+time it knows it may not be running, so the honest answer is to stop deciding and send
+both.
+
+The page stops judging for the same reason. It knew whether it was visible and focused,
+and it was right about that, but being visible is not the same as the notification being
+unwanted: a second tab, another window, and another application all look alike from
+inside one page, and each wrong guess costs an approval that expires into a refusal five
+minutes later. A banner repeating something already on screen costs a glance.
+
+What that leaves is one event arriving twice on the same device. Tags already collapse
+them into a single notification, so the visible result is unchanged, and the announcement
+is what stops the second one alerting again. It is a hint rather than a protocol: a
+worker that has been restarted has forgotten, and then the push sounds for something
+already shown. That is the right way to be wrong, because the alternative is skipping the
+push, and a push that shows nothing is what browsers withdraw the permission for.
+
+Trying the page's own notification first is not a preference, it is what works. Chrome
+will not show a service worker notification while a tab on this origin is visible, which
+is exactly the case this change exists to cover, and Android has no page notification at
+all: the constructor is there and throws. Neither can be detected in advance, so it is
+attempted and the other is the fallback.
+
+Dismissing an answered ask matters now in a way it did not before. An ask is shown with
+`requireInteraction`, so it stays until something closes it, and it used to be raised only
+when the user was elsewhere. Raised always, an approval given in the tab would leave a
+banner still asking for it, which reads as the tap not having worked.
+
+---
+
+# ADR-055
+
+## Token Usage Is Reported While The Turn Is Still Running
+
+Amends ADR-046 and ADR-050.
+
+Decision
+
+An engine's `usage` event carries the whole of what the turn has spent so far, and is
+emitted as soon as the engine reports a count and again whenever the figures change.
+
+Every reader replaces rather than accumulates. The last one of a turn is what the turn
+cost.
+
+The CLI forwards the figures on a message of its own, `turn_usage`, at most once a
+second, and never on a delta. The server relays it to every browser on the session.
+
+The server also records them as the conversation's latest figures, which is a
+replacement rather than an addition. It does not touch the conversation's total.
+
+What a conversation is charged is still written once, when the turn ends, from the
+figures on `turn_done`.
+
+The pill leads with what the turn has spent and states the conversation's total beside
+it, the running turn included, so the total moves through the turn being watched and
+lands on the stored figure when it ends.
+
+The tooltip says whether the figures are settled. Nothing is added to the numbers
+themselves.
+
+Nothing is estimated. An engine that reports no counts mid-turn reports none, and an
+engine that reports none at all still reports none.
+
+Reason
+
+A turn is the long wait, and its cost was the one thing about it that could not be seen
+until it was over. That is the wrong way round: a figure nobody can read until the work
+is finished is a figure nobody can act on. Four of the seven engines already have the
+numbers in hand while the turn runs — opencode revises them per assistant message, codex
+states what each request cost, antigravity reports per step, and Claude Code carries them
+on every assistant message — and all four were holding them back until the end.
+
+Replace rather than accumulate, because the engines report in units only their adapter
+can make sense of. Opencode repeats a running figure for one message and expects the
+reader to replace it; codex states what a single request used and expects the reader to
+add. Adding up whatever arrives is how a turn gets charged several times over for the
+same tokens, and it was already a latent bug: opencode's adapter summed its own map and
+emitted once, which was correct only because it emitted once. Making every event the
+whole of the turn's spend puts the arithmetic in the one place that knows the units, and
+leaves every reader downstream with nothing to get wrong.
+
+A message of its own rather than a field on a delta. The counts come from the engine and
+change when the engine says so, which has nothing to do with when a fragment of text
+arrives: an answer that streams for a minute would have carried the same figure a
+thousand times, and a turn that streams nothing at all would have carried it never. The
+two are different events about different things.
+
+Once a second, because an engine can revise its counts several times a second and nobody
+reads them that fast. It also keeps a socket that carries an answer from carrying
+token-rate traffic, which is the same objection ADR-008 makes to storing deltas. Nothing
+depends on the interval: the final figures travel with `turn_done` regardless, so a
+dropped update costs a moment of staleness and never a wrong total.
+
+The two stored figures part company here, and idempotence is what separates them. The
+latest figures are replaced, so writing them five times leaves the same row as writing
+them once, and they can be written as often as the engine revises them; what that buys is
+a browser reloading mid-turn showing the turn that is running rather than the one before
+it. The total is added to, and adding is not idempotent: written the same way, a turn that
+reported five times would be charged five times. ADR-050 already put that write at the end
+of the turn, and this changes nothing about it.
+
+The total on screen is the stored total plus what the running turn has reported, which is
+the only way it can be both honest and useful. The stored figure alone is what the
+conversation has been charged, and a turn is charged when it ends, so a user watching a
+turn would watch the total sit still through exactly the part they were watching. The
+addition is dropped the moment the turn ends, because the stored total then carries it,
+and counting it in both places is the one arithmetic mistake available here.
+
+Whether the figures are settled is said in the tooltip rather than done to the numbers. A
+marker on the figure itself would be decorating a count the engine reported, and the pill
+has one job: to say what was spent. Claude Code is the engine where this matters, because
+its running figure is assembled from what each request reported while its final one comes
+from the result line, so the two can disagree and the last word belongs to the engine.
+Freezing the figure would show one the engine had already corrected, and taking the larger
+of the two would be inventing a number nobody counted.
+
+Estimating was considered and refused. A count derived from the length of the answer is a
+number nobody counted, which ADR-046 refuses for exactly this field, and it cannot be
+told apart from a real one by anything downstream. It is also wrong in the direction that
+matters: four characters per token holds for English prose and not for code, and an input
+count of zero reads as a turn whose context was free.
+
+The tooltip says "this turn" while a turn is running and "last turn" when none is, and
+adds that a running turn's figures may still be revised. The figures are the running
+turn's while it works, and naming the wrong turn is the same mistake as showing a number
+nobody counted, one level down.

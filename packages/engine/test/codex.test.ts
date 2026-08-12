@@ -468,6 +468,12 @@ test('a request this adapter cannot answer is refused, not ignored', async () =>
   });
 });
 
+/** Every count reported, in the order it was reported. */
+const spends = (events: EngineEvent[]): { inputTokens: number; outputTokens: number }[] =>
+  events
+    .filter((event): event is Extract<EngineEvent, { type: 'usage' }> => event.type === 'usage')
+    .map(({ inputTokens, outputTokens }) => ({ inputTokens, outputTokens }));
+
 test('token usage is this turn only, summed over its requests', async () => {
   const script = conversation(`
     spend(100, 10);
@@ -478,14 +484,37 @@ test('token usage is this turn only, summed over its requests', async () => {
 
   await withFakeEngine('codex', script, async () => {
     const events = await collect(new CodexEngine().prompt('hi', base));
-    const usage = events.find(
-      (event): event is Extract<EngineEvent, { type: 'usage' }> => event.type === 'usage',
-    );
 
+    // Reported as each request lands and again as the turn ends, and every one of
+    // them carries the whole of the turn's spend rather than the request's own, so a
+    // reader replaces instead of adding up.
+    //
     // The per-request figures added up, never the thread total beside them, which
     // counts every earlier turn in the conversation.
-    assert.equal(usage?.inputTokens, 150);
-    assert.equal(usage?.outputTokens, 15);
+    assert.deepEqual(spends(events), [
+      { inputTokens: 100, outputTokens: 10 },
+      { inputTokens: 150, outputTokens: 15 },
+      { inputTokens: 150, outputTokens: 15 },
+    ]);
+  });
+});
+
+test('what a turn is spending is said before it ends', async () => {
+  const script = conversation(`
+    spend(100, 10);
+    delta('working');
+    finish();
+  `);
+
+  await withFakeEngine('codex', script, async () => {
+    const events = await collect(new CodexEngine().prompt('hi', base));
+
+    // A turn that runs for minutes has to be able to say what it is costing while it
+    // runs, so the first count cannot wait for the turn to be over. See ADR-055.
+    assert.ok(
+      events.findIndex((event) => event.type === 'usage') <
+        events.findIndex((event) => event.type === 'delta'),
+    );
   });
 });
 
@@ -498,13 +527,9 @@ test('what a resumed thread already spent is not billed to this turn', async () 
 
   await withFakeEngine('codex', script, async () => {
     const events = await collect(new CodexEngine().prompt('hi', { ...base, resume: 'thr_abc123' }));
-    const usage = events.find(
-      (event): event is Extract<EngineEvent, { type: 'usage' }> => event.type === 'usage',
-    );
 
     assert.equal(textOf(events), 'continued');
-    assert.equal(usage?.inputTokens, 100);
-    assert.equal(usage?.outputTokens, 10);
+    assert.deepEqual(spends(events).at(-1), { inputTokens: 100, outputTokens: 10 });
   });
 });
 

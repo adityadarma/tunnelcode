@@ -228,6 +228,23 @@ export const cliMessageSchema = z.discriminatedUnion('type', [
     text: z.string().max(ENGINE_TEXT_MAX_LENGTH),
   }),
   /**
+   * What the running turn has spent so far.
+   *
+   * Carried on its own message rather than on a delta: the counts come from the
+   * engine and arrive when it revises them, which has nothing to do with when a
+   * fragment of text arrives, and an answer that streams for a minute without any
+   * new count would have carried the same figure a thousand times.
+   *
+   * The whole of the turn's spend, never the difference since the last one, so a
+   * reader replaces rather than adds. Nothing is stored from this: the conversation's
+   * total is written once, from the figures on `turn_done`. See ADR-050 and ADR-055.
+   */
+  z.object({
+    type: z.literal('turn_usage'),
+    turnId: turnIdSchema,
+    usage: usageSchema,
+  }),
+  /**
    * A fragment of the model working itself out, rather than of its answer.
    *
    * Carried on an event of its own so it can never land inside answer text: the
@@ -768,6 +785,19 @@ export const serverToBrowserMessageSchema = z.discriminatedUnion('type', [
     conversationId: conversationIdSchema,
     turnId: turnIdSchema,
     text: z.string().max(ENGINE_TEXT_MAX_LENGTH),
+  }),
+  /**
+   * What the turn on screen has spent so far, relayed as the engine reports it.
+   *
+   * Sent to every browser on the session, and not stored anywhere: a browser that
+   * arrives mid-turn learns the figures from the next one of these, and what a turn
+   * finally cost is written once, when it ends. See ADR-055.
+   */
+  z.object({
+    type: z.literal('turn_usage'),
+    conversationId: conversationIdSchema,
+    turnId: turnIdSchema,
+    usage: usageSchema,
   }),
   /**
    * Thinking as it arrives, kept apart from the answer all the way to the surface.

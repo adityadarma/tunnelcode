@@ -4,11 +4,11 @@ import { ensureServiceWorker, serviceWorkerSupported } from './service-worker.js
 /**
  * Notifications, in the two forms this app needs them.
  *
- * While a page is open the socket already reports everything, so a notification is
- * only worth raising when the page is not the thing the user is looking at, and it
- * is raised here. While no page is open at all the server sends a push instead and
- * the service worker shows it, which is the case the subscription below exists for.
- * See ADR-045.
+ * A page that is open raises its own the moment the socket reports something, whether
+ * or not the user is looking at it. The server also pushes every one of them, and the
+ * service worker shows that, which is what covers a page that is closed, asleep, or
+ * frozen by the browser. The two collapse onto one notification per conversation, and
+ * only the first of them alerts. See ADR-045 and ADR-054.
  */
 
 /** What the user can be told, from the point of view of the button that offers it. */
@@ -25,6 +25,31 @@ export type NotificationState = 'unsupported' | 'default' | 'granted' | 'denied'
  */
 interface AlertingNotificationOptions extends NotificationOptions {
   renotify?: boolean;
+  /** Narrowed from the `any` the DOM types give it, since only one thing is put here. */
+  data?: { key: string };
+}
+
+/**
+ * Notifications this page raised itself, keyed by the event they are about.
+ *
+ * A notification made with the constructor is not part of the service worker's
+ * registration, so it cannot be found again by tag: the only way to close one is to
+ * keep hold of it. That matters for an ask, which stays on screen until it is dealt
+ * with and has to go when it is answered somewhere else. See ADR-054.
+ */
+const raisedHere = new Map<string, Notification>();
+
+/**
+ * The event a notification is about, when it carries one.
+ *
+ * `data` is `any` in the DOM types and arbitrary in principle, so it is read through
+ * a shape of its own rather than trusted: this one may have been raised by a push, by
+ * this page, or by a version of the app that put nothing there.
+ */
+function keyOf(notification: Notification): string | undefined {
+  const { data } = notification as { data?: { key?: unknown } };
+
+  return typeof data?.key === 'string' ? data.key : undefined;
 }
 
 /**
@@ -256,45 +281,70 @@ export async function refreshSubscription(): Promise<void> {
 }
 
 /**
- * Whether the user is actually looking at this page.
+ * Raises a notification from the page itself.
  *
- * Visibility alone is not enough. A tab that is the front tab of its window is
- * `visible` even while the window is behind another application or another browser
- * window, so a user who switched to their terminal was treated as watching and told
- * nothing. Focus is what separates the two, and both have to hold for the page to be
- * what is in front of the user.
- *
- * The cost of reading it this way is a notification for a page that is on a second
- * screen the user can see but is not typing into. That is the right side to err on:
- * an unseen approval expires into a refusal, while a notification for something
- * already on screen is a banner that repeats it.
+ * Returns false when the browser has no page notifications, which is the case on
+ * Android: the constructor is there and throws when it is called. Reported rather
+ * than raised, because the caller has a service worker to fall back to.
  */
-function watching(): boolean {
-  return !document.hidden && document.hasFocus();
+function raiseHere(
+  title: string,
+  options: AlertingNotificationOptions,
+  key: string | undefined,
+): boolean {
+  try {
+    const notification = new Notification(title, options);
+
+    if (key !== undefined) {
+      raisedHere.set(key, notification);
+      notification.addEventListener('close', () => {
+        raisedHere.delete(key);
+      });
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Tells the service worker this page has announced an event.
+ *
+ * The server pushes every notification now, so the same event arrives twice on a
+ * device whose page is alive. The worker collapses the two onto one notification by
+ * tag either way; this is what stops the second one alerting again. See ADR-054.
+ */
+async function announce(key: string | undefined): Promise<void> {
+  if (key === undefined) {
+    return;
+  }
+
+  const registration = await ensureServiceWorker();
+  const worker = registration?.active;
+
+  if (worker !== undefined && worker !== null) {
+    worker.postMessage({ type: 'announced', key });
+  }
 }
 
 /**
  * Shows a notification from the page.
  *
- * Raised when the user is not looking at the event: the page is not in front of them,
- * or the event belongs to a conversation that is not on screen. A focused page showing
- * the exact conversation raises nothing, because the answer or the ask is already
- * there. Shown through the service worker rather than as a page notification, because
- * that is the form Android requires.
+ * Raised for every event, whatever the user happens to be looking at. Deciding
+ * otherwise was the whole problem: the page was one of two places a notification
+ * could come from, so it kept quiet whenever it judged the user to be watching, and
+ * a browser that froze the tab meanwhile left nobody to raise it at all. A repeat of
+ * something already on screen is a banner the user can ignore; an approval nobody
+ * hears expires into a refusal. See ADR-054.
  */
 async function show(
   title: string,
   body: string,
   tag: string,
-  options: { force?: boolean; sticky?: boolean } = {},
+  options: { key?: string; sticky?: boolean } = {},
 ): Promise<void> {
   if (notificationState() !== 'granted') {
-    return;
-  }
-
-  // Skip only when the page is in front of the user AND the caller did not say to
-  // force it (meaning the event is for the conversation on screen).
-  if (watching() && options.force !== true) {
     return;
   }
 
@@ -312,7 +362,12 @@ async function show(
     renotify: true,
     icon: '/icon-192.png',
     ...(options.sticky === true ? { requireInteraction: true } : {}),
+    ...(options.key === undefined ? {} : { data: { key: options.key } }),
   };
+
+  // Said before anything is shown, so the push for this event is already known to be
+  // a duplicate by the time it arrives.
+  void announce(options.key);
 
   // Which form to use is decided by visibility rather than by focus, because
   // visibility is what the browser itself keys on: Chrome suppresses
@@ -320,9 +375,9 @@ async function show(
   // and a window sitting unfocused behind another application still counts as
   // visible. A page-level Notification works regardless, and is what the user proved
   // they wanted when they granted permission. The service worker path is kept for the
-  // hidden case, where it is the only form Android accepts.
-  if (!document.hidden) {
-    new Notification(title, shared);
+  // hidden case, where it is the only form Android accepts, and for a browser that
+  // has no page notifications at all.
+  if (!document.hidden && raiseHere(title, shared, options.key)) {
     return;
   }
 
@@ -333,7 +388,41 @@ async function show(
     return;
   }
 
-  new Notification(title, shared);
+  raiseHere(title, shared, options.key);
+}
+
+/**
+ * Takes down the notification for an ask that has been dealt with.
+ *
+ * An ask is shown with `requireInteraction`, so it sits there until something closes
+ * it. Now that one is raised whatever the user is looking at, answering in the tab
+ * would otherwise leave a banner still asking. Both places it can have come from are
+ * closed: this page's own, and the worker's, which is looked up by tag and matched on
+ * the ask so a later one is left alone.
+ */
+export function dismissPermission(permissionId: string, conversationId?: string): void {
+  void dismiss(tagFor('permission', conversationId), permissionId);
+}
+
+async function dismiss(tag: string, key: string): Promise<void> {
+  const raised = raisedHere.get(key);
+
+  if (raised !== undefined) {
+    raisedHere.delete(key);
+    raised.close();
+  }
+
+  const registration = await ensureServiceWorker();
+
+  if (registration === undefined) {
+    return;
+  }
+
+  for (const notification of await registration.getNotifications({ tag })) {
+    if (keyOf(notification) === key) {
+      notification.close();
+    }
+  }
 }
 
 /** The agent has stopped and is waiting to be allowed to do something. */
@@ -341,13 +430,13 @@ export function notifyPermission(
   title: string,
   target: string | undefined,
   conversationId?: string,
-  otherConversation = false,
+  permissionId?: string,
 ): void {
   void show(
     'Approval needed',
     target === undefined ? title : `${title}: ${target}`,
     tagFor('permission', conversationId),
-    { force: otherConversation, sticky: true },
+    { sticky: true, ...(permissionId === undefined ? {} : { key: permissionId }) },
   );
 }
 
@@ -368,21 +457,17 @@ export function notifyBlocked(
   tool: string,
   reason: string,
   conversationId?: string,
-  otherConversation = false,
+  activityId?: string,
 ): void {
   void show('Tool call refused', `${tool}: ${reason}`, tagFor('blocked', conversationId), {
-    force: otherConversation,
     sticky: true,
+    ...(activityId === undefined ? {} : { key: activityId }),
   });
 }
 
 /** The turn is over, one way or another. */
-export function notifyTurnDone(
-  body: string,
-  conversationId?: string,
-  otherConversation = false,
-): void {
+export function notifyTurnDone(body: string, conversationId?: string, turnId?: string): void {
   void show('The answer is ready', body, tagFor('turn', conversationId), {
-    force: otherConversation,
+    ...(turnId === undefined ? {} : { key: turnId }),
   });
 }
