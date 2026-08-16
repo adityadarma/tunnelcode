@@ -1,7 +1,8 @@
-import { loadGlobalConfig, readOrCreateDeviceId } from '@tunnelcode/config';
+import { readOrCreateDeviceId } from '@tunnelcode/config';
 import type { GlobalConfig } from '@tunnelcode/config';
 import { ENGINE_NAMES } from '@tunnelcode/engine';
 import type { AvailableEngine } from '@tunnelcode/engine';
+import { ensureGlobalConfig } from '../default-config.js';
 import { discoverEnginesCached } from '../engine-cache.js';
 import { runPairingSession } from '../pairing/session.js';
 import { writeErr, writeOut } from '../output.js';
@@ -30,13 +31,19 @@ interface Ready {
  * Only the stored config is read. The environment is not consulted and no
  * project directory is looked at, so the only way to change any of this is the
  * setup menu. See ADR-018 and ADR-019.
+ *
+ * A machine with no config yet gets the default written for it rather than being
+ * sent to Setup: every answer Setup would have asked for on a first run is one
+ * this machine can already make for itself. See ADR-056.
  */
 async function prepare(cwd: string): Promise<Ready | undefined> {
-  const config = await loadGlobalConfig();
+  const { config, path, created } = await ensureGlobalConfig();
 
-  if (config === undefined) {
-    writeErr('No configuration yet. Choose Setup first.');
-    return undefined;
+  if (created) {
+    writeOut(`${dim('[TunnelCode]')} First run, so a default configuration was written.`);
+    writeOut(`${dim('[TunnelCode]')} ${path}`);
+    writeOut(`  ${dim('Change any of it from Setup.')}`);
+    writeOut('');
   }
 
   // Named for what is actually being waited on. Any engine whose models are not
@@ -60,20 +67,22 @@ async function prepare(cwd: string): Promise<Ready | undefined> {
     return undefined;
   }
 
+  // What a new conversation will actually start on: the configured engine when it
+  // is installed, and otherwise the first one found. Marking that rather than the
+  // configured name keeps the label honest on a machine that has never chosen.
+  const leading = engines.find((engine) => engine.name === config.engine)?.name ?? engines[0]?.name;
+
   writeOut(
     `${dim('engines')}    ${engines
-      .map((engine) => (engine.name === config.engine ? `${engine.name} (default)` : engine.name))
+      .map((engine) => (engine.name === leading ? `${engine.name} (default)` : engine.name))
       .join(', ')}`,
   );
 
   // A configured engine that is not installed is worth saying out loud: the
   // session still runs, but a new conversation will start on a different one.
-  if (!engines.some((engine) => engine.name === config.engine)) {
-    writeOut(
-      `           ${config.engine} is configured but not installed, using ${
-        engines[0]?.name ?? ''
-      }`,
-    );
+  // Nothing is said when none is configured, because then no choice was ignored.
+  if (config.engine !== undefined && !engines.some((engine) => engine.name === config.engine)) {
+    writeOut(`           ${config.engine} is configured but not installed, using ${leading ?? ''}`);
   }
 
   writeOut('');
@@ -100,7 +109,8 @@ export async function runStart(cwd: string): Promise<number> {
   // The configured engine is put first, because the browser starts a new
   // conversation on the first of the list. That keeps the Setup choice meaningful
   // without making it the only choice. A configured engine that is not installed
-  // simply is not in the list, so the next installed one leads.
+  // simply is not in the list, so the next installed one leads, and a machine that
+  // has chosen nothing keeps discovery order for the same reason.
   const engines = [...ready.engines].sort((left, right) =>
     left.name === ready.config.engine ? -1 : right.name === ready.config.engine ? 1 : 0,
   );

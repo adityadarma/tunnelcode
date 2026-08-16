@@ -10,6 +10,43 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+### Changed
+
+- **A fresh install pairs straight away.** Scanning the QR on a machine that has never
+  been set up used to stop with "No configuration yet. Choose Setup first.", and the
+  answers Setup then wanted were ones this machine already knew: the server it was
+  published against and its own hostname. The first run now writes that configuration
+  itself and continues, saying where the file went. Setup is unchanged and is still where
+  any of it is edited.
+
+- **The written default names no engine.** Which engines are installed on a machine is not
+  something the CLI can know without looking, so it no longer records a preference nobody
+  expressed. New conversations start on the first installed engine until you choose one in
+  Setup, which is what already happened when a configured engine turned out not to be
+  installed. Setup shows the engine as "first installed" until then, and `(default)` in the
+  engine list now marks the one that will actually lead.
+
+- **Setup says which engines are installed.** The engine list marks every engine that is
+  not on this machine as `not installed`, and prefaces the list with a line when none of
+  them is. All seven are still offered and one that is absent can still be chosen: the
+  choice is stored, with a note that new conversations start on the first installed engine
+  until it arrives. Previously the list said nothing, so a name that was never installed
+  looked accepted until the next session. Only the executables are looked for, so the list
+  opens as quickly as before.
+
+- **Check environment no longer reports a missing config as something to fix.** It says
+  the file is written when you first scan the QR, which is what now happens. A config
+  that exists but cannot be read is still reported as an error.
+
+### Fixed
+
+- **A config naming the engine `defaultEngine` is refused with the reason.** That name
+  stopped being read in 0.1.1, and was rejected only because the file was then missing a
+  required field. With the engine now optional such a file would have loaded as one that
+  chose nothing, quietly starting conversations on whatever was installed first. It is
+  refused explicitly and points at Setup, which rewrites the file under the name that is
+  read.
+
 ## [0.4.0] - 2026-08-12
 
 This release does not upgrade an existing deployment on its own. Four things break, and

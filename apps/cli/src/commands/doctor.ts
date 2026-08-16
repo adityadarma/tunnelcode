@@ -78,9 +78,14 @@ export async function runDoctor(): Promise<number> {
     const installed = await discoverEngines();
     engineOk = installed.length > 0;
 
+    // What a new conversation actually starts on: the configured engine when it is
+    // installed, otherwise the first one found. Marked from that rather than from
+    // the stored name, so the label is right on a machine that has chosen nothing.
+    const leading = installed.find((engine) => engine.name === stored.engine) ?? installed[0];
+
     for (const name of ENGINE_NAMES) {
       const found = installed.find((engine) => engine.name === name);
-      const label = name === stored.engine ? `${name} ${dim('(default)')}` : name;
+      const label = name === leading?.name ? `${name} ${dim('(default)')}` : name;
 
       writeOut(
         found === undefined
@@ -92,11 +97,13 @@ export async function runDoctor(): Promise<number> {
     }
 
     // The configured engine is only a starting point now, so a missing one is worth
-    // saying without failing the check.
-    if (engineOk && !installed.some((engine) => engine.name === stored.engine)) {
+    // saying without failing the check. Nothing is said when none is configured:
+    // there is no choice being ignored, and the marked engine already says which
+    // one leads. See ADR-056.
+    if (engineOk && stored.engine !== undefined && stored.engine !== leading?.name) {
       writeOut(
         `  ${okIcon} ${bold('default')}    ${yellow(
-          `${stored.engine} is not installed, new conversations start on ${installed[0]?.name ?? ''}`,
+          `${stored.engine} is not installed, new conversations start on ${leading?.name ?? ''}`,
         )}`,
       );
     }
@@ -104,9 +111,12 @@ export async function runDoctor(): Promise<number> {
 
   writeOut(cyanBold('└─────────────────────────────────────────────────┘'));
 
+  // Doctor reports and never writes, so a missing file is said rather than filled
+  // in here. It is not a problem to fix: the first session writes the default. See
+  // ADR-056.
   if (config.value === undefined && !config.failed) {
     writeOut('');
-    writeOut(yellow('  No configuration yet. Choose a setting above to create it.'));
+    writeOut(yellow('  No file yet. The default is written when you first scan the QR.'));
   }
 
   return nodeOk && config.value !== undefined && engineOk ? 0 : 1;

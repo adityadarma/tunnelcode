@@ -2763,3 +2763,155 @@ The tooltip says "this turn" while a turn is running and "last turn" when none i
 adds that a running turn's figures may still be revised. The figures are the running
 turn's while it works, and naming the wrong turn is the same mistake as showing a number
 nobody counted, one level down.
+
+---
+
+# ADR-056
+
+## The First Run Writes Its Own Configuration
+
+Amends ADR-018 and ADR-019.
+
+Decision
+
+A run that finds no config file writes the default and carries on. Scanning the QR on a
+fresh install pairs, rather than stopping to say nothing is configured.
+
+The default is the server URL baked in at publish time, this machine's hostname as the
+device name, the timeouts the schema already defaults to, and an empty deny list.
+
+It names no engine. `engine` is optional in the schema, and absent means nothing has been
+chosen: the first installed engine leads, which is what already happened to a configured
+engine that turned out not to be installed. Setup reports it as "first installed" rather
+than as a name, and writes a name the moment one is chosen.
+
+Present and empty is still rejected, and so is a file naming the engine `defaultEngine`,
+the name a pre-release build wrote. That one is refused explicitly on the read path rather
+than left to the schema, because an optional field would let it parse as a config that
+chose nothing. It is the only such name guarded against, because it is the only one a
+released build ever wrote.
+
+Only a missing file is written. A config that is already there is never overwritten, and
+one that exists but does not parse is still an error the user has to fix.
+
+The default is written where a session starts, not where the menu opens. Opening Setup
+and leaving still writes nothing, and Check environment still only reports.
+
+Setup keeps every field. It is where a value is changed, no longer where it is entered
+for the first time.
+
+Reason
+
+The old first run asked a question it already knew the answer to. Pairing refused with
+"No configuration yet. Choose Setup first.", and Setup then offered a server URL, a
+device name and an engine that were all filled in with defaults before the user got
+there. Answering it consisted of opening a menu and going back out, and the file appeared
+because a field had been touched rather than because anything had been decided.
+
+It also read as a fault. A QR code is the first thing the CLI is for, and an install that
+answers it with a refusal looks broken rather than unconfigured, which is why the report
+that prompted this described the message as a warning that appeared on a fresh install.
+
+Written at the start of a session rather than when the menu opens, because that is where
+the config is first needed and where a user has shown intent to run something. Opening a
+settings menu is not intent to store settings, and ADR-018's point stands: what is on
+screen is what is stored, and every change is a deliberate answer. A default written on
+the user's behalf is announced with the path it went to, so it is not a file they find
+out about later.
+
+A parse failure stays an error for the same reason. A missing file says nothing was ever
+chosen and can be filled in freely; a file that fails to parse is something the user
+wrote, and replacing it with defaults would lose an answer while reporting success.
+
+No engine is named, because that was the one field the machine could not answer. The
+other four it carries: the server URL is baked in at publish time, the device name is
+this machine's hostname, and the timeouts and the deny list are values the schema already
+defaults to. Which engines are installed here cannot be known without looking for them,
+and `opencode` was a guess — right on the machines this was developed on and wrong on
+every machine that installed something else. Written into the file it stops being a guess
+and becomes a stored preference, which reads back from Setup as a choice the user made
+and is reported as "configured but not installed" on the machines it was wrong about.
+
+Absent costs nothing at runtime, which is what makes it available. A configured engine
+that is not installed already fell through to the first one found, so "nothing chosen"
+and "chosen something absent" led to the same place; the difference is only that one of
+them tells the truth about what was decided. What it does change is what gets marked
+`(default)` on screen: that is now read from what will actually lead rather than from the
+stored name, so the label is right on a machine that has chosen nothing.
+
+The legacy name is refused rather than ignored, and that is a consequence of making the
+field optional rather than a separate decision. ADR-019 already rejected `defaultEngine`,
+but it was rejected by the schema, as a config missing a required field. With `engine`
+optional that same file parses clean as one that chose nothing, so a user who had named an
+engine would silently start conversations on whatever was installed first while the load
+reported success. Refusing sends them to Setup, which writes the file again under the name
+that is read.
+
+One name and not a list of plausible ones. `defaultEngine` is what a pre-release build
+wrote, which is why 0.1.1 has an entry about it; `projectEngine` was considered and
+dropped, because the per-project engine was a whole file rather than a key and no build
+ever wrote that name. Guarding a key nobody has been recorded writing is the same mistake
+as mapping an output shape nobody recorded.
+
+Nothing here is read from the environment, so this does not reopen what ADR-018 closed:
+the default server URL is the bundled one or localhost, and a variable still cannot point
+the agent anywhere.
+
+---
+
+# ADR-057
+
+## Setup Says Which Engines Are Installed
+
+Amends ADR-020 and ADR-056.
+
+Decision
+
+The engine list in Setup marks every engine that is not on this machine as `not installed`,
+alongside the `(current)` mark on the one that is chosen.
+
+Every supported engine is still offered. An engine that is not installed can still be
+chosen, is still written to the config, and the choice is reported as stored with a note
+that new conversations start on the first engine that is installed until it is.
+
+When no supported engine is installed at all, the list is prefaced with a line saying so
+and that one has to be installed before a session can run.
+
+Only the executables are looked for. Models are not listed, so this costs a `which` per
+engine rather than the seconds an engine takes to introduce itself.
+
+Starting a session still refuses when no engine is installed, unchanged.
+
+Reason
+
+The list was the one place in the CLI that offered seven things without saying that six of
+them might not work. Nothing was wrong with what it stored, but the answer to "which of
+these do I have" lived behind scanning a QR code: pairing is where discovery ran, so a
+user chose a name, saw it confirmed, and found out at the next session that the engine was
+never there. ADR-056 makes that likelier rather than less likely, because a fresh install
+now has no engine chosen and the list is the first place it looks like a decision has to
+be made.
+
+Marked rather than hidden or refused, because an engine that is not installed is a
+legitimate choice. A machine that is about to install one, or has it under a different
+name on another machine sharing this config, is choosing ahead of the software arriving,
+and ADR-020 already settled that a configured engine which is absent falls through to the
+first one present. Removing the name from the list would make that unreachable; refusing
+the choice would be the CLI declining to store a preference on the grounds that it is not
+useful yet.
+
+Storing it and saying so is the pair that matters. Storing silently would read as having
+taken effect, which is the same complaint as the old first run: a confirmation that says
+nothing about what will actually happen. Saying it without storing would throw away an
+answer the user gave.
+
+The empty case is worth its own line because the per-name marks do not carry it. Seven
+engines each marked `not installed` is a list the user has to read all of before drawing
+the conclusion, and the conclusion is the thing they need: nothing here can run, install
+something. Starting a session still refuses on the same condition, and this is the earlier
+and cheaper place to learn it.
+
+Executables and not models, because this is a label rather than a session. ADR-053 already
+separates the two halves of discovery for the same reason, and a settings menu that took
+several seconds to open every time it was asked about engines would be paying the session
+cost for none of the session benefit.

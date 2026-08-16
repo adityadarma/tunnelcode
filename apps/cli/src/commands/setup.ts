@@ -1,4 +1,3 @@
-import { hostname } from 'node:os';
 import {
   globalConfigPath,
   loadGlobalConfig,
@@ -7,17 +6,21 @@ import {
   writeGrants,
 } from '@tunnelcode/config';
 import type { GlobalConfig } from '@tunnelcode/config';
-import { ENGINE_NAMES } from '@tunnelcode/engine';
+import { ENGINE_NAMES, findInstalledEngines } from '@tunnelcode/engine';
 import type { EngineName } from '@tunnelcode/engine';
 import { antigravitySummary, runAntigravityMenu } from './antigravity.js';
 import { runDoctor } from './doctor.js';
+import {
+  DEFAULT_ANSWER_MINUTES,
+  DEFAULT_IDLE_MINUTES,
+  DEFAULT_SILENCE_MINUTES,
+  defaultConfig,
+} from '../default-config.js';
 import { CANCELLED, ask, select } from '../prompt.js';
 import type { Choice } from '../prompt.js';
 import { writeErr, writeOut } from '../output.js';
-import { resolveDefaultServerUrl } from '../server-url.js';
-import { cyan, dim, green } from '../style.js';
-
-const DEFAULT_ENGINE: EngineName = 'opencode';
+import { withSpinner } from '../spinner.js';
+import { cyan, dim, green, yellow } from '../style.js';
 
 type Field =
   | 'server'
@@ -36,17 +39,13 @@ const RULE_SEPARATOR = ',';
 /**
  * Configuration as the menu should offer it: what is stored, or the default that
  * would be stored. A field is never asked for without showing what it is now.
+ *
+ * Opening this menu is still not a decision, so nothing is written here. A first
+ * run that goes straight to pairing has the file created for it instead, and this
+ * shows the same values that run would have stored. See ADR-056.
  */
 function draftFrom(stored: GlobalConfig | undefined): GlobalConfig {
-  return (
-    stored ?? {
-      server: { url: resolveDefaultServerUrl() },
-      device: { name: hostname() },
-      engine: DEFAULT_ENGINE,
-      timeouts: { idleMinutes: 60, answerMinutes: 5, silenceMinutes: 15 },
-      permission: { deny: [] },
-    }
-  );
+  return stored ?? defaultConfig();
 }
 
 /**
@@ -100,13 +99,45 @@ async function editDeviceName(draft: GlobalConfig): Promise<void> {
   writeOut(green(`Device name set to ${cyan(answer)}`));
 }
 
+/**
+ * Chooses the engine a new conversation starts on.
+ *
+ * Nothing is marked current on a machine that has never chosen, because the answer
+ * then comes from what is installed rather than from this file. See ADR-056.
+ *
+ * Which engines are actually here is said beside each name. Every supported engine
+ * is still offered: one can be chosen before it is installed, and a name is only
+ * refused by the machine at the point a session needs it. What this removes is
+ * having to scan a QR code to find out. See ADR-057.
+ *
+ * Only the executables are looked for, never the models, so this costs a `which`
+ * per engine rather than the seconds listing models takes. See ADR-053.
+ */
 async function editEngine(draft: GlobalConfig): Promise<void> {
-  // The current one is marked, so the choice is never blind.
-  const choices: Choice<EngineName>[] = ENGINE_NAMES.map((name) => ({
-    value: name,
-    label: name,
-    ...(name === draft.engine ? { hint: '(current)' } : {}),
-  }));
+  const installed = await withSpinner('Checking engines...', () => findInstalledEngines());
+  const isInstalled = (name: EngineName): boolean =>
+    installed.some((engine) => engine.name === name);
+
+  if (installed.length === 0) {
+    writeOut('');
+    writeOut(yellow('  None of these is installed on this machine.'));
+    writeOut(dim('  One has to be installed before a session can run.'));
+  }
+
+  // The current one is marked, so the choice is never blind. Marked with what it
+  // costs to pick it: whether it is here, and whether it is already the answer.
+  const choices: Choice<EngineName>[] = ENGINE_NAMES.map((name) => {
+    const hint = [
+      name === draft.engine ? '(current)' : undefined,
+      isInstalled(name) ? undefined : 'not installed',
+    ]
+      .filter((part) => part !== undefined)
+      .join(' ');
+
+    // Omitted rather than empty: a hint of '' still renders its separator, which
+    // leaves trailing spaces on the installed engines nobody has chosen.
+    return { value: name, label: name, ...(hint === '' ? {} : { hint }) };
+  });
 
   const choice = await select('Engine', choices);
 
@@ -116,11 +147,17 @@ async function editEngine(draft: GlobalConfig): Promise<void> {
 
   await writeGlobalConfig({ ...draft, engine: choice });
   writeOut(green(`Engine set to ${cyan(choice)}`));
-}
 
-const DEFAULT_IDLE_MINUTES = 60;
-const DEFAULT_ANSWER_MINUTES = 5;
-const DEFAULT_SILENCE_MINUTES = 15;
+  // Stored either way: it is a preference, and a machine that gains the engine
+  // later should find it already chosen. Saying so is what stops it looking like it
+  // took effect. See ADR-057.
+  if (!isInstalled(choice)) {
+    writeOut(
+      yellow(`${choice} is not installed, so new conversations start on the first engine that is.`),
+    );
+    writeOut(dim('  Install it and it will be used without changing this again.'));
+  }
+}
 
 async function editTimeouts(draft: GlobalConfig): Promise<void> {
   const current = draft.timeouts;
@@ -314,7 +351,13 @@ export async function runSetupMenu(): Promise<void> {
     const choice = await select('Setup', [
       { value: 'server', label: 'Server URL', hint: draft.server.url },
       { value: 'device', label: 'Device name', hint: draft.device.name },
-      { value: 'engine', label: 'Engine', hint: draft.engine },
+      {
+        value: 'engine',
+        label: 'Engine',
+        // Said rather than shown as a name, because nothing has been chosen and the
+        // installed engines decide it. Naming one here would read as a setting.
+        hint: draft.engine ?? 'first installed',
+      },
       {
         value: 'timeouts',
         label: 'Timeouts',

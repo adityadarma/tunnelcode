@@ -14,7 +14,18 @@ export const globalConfigSchema = z.object({
   device: z.object({
     name: z.string().min(1),
   }),
-  engine: z.string().min(1),
+  /**
+   * Engine a new conversation starts on, when one has been chosen.
+   *
+   * Absent means nothing has been chosen, and the first installed engine leads.
+   * That is what a machine this project has never run looks like: which engines
+   * exist here cannot be known without looking, and naming one that turns out not
+   * to be installed is a preference nobody expressed. See ADR-056.
+   *
+   * Present and empty is still rejected, because that is a file that names an
+   * engine and fails to say which.
+   */
+  engine: z.string().min(1).optional(),
   /**
    * Timeout configuration, in minutes. Each field falls back to its hardcoded
    * default when absent, so existing config files keep working untouched.

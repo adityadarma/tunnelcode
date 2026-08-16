@@ -8,10 +8,15 @@ import { globalConfigPath } from '../dist/paths.js';
 import { writeGlobalConfig } from '../dist/write.js';
 import { withTempHome } from './helpers.ts';
 
-const validConfig = {
+/**
+ * A config that has chosen no engine, which is what a first run writes.
+ *
+ * Absent rather than named, because which engines a machine has cannot be known
+ * without looking for them. See ADR-056.
+ */
+const configWithoutEngine = {
   server: { url: 'https://rc.example.com' },
   device: { name: 'Test Mac' },
-  engine: 'opencode',
   // Timeouts have defaults, so a loaded config always carries them even when the
   // file on disk says nothing about them.
   timeouts: { idleMinutes: 60, answerMinutes: 5, silenceMinutes: 15 },
@@ -19,6 +24,8 @@ const validConfig = {
   // file on disk says nothing about it. See ADR-022.
   permission: { deny: [] },
 };
+
+const validConfig = { ...configWithoutEngine, engine: 'opencode' };
 
 /** Writes a config file directly, bypassing validation. */
 async function writeRaw(content: string): Promise<string> {
@@ -82,11 +89,27 @@ test('an empty engine name is rejected', async () => {
   });
 });
 
-test('a config missing the engine is rejected', async () => {
+test('a config that names no engine loads with none', async () => {
   await withTempHome(async () => {
     await writeRaw(JSON.stringify({ server: validConfig.server, device: validConfig.device }));
 
-    await assert.rejects(() => loadGlobalConfig(), ConfigError);
+    // Which engines exist on a machine cannot be known without looking, so a first
+    // run writes no engine and the first installed one leads. See ADR-056.
+    const loaded = await loadGlobalConfig();
+
+    assert.equal(loaded?.engine, undefined);
+    assert.deepEqual(loaded?.server, validConfig.server);
+  });
+});
+
+test('an engine chosen later is stored on its own', async () => {
+  await withTempHome(async () => {
+    await writeGlobalConfig(configWithoutEngine);
+    await writeGlobalConfig({ ...configWithoutEngine, engine: 'claude' });
+
+    // Absent is what nothing chosen looks like, so choosing has to be the thing
+    // that puts a name in the file.
+    assert.equal((await loadGlobalConfig())?.engine, 'claude');
   });
 });
 
@@ -106,7 +129,7 @@ test('the engine name is read as written', async () => {
 
 test('a config naming the engine anything but engine is rejected', async () => {
   await withTempHome(async () => {
-    await writeRaw(
+    const path = await writeRaw(
       JSON.stringify({
         server: validConfig.server,
         device: validConfig.device,
@@ -114,8 +137,36 @@ test('a config naming the engine anything but engine is rejected', async () => {
       }),
     );
 
-    // `engine` is the only name. Setup rewrites the file.
-    await assert.rejects(() => loadGlobalConfig(), ConfigError);
+    // `engine` is the only name, and it has to be refused rather than skipped now
+    // that it is optional: parsed as a config that chose nothing, this file would
+    // load clean and start conversations on whatever is installed first, dropping a
+    // choice the user did make while reporting success. See ADR-056.
+    await assert.rejects(
+      () => loadGlobalConfig(),
+      (error: unknown) => {
+        assert.ok(error instanceof ConfigError);
+        assert.equal(error.path, path);
+        assert.match(error.message, /defaultEngine/);
+        return true;
+      },
+    );
+  });
+});
+
+test('an unknown key alongside a valid engine is ignored', async () => {
+  await withTempHome(async () => {
+    await writeRaw(
+      JSON.stringify({
+        server: validConfig.server,
+        device: validConfig.device,
+        engine: 'claude',
+        somethingElse: 'ignored',
+      }),
+    );
+
+    // Only the one name a released build actually wrote is refused. A stray key that
+    // has never been the engine's name is not a choice being dropped.
+    assert.equal((await loadGlobalConfig())?.engine, 'claude');
   });
 });
 
