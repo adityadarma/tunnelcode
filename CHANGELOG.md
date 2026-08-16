@@ -10,6 +10,8 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-17
+
 ### Changed
 
 - **A fresh install pairs straight away.** Scanning the QR on a machine that has never
