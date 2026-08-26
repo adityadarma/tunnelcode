@@ -8,6 +8,7 @@ bundle/
 
 .claude/
 .vscode/
+.opencode/
 data/
 *.sqlite
 *.sqlite-journal
@@ -18,3 +19,5 @@ data/
 .env.local
 # Committed on purpose: it documents the variables without holding any values.
 !.env.example
+AGENTS.md
+graphify-out/

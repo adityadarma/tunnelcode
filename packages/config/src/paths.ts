@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 const GLOBAL_FILE = 'tunnelcode.json';
 const GRANTS_FILE = 'permissions.json';
 const ENGINES_FILE = 'engines.json';
+const UPDATE_STATE_FILE = 'update-state.json';
 
 /**
  * Resolves the global config path for the current platform. See ADR-011.
@@ -44,4 +45,15 @@ export function grantsPath(): string {
  */
 export function enginesCachePath(): string {
   return join(dirname(globalConfigPath()), ENGINES_FILE);
+}
+
+/**
+ * Where the outcome of a background self-update is recorded, beside the settings
+ * for the same reason the engine cache is: nobody chose this, a running process
+ * discovered it. A newer binary already on disk needs somewhere to say so, since
+ * the process that installed it is not the one that will benefit — that only
+ * happens on the next start.
+ */
+export function updateStatePath(): string {
+  return join(dirname(globalConfigPath()), UPDATE_STATE_FILE);
 }

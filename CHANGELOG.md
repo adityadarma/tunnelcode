@@ -10,6 +10,18 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+### Added
+
+- **The CLI updates itself in the background.** A newer version on npm used to
+  need `tunnelcode update` run by hand, chosen from the main menu after a
+  "new version available" hint. It now installs itself the moment the menu
+  starts, the same way it always detected npm, pnpm or yarn for the manual
+  command, without holding up the menu or asking first. The version that
+  installs is not the one already running, so once it lands a green
+  `Update installed · Restart to update.` line greets the next start and stays
+  until that start is actually on the new version. `tunnelcode update` is
+  still there if a manual check is ever wanted.
+
 ### Fixed
 
 - **The default device name is no longer an IP address.** The name a fresh install stores
