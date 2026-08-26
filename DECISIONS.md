@@ -2915,3 +2915,66 @@ Executables and not models, because this is a label rather than a session. ADR-0
 separates the two halves of discovery for the same reason, and a settings menu that took
 several seconds to open every time it was asked about engines would be paying the session
 cost for none of the session benefit.
+
+---
+
+# ADR-058
+
+## The Default Device Name Is Refused When It Is An Address
+
+Amends ADR-056.
+
+Decision
+
+The device name a first run writes is resolved from the hostname rather than copied from
+it. A hostname that is an address, or is built out of one, is refused, and
+`<login name>'s device` is stored instead. With no login name either, `unknown-device` is
+stored, because the schema requires a name and something has to be written.
+
+Refused shapes are a dotted quad, an IPv6 address, a name whose first four labels are all
+numeric, and the same address with the dots swapped for dashes, wherever in the name that
+run of four appears. `192.168.1.20`, `fe80::1`, `192.168.1.20.dynamic.isp.net` and
+`192-168-1-20.isp.net` are all addresses; `2nd-floor-mac` and `10.build.example.com` are
+not, and are kept.
+
+An accepted hostname keeps its own spelling, minus the suffix that says how it was
+resolved: `.local`, `.lan`, `.home`, `.localdomain`, `.internal`. `Adityas-MacBook-Pro.local`
+is stored as `Adityas-MacBook-Pro`.
+
+Only the value written by a first run is affected. A name that is already stored stays as
+it is, including one that is an address, and Setup is unchanged.
+
+Reason
+
+ADR-056 called the hostname a value this machine already carries, and put it in the default
+on that basis. That is true of the string and not of the name: on macOS and on most routed
+networks the hostname is not something the user set, it is what DHCP handed back, so the
+value that arrives is a lease. The report that prompted this was a device listed in the
+browser as an IP address.
+
+An address fails at the one job this field has. It is shown on the phone, to a person
+choosing which machine to send work to, and a number identifies nothing to that reader. It
+is also the only form of name here that goes stale on its own: the machine keeps its
+identity across a reconnect and the lease does not, so a name that was at least accurate
+when written stops being even that.
+
+Dashes are checked as well as dots because that is the shape the problem actually takes.
+An ISP hands back `192-168-1-20.isp.net`, which passes every check for an address while
+being one, and refusing only dotted quads would have left the common case through.
+
+Three numeric labels are kept and four are refused, because the point is to catch an
+address and not to distrust digits. A machine legitimately called `2nd-floor-mac` or
+living under a numbered subdomain is named that by somebody, and renaming it would be this
+code overruling a decision rather than filling in the absence of one.
+
+The login name and not a generated word. Both are guesses, and only one of them is stable
+across reboots and reinstalls and means something to the person reading it. A name built
+from an account also reads as a placeholder, which is the behaviour wanted: it invites the
+correction in Setup, where an address reads as a fault in the CLI.
+
+Resolution and not validation in the schema. A config the user wrote naming their machine
+by address is an answer, and ADR-018's point holds that a stored value wins. What is fixed
+here is the value written on the user's behalf, which is the only one nobody chose.
+
+Nothing is read from the environment. `hostname` and the passwd entry are both properties
+of the machine, so ADR-018 stays closed: no variable can influence what is stored.

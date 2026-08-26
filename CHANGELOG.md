@@ -10,6 +10,18 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The default device name is no longer an IP address.** The name a fresh install stores
+  comes from this machine's hostname, but on macOS and on most home networks that hostname
+  is whatever DHCP handed back, so it arrived as `192.168.1.20`, `192-168-1-20.isp.net` or
+  the same thing with `.local` on the end, and that is what the phone then listed as the
+  device it was paired to. A hostname that is an address is now refused and
+  `<your login name>'s device` is stored instead, a real hostname is still used as it is
+  with the resolver's own `.local` or `.lan` suffix trimmed off, and Setup is still where
+  the name is changed. Existing configurations are untouched: a name already stored stays
+  as it is, so a device showing an address today is renamed from Setup.
+
 ## [0.4.1] - 2026-08-17
 
 ### Changed

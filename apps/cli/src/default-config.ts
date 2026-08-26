@@ -1,6 +1,6 @@
-import { hostname } from 'node:os';
 import { globalConfigPath, loadGlobalConfig, writeGlobalConfig } from '@tunnelcode/config';
 import type { GlobalConfig } from '@tunnelcode/config';
+import { resolveDefaultDeviceName } from './device-name.js';
 import { resolveDefaultServerUrl } from './server-url.js';
 
 /** Minutes without conversation before the session ends. */
@@ -14,9 +14,13 @@ export const DEFAULT_SILENCE_MINUTES = 15;
  * The configuration a machine that has never been set up should run with.
  *
  * Every field here is a value this machine already carries: the server URL baked
- * in at publish time, its own hostname, and the timeouts the schema would have
+ * in at publish time, its own name, and the timeouts the schema would have
  * defaulted to anyway. Nothing is read from the environment, so this is the same
  * file whatever shell it was started from. See ADR-018 and ADR-056.
+ *
+ * The device name is resolved rather than read straight off `hostname`, because a
+ * hostname handed out by DHCP is an address and the phone shows this to a person.
+ * See ADR-058.
  *
  * No engine is named. Which engines exist on a machine cannot be known without
  * looking for them, and a name written before looking is a preference nobody
@@ -27,7 +31,7 @@ export const DEFAULT_SILENCE_MINUTES = 15;
 export function defaultConfig(): GlobalConfig {
   return {
     server: { url: resolveDefaultServerUrl() },
-    device: { name: hostname() },
+    device: { name: resolveDefaultDeviceName() },
     timeouts: {
       idleMinutes: DEFAULT_IDLE_MINUTES,
       answerMinutes: DEFAULT_ANSWER_MINUTES,
