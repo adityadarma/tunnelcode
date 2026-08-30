@@ -10,6 +10,8 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-08-30
+
 ### Changed
 
 - **The CLI runs on Node 22.18 or newer.** It used to demand Node 24, which ruled
