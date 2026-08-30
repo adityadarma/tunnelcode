@@ -57,7 +57,7 @@ async function writeManifest(manifest) {
     // the entry from the manifest it publishes, warning on every publish.
     bin: { tunnelcode: 'index.js' },
     files: ['index.js'],
-    engines: manifest.engines ?? { node: '>=24' },
+    engines: manifest.engines ?? { node: '>=22.18.0' },
     dependencies: external,
   };
 
@@ -74,7 +74,7 @@ await build({
   outfile: outFile,
   bundle: true,
   platform: 'node',
-  target: 'node24',
+  target: 'node22.18',
   format: 'esm',
   external: EXTERNAL,
   // No banner: the entry file already carries the shebang, and a second one on

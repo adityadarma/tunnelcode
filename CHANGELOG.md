@@ -10,6 +10,15 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+### Changed
+
+- **The CLI runs on Node 22.18 or newer.** It used to demand Node 24, which ruled
+  out the current LTS line for no reason the code needed: everything it uses is
+  present in 22.18, the version where Node runs TypeScript without a flag and where
+  `node:sqlite` exists for reading an engine's own session history. `doctor` now
+  reports the real floor including the minor, since an earlier 22 satisfies a bare
+  "22 or newer" while failing both. The server image still ships on Node 24.
+
 ### Added
 
 - **The pairing screen can scan the QR code instead of reading it out.** The
@@ -30,6 +39,14 @@ to the version it ships as and leaves an empty one behind.
   `Update installed · Restart to update.` line greets the next start and stays
   until that start is actually on the new version. `tunnelcode update` is
   still there if a manual check is ever wanted.
+
+- Past Antigravity conversations can be continued from the browser. Antigravity was
+  the one engine whose own history the picker could not offer, so a conversation
+  started in the terminal had to be found there. The fifty most recent conversations
+  held in the workspace are now listed, newest first, titled by the summary
+  Antigravity itself writes. Their messages are not imported: each conversation's
+  transcript lives in an undocumented binary format, so opening one continues it
+  rather than showing what was already said.
 
 ### Fixed
 

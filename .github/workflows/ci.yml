@@ -13,6 +13,14 @@ jobs:
   check:
     runs-on: ubuntu-latest
 
+    # Both ends of the supported range. The floor is the interesting one: 22.18 is
+    # where Node strips TypeScript without a flag and where node:sqlite exists, so
+    # a lower bound that nothing runs on is a claim rather than a fact.
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['22.18', 24]
+
     steps:
       - uses: actions/checkout@v7
 
@@ -22,7 +30,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: ${{ matrix.node-version }}
           cache: pnpm
 
       # better-sqlite3 compiles a native binding, so the install must be allowed

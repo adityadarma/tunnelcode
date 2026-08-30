@@ -76,7 +76,7 @@ describe('api', () => {
     captureFetch({
       sessions: [],
       supported: false,
-      reason: 'Reading this engine’s sessions needs Node 24 or newer.',
+      reason: 'Reading this engine’s sessions needs Node 22.18 or newer.',
     });
 
     const listing = await listAgentSessions('session-1', 'opencode');
@@ -84,7 +84,7 @@ describe('api', () => {
     // Dropping these left the picker telling people their history was missing
     // when it was only unreadable.
     expect(listing.supported).toBe(false);
-    expect(listing.reason).toBe('Reading this engine’s sessions needs Node 24 or newer.');
+    expect(listing.reason).toBe('Reading this engine’s sessions needs Node 22.18 or newer.');
   });
 
   test('a server that never sends supported reads as scannable', async () => {

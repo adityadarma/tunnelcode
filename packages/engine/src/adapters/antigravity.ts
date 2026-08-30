@@ -1,10 +1,19 @@
 import { randomUUID } from 'node:crypto';
+import { homedir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { RUN_COMMANDS_RULE } from './antigravity-settings.js';
+import { openSqliteReadonly } from '../sqlite.js';
 import { captureOutput, isOnPath } from '../which.js';
 import { streamProcess } from '../process.js';
 import type { Engine, EngineEvent, EngineModel, PromptOptions } from '../types.js';
+import { SessionScanUnsupportedError } from '../session.js';
+import type { SessionContent, SessionSummary } from '../session.js';
 
 const COMMAND = 'agy';
+
+/** How many past conversations a listing offers, newest first. */
+const SESSION_LIMIT = 50;
 
 /**
  * A model slug as `agy models` reports it: one bare slug per line, lower case,
@@ -230,6 +239,87 @@ export class AntigravityEngine implements Engine {
     }
 
     return models;
+  }
+
+  /**
+   * Lists local Antigravity conversations held in the given working directory.
+   *
+   * Antigravity keeps a summary of every conversation it has ever held in one
+   * SQLite database, `~/.gemini/antigravity-cli/conversation_summaries.db`. Each
+   * row's `workspace_uris` is a JSON array of `file://` URIs rather than a single
+   * cwd column, so the match is made in this method rather than in SQL.
+   *
+   * `title` is written as an empty string on every row observed on this machine,
+   * so `preview` — the summary Antigravity itself generates — is read as the title
+   * instead, with 'Untitled session' as the last resort.
+   *
+   * A missing database is no history rather than a failure. A database that
+   * cannot be read is neither, and that is raised rather than answered with an
+   * empty list.
+   */
+  async listLocalSessions(cwd: string): Promise<SessionSummary[]> {
+    const database = await openSqliteReadonly(conversationSummariesPath());
+
+    if (database === undefined) {
+      return [];
+    }
+
+    let rows: ConversationSummaryRow[];
+
+    try {
+      rows = database.all<ConversationSummaryRow>(
+        'select conversation_id, title, preview, step_count, last_modified_time, workspace_uris from conversation_summaries order by last_modified_time desc',
+      );
+    } finally {
+      database.close();
+    }
+
+    const wanted = resolve(cwd);
+    const summaries: SessionSummary[] = [];
+
+    for (const row of rows) {
+      if (summaries.length >= SESSION_LIMIT) {
+        break;
+      }
+
+      if (typeof row.conversation_id !== 'string' || row.conversation_id === '') {
+        continue;
+      }
+
+      if (!workspaceUrisMatch(row.workspace_uris, wanted)) {
+        continue;
+      }
+
+      const title = readColumn(row.title).trim();
+      const preview = readColumn(row.preview).trim();
+
+      summaries.push({
+        id: row.conversation_id,
+        title: title !== '' ? title : preview !== '' ? preview : 'Untitled session',
+        lastActiveAt: readSummaryTimestamp(row.last_modified_time),
+        messageCount: readStepCount(row.step_count),
+        preview,
+      });
+    }
+
+    return summaries;
+  }
+
+  /**
+   * Reading a local Antigravity conversation is not supported.
+   *
+   * Each conversation's own messages live in a separate per-conversation
+   * database, `~/.gemini/antigravity-cli/conversations/<id>.db`, in a `steps`
+   * table whose `step_payload` column is an undocumented binary format with no
+   * available schema. Guessing at it risks importing a garbled transcript rather
+   * than reporting that this one cannot be read yet.
+   */
+  readSessionContent(): Promise<SessionContent> {
+    return Promise.reject(
+      new SessionScanUnsupportedError(
+        "Antigravity's conversation store uses an undocumented format that cannot be read yet.",
+      ),
+    );
   }
 
   prompt(text: string, options: PromptOptions): AsyncGenerator<EngineEvent> {
@@ -507,4 +597,114 @@ export class AntigravityEngine implements Engine {
       yield { type: 'usage', inputTokens: total.input, outputTokens: total.output };
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Antigravity session store
+// ---------------------------------------------------------------------------
+
+/** The database Antigravity writes a summary of every conversation into. */
+function conversationSummariesPath(): string {
+  return join(homedir(), '.gemini', 'antigravity-cli', 'conversation_summaries.db');
+}
+
+/**
+ * One row of the listing above.
+ *
+ * Every column is unknown because nothing checks the store's shape: it belongs
+ * to Antigravity, which is free to change it, and a column that has moved should
+ * read as a missing value rather than as a type the compiler was promised.
+ */
+interface ConversationSummaryRow {
+  conversation_id: unknown;
+  title: unknown;
+  preview: unknown;
+  step_count: unknown;
+  last_modified_time: unknown;
+  workspace_uris: unknown;
+}
+
+/** Reads a text column, treating anything else stored there as nothing. */
+function readColumn(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+/**
+ * Reads a counted column.
+ *
+ * SQLite hands back a bigint for an integer too large to be a number, which a
+ * step count will never be, but converting is cheaper than assuming.
+ */
+function readStepCount(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, Math.trunc(value));
+  }
+
+  return typeof value === 'bigint' ? Math.max(0, Number(value)) : 0;
+}
+
+/**
+ * Normalises `last_modified_time` to an ISO 8601 instant.
+ *
+ * Antigravity writes it with an explicit UTC offset already, which `Date` parses
+ * directly, so this only guards against a row where the column is missing or not
+ * a time at all.
+ */
+function readSummaryTimestamp(value: unknown): string {
+  const text = readColumn(value).trim();
+
+  if (text !== '') {
+    const parsed = new Date(text);
+
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  }
+
+  // A row whose store holds no readable time still exists, and the epoch puts
+  // it last wherever it is sorted rather than dropping it from the listing.
+  return new Date(0).toISOString();
+}
+
+/**
+ * Whether a conversation's `workspace_uris` names the given directory.
+ *
+ * Stored as a JSON array of `file://` URIs rather than a plain path, so each is
+ * decoded before comparing. A row that fails to parse names no workspace this
+ * adapter can match, rather than every one by accident.
+ */
+function workspaceUrisMatch(value: unknown, wanted: string): boolean {
+  const text = readColumn(value);
+
+  if (text === '') {
+    return false;
+  }
+
+  let uris: unknown;
+
+  try {
+    uris = JSON.parse(text);
+  } catch {
+    return false;
+  }
+
+  if (!Array.isArray(uris)) {
+    return false;
+  }
+
+  for (const uri of uris) {
+    if (typeof uri !== 'string' || uri === '') {
+      continue;
+    }
+
+    try {
+      if (resolve(fileURLToPath(uri)) === wanted) {
+        return true;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return false;
 }

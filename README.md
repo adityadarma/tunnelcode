@@ -11,7 +11,9 @@ not an IDE and not an AI provider. See `PROJECT.md` for the full specification a
 
 ## Requirements
 
-- Node.js 24 or newer
+- Node.js 22.18 or newer for the CLI. The minor matters: 22.18 is where Node runs
+  TypeScript without a flag and where `node:sqlite` exists, which is what reading an
+  engine's own session history needs. The server image ships on Node 24.
 - pnpm 11
 - An engine on PATH: [OpenCode](https://opencode.ai), [Claude Code](https://claude.com/product/claude-code),
   [Antigravity CLI](https://antigravity.google/product/antigravity-cli),

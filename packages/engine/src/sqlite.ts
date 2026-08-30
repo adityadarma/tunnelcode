@@ -86,9 +86,11 @@ async function loadSqlite(): Promise<typeof NodeSqlite> {
   try {
     return await import('node:sqlite');
   } catch {
-    // Unflagged from Node 23.4 on. Before that the module only exists behind
-    // --experimental-sqlite, so the import fails on an otherwise fine Node 22.
-    throw new SessionScanUnsupportedError("Reading this engine's sessions needs Node 24 or newer.");
+    // Present from Node 22.5 on, unflagged from 23.4. Below that the module only
+    // exists behind --experimental-sqlite, so the import fails outright.
+    throw new SessionScanUnsupportedError(
+      "Reading this engine's sessions needs Node 22.18 or newer.",
+    );
   }
 }
 

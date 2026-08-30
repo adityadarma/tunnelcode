@@ -4,7 +4,38 @@ import { ENGINE_NAMES, discoverEngines } from '@tunnelcode/engine';
 import { writeOut } from '../output.js';
 import { bold, cyanBold, dim, green, red, yellow } from '../style.js';
 
-const REQUIRED_NODE_MAJOR = 24;
+/**
+ * Oldest Node the CLI is supported on, as [major, minor].
+ *
+ * The minor matters: 22.18 is where Node runs TypeScript without a flag, which is
+ * what the test runner relies on, and where `node:sqlite` is present for reading
+ * an engine's own session files. An earlier 22 satisfies a bare `>=22` while
+ * failing both, so the check cannot compare majors alone.
+ */
+const REQUIRED_NODE: readonly [number, number] = [22, 18];
+
+function formatRequiredNode(): string {
+  return `${String(REQUIRED_NODE[0])}.${String(REQUIRED_NODE[1])}`;
+}
+
+/**
+ * Whether the running Node is at or above the supported floor. An unparseable
+ * version counts as too old rather than being waved through, since a runtime that
+ * cannot say what it is cannot be vouched for.
+ */
+function nodeIsSupported(version: string): boolean {
+  const [major, minor] = version.split('.').map((part) => Number.parseInt(part, 10));
+
+  if (major === undefined || Number.isNaN(major)) {
+    return false;
+  }
+
+  if (major !== REQUIRED_NODE[0]) {
+    return major > REQUIRED_NODE[0];
+  }
+
+  return minor !== undefined && !Number.isNaN(minor) && minor >= REQUIRED_NODE[1];
+}
 
 interface CheckResult {
   value: GlobalConfig | undefined;
@@ -37,8 +68,7 @@ async function check(): Promise<CheckResult> {
  * runtime plus a usable config, since without it there is no server to reach.
  */
 export async function runDoctor(): Promise<number> {
-  const major = Number.parseInt(process.versions.node.split('.')[0] ?? '0', 10);
-  const nodeOk = major >= REQUIRED_NODE_MAJOR;
+  const nodeOk = nodeIsSupported(process.versions.node);
   const config = await check();
 
   const okIcon = green('✔');
@@ -53,7 +83,7 @@ export async function runDoctor(): Promise<number> {
   );
   writeOut(
     `  ${nodeOk ? okIcon : errIcon} ${bold('node')}       ${process.versions.node} ${
-      nodeOk ? green('ok') : red(`needs >= ${String(REQUIRED_NODE_MAJOR)}`)
+      nodeOk ? green('ok') : red(`needs >= ${formatRequiredNode()}`)
     }`,
   );
   writeOut(`  ${okIcon} ${bold('workspace')}  ${process.cwd()}`);
