@@ -227,14 +227,17 @@ test('a workspace with a live session waits for it instead of offering a code', 
       const child = startCli(fixture);
 
       try {
-        const output = await readUntil(child, /Waiting for the paired browser to reconnect/);
+        // Waited on the last line of the wait notice rather than its heading, which
+        // is written separately and can arrive in a chunk of its own. Waiting on the
+        // heading passed or failed on whether stdout happened to flush both at once.
+        const output = await readUntil(child, /Nothing to scan/);
 
         // The browser holds the session already. A code, a link and a QR are three
         // ways to do something it has no need to do. See ADR-053.
         assert.doesNotMatch(output, /Pairing Code Generated/);
         assert.doesNotMatch(output, /\/login\?code=/);
         assert.doesNotMatch(output, /[\u2580-\u259f]/u);
-        assert.match(output, /Nothing to scan/);
+        assert.match(output, /Waiting for the paired browser to reconnect/);
       } finally {
         child.kill('SIGKILL');
       }
