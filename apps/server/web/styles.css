@@ -266,6 +266,45 @@
   cursor: not-allowed;
 }
 
+/* Scan button sits inside the code field, so the field keeps room for eight
+   letters and the button never overlaps what is being typed. */
+.code-input-row {
+  @apply relative flex items-stretch;
+}
+
+.code-input-row .code-input {
+  @apply pr-14;
+}
+
+.code-scan-button {
+  @apply absolute right-1.5 top-1.5 bottom-1.5 flex w-11 items-center justify-center rounded-[var(--radius-sm)]
+    text-[var(--muted)] bg-transparent border-0 cursor-pointer transition-colors
+    hover:text-[var(--accent)] hover:bg-[var(--surface)]
+    focus-visible:outline-none focus-visible:text-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent-glow)]
+    disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.code-scan-hint {
+  @apply mt-0 mb-0 text-[0.75rem] text-[var(--muted)];
+}
+
+/* Camera preview kept square so the reticle matches what the decoder samples. */
+.qr-scanner-frame {
+  @apply relative w-full aspect-square overflow-hidden rounded-[var(--radius)] bg-black;
+}
+
+.qr-scanner-video {
+  @apply absolute inset-0 h-full w-full object-cover;
+}
+
+.qr-scanner-reticle {
+  @apply pointer-events-none absolute inset-[15%] rounded-xl border-2 border-white/80;
+}
+
+.qr-scanner-hint {
+  @apply mt-3 mb-0 text-center text-[0.8rem];
+}
+
 .terminal-hint-box {
   display: flex;
   align-items: center;
@@ -1345,6 +1384,18 @@
 
 .modal-footer {
   @apply flex items-center justify-end gap-2.5 pt-3 border-t border-[var(--border)];
+}
+
+/* Footer carrying three actions. Side by side they squeeze each other until the
+   longest label wraps mid-phrase, so on a phone they stack full width instead:
+   column-reverse puts the primary action on top while leaving Cancel first in the
+   DOM, where a keyboard and a screen reader expect it. */
+.modal-footer-stacked {
+  @apply flex-col-reverse items-stretch sm:flex-row sm:items-center;
+}
+
+.modal-footer-stacked > button {
+  @apply w-full justify-center whitespace-nowrap sm:w-auto;
 }
 
 .btn-modal-cancel {

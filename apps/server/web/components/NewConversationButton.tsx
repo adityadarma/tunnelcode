@@ -164,7 +164,7 @@ export function NewConversationButton({
               />
             </div>
 
-            <div className="modal-footer">
+            <div className="modal-footer modal-footer-stacked">
               <button
                 type="button"
                 className="btn-modal-cancel"

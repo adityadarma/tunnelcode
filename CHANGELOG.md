@@ -12,6 +12,15 @@ to the version it ships as and leaves an empty one behind.
 
 ### Added
 
+- **The pairing screen can scan the QR code instead of reading it out.** The
+  terminal already prints a QR code, but on the web only the eight-letter code
+  underneath it was usable: it had to be read off one screen and typed into
+  another. A scan button now sits inside the pairing code field and opens the
+  phone's back camera, and a scanned code pairs on its own. The code also lands
+  in the field, so a pairing that fails leaves something to correct. Scanning
+  needs a camera and an HTTPS page; where either is missing the scanner says
+  which and typing the code still works.
+
 - **The CLI updates itself in the background.** A newer version on npm used to
   need `tunnelcode update` run by hand, chosen from the main menu after a
   "new version available" hint. It now installs itself the moment the menu
@@ -23,6 +32,11 @@ to the version it ships as and leaves an empty one behind.
   still there if a manual check is ever wanted.
 
 ### Fixed
+
+- **The new conversation dialog no longer wraps its buttons mid-phrase.** Three
+  actions side by side squeezed each other on a phone until `Continue from Agent`
+  broke across two lines. They now stack full width on narrow screens, with
+  `Start Conversation` on top, and sit in a row again once there is room.
 
 - **The default device name is no longer an IP address.** The name a fresh install stores
   comes from this machine's hostname, but on macOS and on most home networks that hostname

@@ -20,4 +20,5 @@ data/
 # Committed on purpose: it documents the variables without holding any values.
 !.env.example
 AGENTS.md
+CLAUDE.md
 graphify-out/

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { readPairStatus, startPairing } from '../api.js';
+import { QrScannerModal } from '../components/QrScannerModal.js';
 
 const POLL_INTERVAL_MS = 1000;
 const CODE_PATTERN = /^[A-Z]{8}$/;
@@ -25,6 +26,7 @@ export function LoginPage({ initialCode, onPaired }: LoginPageProps): React.JSX.
   const [phase, setPhase] = useState<Phase>({ name: 'form' });
   const [error, setError] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   const submit = async (value: string): Promise<void> => {
     if (!CODE_PATTERN.test(value)) {
@@ -192,22 +194,55 @@ export function LoginPage({ initialCode, onPaired }: LoginPageProps): React.JSX.
         >
           <div className="form-group">
             <label htmlFor="code">Pairing code</label>
-            <input
-              id="code"
-              className="code-input"
-              value={code}
-              onChange={(event) => {
-                setCode(event.target.value);
-                setError(undefined);
-              }}
-              placeholder="ABCDEFGH"
-              maxLength={8}
-              autoCapitalize="characters"
-              autoComplete="off"
-              spellCheck={false}
-              aria-describedby={error === undefined ? undefined : 'code-error'}
-              aria-invalid={error !== undefined}
-            />
+            {/* Scanning fills this field, so the camera lives in it rather than
+                competing with the submit button for a row of its own. */}
+            <div className="code-input-row">
+              <input
+                id="code"
+                className="code-input"
+                value={code}
+                onChange={(event) => {
+                  setCode(event.target.value);
+                  setError(undefined);
+                }}
+                placeholder="ABCDEFGH"
+                maxLength={8}
+                autoCapitalize="characters"
+                autoComplete="off"
+                spellCheck={false}
+                aria-describedby={error === undefined ? undefined : 'code-error'}
+                aria-invalid={error !== undefined}
+              />
+              <button
+                type="button"
+                className="code-scan-button"
+                disabled={busy}
+                onClick={() => {
+                  setError(undefined);
+                  setScannerOpen(true);
+                }}
+                title="Scan QR code"
+                aria-label="Scan QR code"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  aria-hidden="true"
+                >
+                  <path d="M3 7V5a2 2 0 0 1 2-2h2" />
+                  <path d="M17 3h2a2 2 0 0 1 2 2v2" />
+                  <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+                  <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+                  <path d="M7 12h10" />
+                </svg>
+              </button>
+            </div>
+            <p className="code-scan-hint">Or scan the QR code from your terminal.</p>
           </div>
           {error !== undefined && (
             <p id="code-error" role="alert" className="error">
@@ -239,6 +274,21 @@ export function LoginPage({ initialCode, onPaired }: LoginPageProps): React.JSX.
           </p>
         </div>
       </section>
+
+      {scannerOpen && (
+        <QrScannerModal
+          onClose={() => {
+            setScannerOpen(false);
+          }}
+          onScanned={(scanned) => {
+            // The scanned code is shown in the field as well as submitted, so a
+            // failure leaves something to correct rather than an empty form.
+            setScannerOpen(false);
+            setCode(scanned);
+            void submit(scanned);
+          }}
+        />
+      )}
     </main>
   );
 }

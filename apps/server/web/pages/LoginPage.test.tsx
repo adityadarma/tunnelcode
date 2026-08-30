@@ -152,6 +152,34 @@ describe('LoginPage', () => {
     expect(calls[0]?.body).toEqual({ code: 'ZXCVBNMA' });
   });
 
+  test('opens the QR scanner from the login form', async () => {
+    render(<LoginPage initialCode={undefined} onPaired={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Scan QR code' }));
+
+    expect(await screen.findByRole('dialog', { name: 'Scan pairing QR' })).toBeDefined();
+  });
+
+  test('explains itself when the camera cannot be opened', async () => {
+    render(<LoginPage initialCode={undefined} onPaired={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Scan QR code' }));
+
+    // jsdom exposes no camera, which is the same shape as a phone that has none:
+    // the scanner has to say so instead of showing a dead black frame.
+    expect(await screen.findByRole('alert')).toBeDefined();
+  });
+
+  test('closing the scanner returns to the form', async () => {
+    render(<LoginPage initialCode={undefined} onPaired={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Scan QR code' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByLabelText('Pairing code')).toBeDefined();
+  });
+
   test('editing the code clears a stale error', async () => {
     stubFetch(() => ({}));
     render(<LoginPage initialCode={undefined} onPaired={vi.fn()} />);

@@ -30,6 +30,7 @@
     "better-sqlite3": "13.0.1",
     "drizzle-orm": "0.45.2",
     "fastify": "5.11.2",
+    "jsqr": "1.4.0",
     "ws": "8.21.1"
   },
   "devDependencies": {
