@@ -10,6 +10,8 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-08-31
+
 ### Added
 
 - **A conversation can be put on autopilot, so it stops waiting on you.** An
@@ -43,6 +45,12 @@ to the version it ships as and leaves an empty one behind.
 - **The token count sits on its own line.** It shared a row with the model picker and
   the send button, which read as a row of controls with a number wedged among them.
   It now sits above them, on the right, under the text it describes.
+
+- **The prompt box footer reads in the order the controls are used.** The model comes
+  first, since it is what the next prompt is sent to, and the Autopilot switch follows
+  it. The switch keeps its label at every width: on a narrow screen it used to show a
+  bare track, and a switch with nothing naming it is a control whose meaning has to be
+  guessed — this one decides whether tool calls are approved without asking.
 
 ## [0.4.2] - 2026-08-30
 
