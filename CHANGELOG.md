@@ -10,6 +10,40 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+### Added
+
+- **A conversation can be put on autopilot, so it stops waiting on you.** An
+  approval nobody answers is refused when its deadline passes, which is deliberate
+  and stays the default. What it left behind was work that came back blocked for no
+  reason anybody chose: the browser was closed, the phone was in a pocket, and the
+  agent had stopped on a tool call that would have been allowed. The prompt box
+  footer now carries an Autopilot switch, and while it is on, every tool call that
+  conversation asks about is approved without asking. It covers only the
+  conversation it was switched on for — an approval needed elsewhere still reaches
+  you — and it is remembered by the server rather than by the tab, so it keeps
+  working with the browser closed, which is the whole point. Off by default on every
+  conversation, and turning it off applies to the very next request. It is not the
+  same thing as **Always allow** on an approval card: that records a lasting rule on
+  the machine, while this ends the moment you switch it off and leaves nothing
+  behind. A limit set in the terminal still wins, and an approval granted this way is
+  marked as automatic rather than shown as a decision you made.
+
+### Changed
+
+- **The token count reads as one figure about the conversation.** It used to lead
+  with what the last prompt spent and state the conversation's total beside it, so
+  the line said things like `9.0k in · 30 out · 15.1k total` — three numbers where
+  the first two described one prompt and the third described all of them, which does
+  not add up when you read it as a row of numbers. All three now count the whole
+  conversation, the running answer included, so the input and the output add up to
+  the total. What the last prompt spent is still there, in the tooltip, along with
+  the full figures: it is the closest thing to how much context the conversation is
+  carrying, which is a different question from what it has cost.
+
+- **The token count sits on its own line.** It shared a row with the model picker and
+  the send button, which read as a row of controls with a number wedged among them.
+  It now sits above them, on the right, under the text it describes.
+
 ## [0.4.2] - 2026-08-30
 
 ### Changed

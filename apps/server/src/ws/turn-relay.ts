@@ -327,6 +327,22 @@ export class TurnRelay {
       return;
     }
 
+    // Read per ask rather than remembered, so switching autopilot off applies to the
+    // very next ask. Nothing is registered as waiting and nobody is notified: an ask
+    // this conversation has already agreed to answer for itself is not a question,
+    // and putting a card on screen for a decision already made would only offer the
+    // user a choice that cannot change anything. See ADR-059.
+    if (this.options.conversationRepository.isAutopilot(turn.conversationId)) {
+      this.autoAllow({
+        id: ask.permissionId,
+        turnId,
+        sessionId: turn.sessionId,
+        deviceId,
+        conversationId: turn.conversationId,
+      });
+      return;
+    }
+
     const device = this.options.devices.findById(deviceId);
 
     const pending = this.options.permissions.add(
@@ -429,6 +445,44 @@ export class TurnRelay {
       createdAt: pending.createdAt,
       expiresAt: pending.expiresAt,
     };
+  }
+
+  /**
+   * Allows an ask because the conversation is on autopilot.
+   *
+   * `once` rather than `always`: the switch is the consent, and it is meant to end
+   * when it is switched off. Answering `always` would have the CLI write a rule on
+   * the machine that outlives every conversation on it, which is a different promise
+   * from the one the switch makes. See ADR-022 and ADR-059.
+   *
+   * Nothing is added to the waiting set on the way through, so there is no deadline
+   * to cancel and no card to take down. The resolution is still broadcast, because
+   * that is what puts the allowed call on the timeline of every attached tab.
+   */
+  private autoAllow(ask: {
+    id: string;
+    turnId: string;
+    sessionId: string;
+    deviceId: string;
+    conversationId: string;
+  }): void {
+    this.options.registry.send(ask.deviceId, {
+      type: 'permission_response',
+      turnId: ask.turnId,
+      permissionId: ask.id,
+      decision: 'once',
+    });
+
+    this.options.browsers.broadcast(ask.sessionId, {
+      type: 'permission_resolved',
+      conversationId: ask.conversationId,
+      turnId: ask.turnId,
+      permissionId: ask.id,
+      outcome: 'once',
+      // Said so the surface can report that nobody was asked. An approval a switch
+      // made is not one the user made, and the transcript should not imply it was.
+      auto: true,
+    });
   }
 
   private answerEngine(

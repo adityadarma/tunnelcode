@@ -15,6 +15,15 @@ interface ComposerProps {
   /** Stops the running answer. Required in practice whenever running is true. */
   onStop?: () => void;
   modelPicker?: React.ReactNode;
+  /**
+   * What the turn and the conversation have spent, placed on a line of its own.
+   *
+   * Kept apart from the controls below it because it is not one: nothing here can be
+   * pressed, and standing it beside the model pill and the switch made a row of
+   * things to act on with a reading among them. On its own line, right aligned, it
+   * reads as a figure about the conversation rather than another control.
+   */
+  usage?: React.ReactNode;
 }
 
 /**
@@ -93,6 +102,7 @@ export function Composer({
   running = false,
   onStop,
   modelPicker,
+  usage,
 }: ComposerProps): React.JSX.Element {
   const [text, setText] = useState('');
   const touch = useTouchInput();
@@ -157,6 +167,12 @@ export function Composer({
             send();
           }}
         />
+
+        {/* Above the controls and after the text, which is the order it is read in:
+            what the conversation has spent belongs to what was just typed rather than
+            to the buttons underneath. Left out entirely when nothing has been counted,
+            so an engine that cannot count leaves no empty line behind. */}
+        {usage !== undefined && <div className="composer-usage">{usage}</div>}
 
         <div className="composer-toolbar">
           <div className="composer-toolbar-left">

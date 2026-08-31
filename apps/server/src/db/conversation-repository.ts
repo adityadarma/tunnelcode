@@ -76,6 +76,13 @@ export interface StoredConversation extends StoredUsage {
   engine: string | null;
   /** Model asked for, or null to let the engine decide. */
   model: string | null;
+  /**
+   * True while this conversation answers its own asks instead of asking anybody.
+   *
+   * False on every conversation that has never switched it on, including every one
+   * created before this existed: nothing starts allowed. See ADR-059.
+   */
+  autopilot: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -140,9 +147,50 @@ export class ConversationRepository {
       outputTokens: null,
       lastInputTokens: null,
       lastOutputTokens: null,
+      // A new conversation asks about everything. Autopilot is something the user
+      // turns on for work they are watching start, never a state one arrives in.
+      autopilot: false,
       createdAt: now,
       updatedAt: now,
     };
+  }
+
+  /**
+   * Turns autopilot on or off for one conversation.
+   *
+   * `updatedAt` is deliberately left alone, for the same reason usage leaves it
+   * alone: flipping a switch is not something anybody said, and letting it reorder
+   * the list would move a conversation nobody had spoken in.
+   *
+   * Returns false when there is no such conversation, which is what an id for
+   * somebody else's row looks like from here.
+   */
+  setAutopilot(conversationId: string, enabled: boolean): boolean {
+    const result = this.db
+      .update(conversations)
+      .set({ autopilot: enabled })
+      .where(eq(conversations.id, conversationId))
+      .run();
+
+    return result.changes > 0;
+  }
+
+  /**
+   * Whether a conversation answers its own asks.
+   *
+   * Read per ask rather than cached, so switching autopilot off takes effect on the
+   * next ask instead of at the next restart. A conversation that no longer exists
+   * reads as false: the safe reading of a missing row is that nothing is allowed.
+   */
+  isAutopilot(conversationId: string): boolean {
+    const rows = this.db
+      .select({ autopilot: conversations.autopilot })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId))
+      .limit(1)
+      .all();
+
+    return rows[0]?.autopilot ?? false;
   }
 
   /**
@@ -512,6 +560,7 @@ export class ConversationRepository {
         outputTokens: conversations.outputTokens,
         lastInputTokens: conversations.lastInputTokens,
         lastOutputTokens: conversations.lastOutputTokens,
+        autopilot: conversations.autopilot,
         createdAt: conversations.createdAt,
         updatedAt: conversations.updatedAt,
       })
@@ -555,6 +604,7 @@ export class ConversationRepository {
         outputTokens: conversations.outputTokens,
         lastInputTokens: conversations.lastInputTokens,
         lastOutputTokens: conversations.lastOutputTokens,
+        autopilot: conversations.autopilot,
         createdAt: conversations.createdAt,
         updatedAt: conversations.updatedAt,
       })

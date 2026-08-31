@@ -581,9 +581,71 @@ describe('ConversationPage token counts', () => {
 
     // Read from the conversation, which is what makes them survive a refresh: the
     // figures used to live only in this page's state and vanished with it.
+    //
+    // Every figure is the conversation's, so the three of them add up. The pill used to
+    // lead with the last turn's 9.0k in and 30 out beside a 15.1k total, which put two
+    // scopes in one line and read as arithmetic that was wrong. See ADR-060.
     await waitFor(() => {
-      expect(screen.getByText('9.0k in · 30 out · 15.1k total')).toBeDefined();
+      expect(screen.getByText('15.0k in · 50 out · 15.1k total')).toBeDefined();
     });
+  });
+
+  test('the last turn is named in the tooltip rather than on the pill', async () => {
+    stubFetchWith({
+      ...conversation,
+      inputTokens: 15000,
+      outputTokens: 50,
+      lastInputTokens: 9000,
+      lastOutputTokens: 30,
+    });
+
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+
+    await loadPage();
+
+    // Still reported, because a turn's input is roughly the context the conversation
+    // now carries, which is a different question from what it has cost.
+    await waitFor(() => {
+      const pill = screen.getByText('15.0k in · 50 out · 15.1k total').closest('.token-usage');
+      const title = pill?.getAttribute('title') ?? '';
+
+      expect(title).toContain('Conversation — input: 15,000 tokens · output: 50 tokens');
+      expect(title).toContain('Last turn — input: 9,000 tokens · output: 30 tokens');
+    });
+  });
+
+  test('the figures sit on their own line above the controls', async () => {
+    stubFetchWith({
+      ...conversation,
+      inputTokens: 15000,
+      outputTokens: 50,
+      lastInputTokens: 9000,
+      lastOutputTokens: 30,
+    });
+
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+
+    await loadPage();
+
+    const figures = await screen.findByText('15.0k in · 50 out · 15.1k total');
+
+    // A reading rather than a control: standing it beside the model pill and the
+    // switch made a row of things to act on with a figure among them. Its own row,
+    // right aligned, under the text it belongs to.
+    expect(figures.closest('.composer-usage')).not.toBeNull();
+    expect(figures.closest('.composer-toolbar')).toBeNull();
+
+    // Between the text and the controls, which is the order it is read in. Checked as
+    // document order because no test environment evaluates the stylesheet.
+    const box = screen.getByLabelText('Message').closest('.composer-box');
+    const usageRow = box?.querySelector('.composer-usage');
+    const toolbar = box?.querySelector('.composer-toolbar');
+
+    expect(usageRow).not.toBeNull();
+    expect(toolbar).not.toBeNull();
+    expect(usageRow?.compareDocumentPosition(toolbar as Node)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
   });
 
   test('a finished turn updates both the turn and the total', async () => {
@@ -607,8 +669,10 @@ describe('ConversationPage token counts', () => {
       total: { inputTokens: 15000, outputTokens: 50 },
     });
 
+    // The pill reports the conversation's total, so it is the `total` here that lands
+    // on screen rather than what the single turn spent.
     await waitFor(() => {
-      expect(screen.getByText('9.0k in · 30 out · 15.1k total')).toBeDefined();
+      expect(screen.getByText('15.0k in · 50 out · 15.1k total')).toBeDefined();
     });
   });
 
@@ -638,6 +702,28 @@ describe('ConversationPage token counts', () => {
     });
   });
 
+  test('a conversation counted only by a running turn still reports it', async () => {
+    // No stored total to add to, which is the first turn of a conversation nobody had
+    // counted. What that turn has spent is the whole of it, so the pill appears rather
+    // than waiting for the turn to end.
+    stubFetch();
+
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+
+    await loadPage();
+
+    FakeSocket.latest?.deliver({
+      type: 'turn_usage',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      usage: { inputTokens: 4000, outputTokens: 10 },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('4.0k in · 10 out · 4.0k total')).toBeDefined();
+    });
+  });
+
   test('a turn that is still running shows what it has spent so far', async () => {
     stubFetchWith({
       ...conversation,
@@ -652,9 +738,9 @@ describe('ConversationPage token counts', () => {
     await loadPage();
 
     // Reported as the engine revises it, so the answer says what it is costing while
-    // it is being written. The total counts the running turn as well: what the
-    // conversation has been charged sits still until the turn ends, and on its own it
-    // would not move through the very turn being watched. See ADR-055.
+    // it is being written. Every figure counts the running turn: what the conversation
+    // has been charged sits still until the turn ends, and on its own it would not move
+    // through the very turn being watched. See ADR-055.
     FakeSocket.latest?.deliver({
       type: 'turn_usage',
       conversationId: 'conversation-1',
@@ -662,8 +748,10 @@ describe('ConversationPage token counts', () => {
       usage: { inputTokens: 8000, outputTokens: 25 },
     });
 
+    // 6.0k stored plus the 8.0k this turn has reported, on every figure rather than
+    // only on the total.
     await waitFor(() => {
-      expect(screen.getByText('8.0k in · 25 out · 14.0k total')).toBeDefined();
+      expect(screen.getByText('14.0k in · 45 out · 14.0k total')).toBeDefined();
     });
 
     // Replaced rather than added to, so a second report does not charge the turn
@@ -676,11 +764,11 @@ describe('ConversationPage token counts', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('8.2k in · 31 out · 14.3k total')).toBeDefined();
+      expect(screen.getByText('14.2k in · 51 out · 14.3k total')).toBeDefined();
     });
 
     // The turn is charged now, so the stored total carries it and what was standing in
-    // for it is dropped. Counted twice, this would read as 22.5k.
+    // for it is dropped. Counted twice, the input would read as 22.4k.
     FakeSocket.latest?.deliver({
       type: 'turn_done',
       conversationId: 'conversation-1',
@@ -690,7 +778,38 @@ describe('ConversationPage token counts', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('8.2k in · 31 out · 14.3k total')).toBeDefined();
+      expect(screen.getByText('14.2k in · 51 out · 14.3k total')).toBeDefined();
+    });
+  });
+
+  test('a running turn says its figures are not final', async () => {
+    stubFetchWith({
+      ...conversation,
+      inputTokens: 6000,
+      outputTokens: 20,
+      lastInputTokens: 6000,
+      lastOutputTokens: 20,
+    });
+
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+
+    await loadPage();
+
+    FakeSocket.latest?.deliver({
+      type: 'turn_usage',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      usage: { inputTokens: 8000, outputTokens: 25 },
+    });
+
+    // Said in the tooltip rather than done to the numbers, because a marker on the
+    // figure would be decorating a count the engine reported. See ADR-055.
+    await waitFor(() => {
+      const pill = screen.getByText('14.0k in · 45 out · 14.0k total').closest('.token-usage');
+      const title = pill?.getAttribute('title') ?? '';
+
+      expect(title).toContain('A turn is still running');
+      expect(title).toContain('This turn — input: 8,000 tokens · output: 25 tokens');
     });
   });
 });
@@ -779,5 +898,143 @@ describe('ConversationPage stopping an answer', () => {
     // Said in the transcript rather than in a banner, because a banner is gone by
     // the next reload and this is part of what happened.
     await screen.findByText(/You stopped this answer/);
+  });
+});
+
+describe('ConversationPage autopilot', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.stubGlobal('WebSocket', FakeSocket);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    FakeSocket.latest = undefined;
+  });
+
+  function autopilotFrames(): Record<string, unknown>[] {
+    return (FakeSocket.latest?.sent ?? [])
+      .map((raw) => JSON.parse(raw) as Record<string, unknown>)
+      .filter((frame) => frame['type'] === 'set_autopilot');
+  }
+
+  test('a conversation starts with the switch off', async () => {
+    stubFetch();
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    await loadPage();
+
+    FakeSocket.latest?.deliver({ type: 'attached', sessionId: 'session-1', online: true });
+
+    // Nothing starts allowed, including a conversation from a server that predates
+    // the field and sends no such value at all.
+    const toggle = await screen.findByRole('switch', { name: 'Turn autopilot on' });
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+  });
+
+  test('the model comes before the switch, and the switch is labelled', async () => {
+    stubFetch();
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    await loadPage();
+
+    FakeSocket.latest?.deliver({ type: 'attached', sessionId: 'session-1', online: true });
+
+    const toolbar = screen.getByLabelText('Message').closest('.composer-box');
+    const model = toolbar?.querySelector('.model-picker');
+    const toggle = await screen.findByRole('switch', { name: 'Turn autopilot on' });
+
+    // The model is what the next prompt is sent to, so it is read before the setting
+    // that governs what happens after it. Checked as document order because no test
+    // environment evaluates the stylesheet.
+    expect(model).not.toBeNull();
+    expect(model?.compareDocumentPosition(toggle)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+    // The word stays at every width. Hidden on a phone it left a bare track, and a
+    // switch with no label is a control whose meaning has to be guessed — this one
+    // decides whether tool calls are approved without asking.
+    expect(toggle.querySelector('.autopilot-label')?.textContent).toBe('Autopilot');
+
+    // Label first, then the track, which is the order it reads in.
+    const label = toggle.querySelector('.autopilot-label');
+    const track = toggle.querySelector('.autopilot-track');
+    expect(label?.compareDocumentPosition(track as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  test('switching it on asks the server rather than deciding locally', async () => {
+    stubFetch();
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    await loadPage();
+
+    FakeSocket.latest?.deliver({ type: 'attached', sessionId: 'session-1', online: true });
+    await userEvent.click(await screen.findByRole('switch', { name: 'Turn autopilot on' }));
+
+    expect(autopilotFrames()).toEqual([
+      { type: 'set_autopilot', conversationId: 'conversation-1', enabled: true },
+    ]);
+
+    // The server decides it and broadcasts the change, so a switch that never arrived
+    // must not leave the control showing a state the machine does not agree with.
+    expect(
+      screen.getByRole('switch', { name: 'Turn autopilot on' }).getAttribute('aria-checked'),
+    ).toBe('false');
+
+    FakeSocket.latest?.deliver({
+      type: 'autopilot_changed',
+      conversationId: 'conversation-1',
+      enabled: true,
+    });
+
+    await screen.findByRole('switch', { name: /Autopilot on/ });
+  });
+
+  test('a conversation already on autopilot shows it after a refresh', async () => {
+    // What the server reports for a conversation switched on before this browser
+    // loaded, which is the whole point of storing it rather than holding it in a tab.
+    stubFetchWith({ ...conversation, autopilot: true });
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    await loadPage();
+
+    FakeSocket.latest?.deliver({ type: 'attached', sessionId: 'session-1', online: true });
+
+    const toggle = await screen.findByRole('switch', { name: /Autopilot on/ });
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+  });
+
+  test('the switch stays usable while an answer is running', async () => {
+    stubFetch();
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    await loadPage();
+
+    FakeSocket.latest?.deliver({ type: 'attached', sessionId: 'session-1', online: true });
+    FakeSocket.latest?.deliver({
+      type: 'turn_started',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+    });
+
+    await screen.findByRole('button', { name: 'Stop' });
+
+    // A turn already running is when this is most wanted, because it is the moment
+    // the user puts the phone away. Sharing the composer's disabled state would have
+    // shut the switch for exactly the wait it exists for.
+    const toggle = screen.getByRole('switch', { name: 'Turn autopilot on' });
+    expect(toggle).toHaveProperty('disabled', false);
+
+    await userEvent.click(toggle);
+    expect(autopilotFrames()).toHaveLength(1);
+  });
+
+  test('an unreachable machine leaves nowhere for the setting to land', async () => {
+    stubFetch();
+    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    await loadPage();
+
+    FakeSocket.latest?.deliver({ type: 'attached', sessionId: 'session-1', online: false });
+
+    await waitFor(() => {
+      expect(screen.getByRole('switch', { name: 'Turn autopilot on' })).toHaveProperty(
+        'disabled',
+        true,
+      );
+    });
   });
 });

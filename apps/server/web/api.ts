@@ -78,6 +78,13 @@ export interface Conversation {
    */
   lastInputTokens: number | null;
   lastOutputTokens: number | null;
+  /**
+   * True while this conversation approves its own tool calls.
+   *
+   * Falls back to false on a server that predates the field, which is the safe
+   * reading of silence: nothing is allowed until somebody switches it on.
+   */
+  autopilot?: boolean;
   createdAt: number;
   updatedAt: number;
 }

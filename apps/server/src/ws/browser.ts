@@ -200,6 +200,57 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
     };
 
     /**
+     * Turns autopilot on or off for one conversation.
+     *
+     * Gated exactly as an approval is, and for the same reason: switching this on is
+     * approving every ask the conversation raises from here, so a session the run has
+     * not agreed to must not be able to reach it. Ownership of the conversation is
+     * checked as well, or an id alone would arm autopilot on a machine the sender has
+     * no claim to. See ADR-040 and ADR-059.
+     */
+    const setAutopilot = (message: Extract<BrowserMessage, { type: 'set_autopilot' }>): void => {
+      if (sessionId === undefined || deviceId === undefined) {
+        reply({ type: 'error', message: 'Not attached to a session.' });
+        return;
+      }
+
+      if (!runs.isAllowed(deviceId, sessionId)) {
+        reply({ type: 'error', message: 'Waiting for approval in the terminal.' });
+        return;
+      }
+
+      const caller = sessionRepository.findSessionDetail(sessionId);
+
+      if (caller === undefined) {
+        reply({ type: 'error', message: 'Unknown session.' });
+        return;
+      }
+
+      const owner = sessionRepository.findSessionForConversation(message.conversationId);
+
+      // Judged as a prompt is: the workspace is the entitlement, so pairing again
+      // still reaches the same conversations. Answered as unknown rather than
+      // forbidden, so the reply says nothing about another device's rows.
+      if (
+        owner === undefined ||
+        owner.deviceId !== caller.deviceId ||
+        owner.workspace !== caller.workspace ||
+        !conversationRepository.setAutopilot(message.conversationId, message.enabled)
+      ) {
+        reply({ type: 'error', message: 'Unknown conversation.' });
+        return;
+      }
+
+      // Every tab, not just the one that asked: two tabs disagreeing about whether
+      // anybody is being asked is exactly the confusion this avoids.
+      browsers.broadcast(sessionId, {
+        type: 'autopilot_changed',
+        conversationId: message.conversationId,
+        enabled: message.enabled,
+      });
+    };
+
+    /**
      * Stops the answer that is running.
      *
      * Gated exactly as a prompt is: stopping reaches into the machine and kills a
@@ -548,6 +599,9 @@ export function registerBrowserSocket(app: FastifyInstance, options: BrowserSock
           return;
         case 'permission_response':
           decidePermission(message);
+          return;
+        case 'set_autopilot':
+          setAutopilot(message);
           return;
         case 'grant_and_retry':
           grantAndRetry(message);

@@ -1187,6 +1187,14 @@
   @apply text-[var(--muted)] opacity-100 italic;
 }
 
+/* The token figure sits on its own line between the text and the controls, pushed to
+   the right. Its own row because it is a reading rather than a control: standing it
+   among the buttons made the row read as four things to press, one of which could not
+   be. Right aligned so the eye finds the controls first on the way down. */
+.composer-usage {
+  @apply flex justify-end min-w-0;
+}
+
 .composer-toolbar {
   @apply flex items-center justify-between gap-2 pt-2.5 -mx-3 -mb-3 md:-mx-3.5 md:-mb-3.5 px-3 md:px-3.5 pb-2.5 border-t border-[var(--border)]/60 w-[calc(100%+1.5rem)] md:w-[calc(100%+1.75rem)] min-w-0 flex-nowrap;
 }
@@ -1203,6 +1211,48 @@
    button that stops working for no visible reason. */
 .composer-hint-warning {
   @apply inline-block text-[var(--danger)];
+}
+
+/* Autopilot switch, beside the model pill in the prompt box footer. Off it reads as
+   quietly as the hint next to it; on it takes the accent, because a conversation that
+   approves its own tool calls is a state the user should be able to see at a glance
+   without reading the label. */
+.autopilot {
+  @apply inline-flex items-center gap-2 shrink-0 cursor-pointer bg-transparent border-none p-0 text-xs font-medium text-[var(--muted)] transition-colors hover:text-[var(--text)] focus-visible:outline-none disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.autopilot.on {
+  @apply text-[var(--accent)];
+}
+
+/* Shown at every width. It used to be hidden below sm to save room, which left a bare
+   track on a phone: a switch with no label is a control whose meaning has to be guessed,
+   and this one governs whether tool calls are approved without asking. The token figure
+   moved to a line of its own, so the room is there. */
+.autopilot-label {
+  @apply select-none whitespace-nowrap;
+}
+
+.autopilot-track {
+  @apply relative inline-flex items-center w-8 h-[18px] rounded-full shrink-0 bg-[var(--surface)] border border-[var(--border)] transition-colors;
+}
+
+.autopilot.on .autopilot-track {
+  @apply bg-[var(--accent)] border-[var(--accent)];
+}
+
+/* The ring lives on the track rather than the button, so keyboard focus lands on the
+   control the eye is drawn to instead of outlining the label as well. */
+.autopilot:focus-visible .autopilot-track {
+  @apply ring-2 ring-[var(--accent-glow)];
+}
+
+.autopilot-knob {
+  @apply absolute left-[2px] w-[12px] h-[12px] rounded-full bg-[var(--muted)] transition-transform;
+}
+
+.autopilot.on .autopilot-knob {
+  @apply bg-white translate-x-[14px];
 }
 
 .model-picker {

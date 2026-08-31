@@ -2978,3 +2978,111 @@ here is the value written on the user's behalf, which is the only one nobody cho
 
 Nothing is read from the environment. `hostname` and the passwd entry are both properties
 of the machine, so ADR-018 stays closed: no variable can influence what is stored.
+
+---
+
+# ADR-059
+
+## Autopilot Is Per Conversation And Lives On The Server
+
+Amends ADR-022.
+
+Decision
+
+A conversation can be put on autopilot, and while it is, every ask it raises is answered
+`once` without anybody being asked. The switch sits in the prompt box footer, beside the
+model pill, and defaults to off on every conversation including an imported one.
+
+The flag is stored on the conversation row and read per ask. An ask is auto-allowed only
+when the conversation that raised it is the one the switch was set on: an ask from any
+other conversation is put to the user as before, even while this one is answering its own.
+
+`once` and never `always`. A `permission_resolved` carrying `auto: true` says a switch
+answered rather than a person. Nothing is registered as waiting and no notification is
+raised for an auto-allowed ask, so there is no deadline to cancel and no card to take down.
+
+Switching autopilot is gated exactly as an approval is: the CLI run has to have agreed to
+the session, and the session has to own the conversation.
+
+Reason
+
+An unanswered ask is refused when its deadline passes, which ADR-022 chose deliberately:
+refusing is the only safe reading of a dark screen. What that leaves is a turn that stops
+partway with a refusal nobody chose, and the report behind this was exactly that — the
+browser was closed, the phone was in a pocket, and work that would have been allowed came
+back blocked. The block stays the default. This is a way to say in advance that one
+conversation may carry on without being asked.
+
+Stored on the server rather than held in the browser, because the case it exists for is a
+browser that is closed. A flag in a tab cannot answer an ask raised when no tab is
+attached, and the socket is what the notification exists to work around: the ask has to be
+decided by something still running, and the server is the only party that is.
+
+Per conversation and not per session or per machine. A device answers one prompt at a
+time, so a session-wide switch would hand over work the user never looked at, and the
+conversation is the unit they actually decided about: they watched this one start and
+judged what it was doing. It is also the scope that can be seen — the switch is on screen
+beside the prompt it applies to, where a session-wide one would be a setting somewhere
+else that quietly covers work opened later.
+
+Not the `always` decision, which is the closest thing that already existed. That records a
+rule on the machine, through the CLI's own policy, and a rule outlives every conversation
+on that machine: it is the right shape for "this command is fine here, forever" and the
+wrong shape for "watch this one for me while I am away". Autopilot ends when it is switched
+off and leaves nothing behind. Keeping them apart also keeps the ceiling meaningful, since
+the CLI still settles a denied rule before an ask is ever relayed, and autopilot never sees
+those.
+
+`once` per ask rather than one grant is what makes that true. Answering `always` would have
+the CLI write the rule anyway, which is the thing the switch is not.
+
+Marked as `auto` because a transcript that showed these as ordinary approvals would be
+claiming the user made a decision they were never shown. The outcome stays `once`, since
+that is what actually reached the engine, and the flag is what lets a surface say nobody
+was asked.
+
+Gated like an approval because it is one, in advance and in bulk: it is the message a
+stolen session would most want to send, and an id alone must never be enough to arm it.
+
+---
+
+# ADR-060
+
+## The Token Pill Reports The Conversation, Not The Last Turn
+
+Amends ADR-055.
+
+Decision
+
+Every figure on the token pill is the conversation's: input, output, and the sum of the
+two. All three count the running turn, on the same terms ADR-055 already set for the
+total — the stored figures plus what the turn in progress has reported, dropped the
+moment the turn is charged.
+
+The last turn's input and output move to the tooltip, alongside the conversation's own
+figures written out in full. Nothing else changes: the counts are still what the engine
+reported, still replaced rather than accumulated, and a conversation nobody counted still
+shows no pill at all.
+
+Reason
+
+The pill used to lead with the last turn's input and output and state the conversation's
+total beside them. Three numbers on one line, and the first two were a different scope
+from the third: `9.0k in · 30 out · 15.1k total`. Read as arithmetic, which is how a row
+of numbers is read, it is wrong — 9.0k and 30 do not make 15.1k. Read correctly it needs
+the tooltip to explain that the first two describe one turn and the third describes every
+turn, which is a lot to ask of a figure whose whole job is to be glanceable.
+
+ADR-055 chose the turn as the lead for a reason that has not survived contact with the
+screen: a turn's input is roughly the context the conversation carries, which is genuinely
+useful. But it is the second question, not the first. The first is what this conversation
+has cost, and that is the one number a user checks before deciding whether to keep going.
+Leading with the turn answered the second question and left the first as a fragment.
+
+The turn is kept rather than dropped, because the context reading is real and costs
+nothing in a tooltip. What it cannot do is stand in a row with figures that do not share
+its scope.
+
+Consistency across the three numbers is what makes the pill checkable. A reader who adds
+the first two and gets the third has confirmed they understood it, which is worth more
+here than the extra fact the old arrangement squeezed in.

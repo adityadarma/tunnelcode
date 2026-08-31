@@ -140,6 +140,20 @@ export const conversations = sqliteTable(
      */
     lastInputTokens: integer('last_input_tokens'),
     lastOutputTokens: integer('last_output_tokens'),
+    /**
+     * True while this conversation answers its own asks without troubling anybody.
+     *
+     * Stored rather than held in the browser, because the case it exists for is a
+     * browser that is closed: an ask raised with nobody attached has to be decided
+     * by something that is still running, and the server is the only party that is.
+     * Scoped to the conversation for the same reason it is not a machine rule — a
+     * grant recorded on the machine outlives every conversation on it, and this is
+     * meant to stop the moment it is switched off. See ADR-059.
+     *
+     * Defaults to false, which is what every row written before this existed is:
+     * nothing starts allowed.
+     */
+    autopilot: integer('autopilot', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
   },

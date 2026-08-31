@@ -8,6 +8,7 @@ import {
   updateConversationModel,
 } from '../api.js';
 import type { Activity, Conversation, Message, Reasoning, SessionDetail } from '../api.js';
+import { AutopilotToggle } from '../components/AutopilotToggle.js';
 import { Composer } from '../components/Composer.js';
 import { ConversationList } from '../components/ConversationList.js';
 import { DevicePanel } from '../components/DevicePanel.js';
@@ -70,6 +71,8 @@ interface ServerEvent {
   usage?: unknown;
   /** What the conversation has spent in all, this turn included. */
   total?: unknown;
+  /** Whether autopilot is on, as reported by the server that decided it. */
+  enabled?: unknown;
 }
 
 /** Strings from a list that crossed the socket, ignoring anything else in it. */
@@ -641,6 +644,24 @@ export function ConversationPage({
         );
         return;
 
+      // Autopilot was switched, here or in another tab. Written onto the conversation
+      // it belongs to rather than held as page state, so switching conversations shows
+      // each one's own setting and a refresh reads it back from the server.
+      case 'autopilot_changed': {
+        if (typeof event.conversationId !== 'string' || typeof event.enabled !== 'boolean') {
+          return;
+        }
+
+        const { conversationId, enabled } = event;
+
+        setConversations((current) =>
+          current.map((item) =>
+            item.id === conversationId ? { ...item, autopilot: enabled } : item,
+          ),
+        );
+        return;
+      }
+
       // What the running turn has spent so far. Written onto the conversation it
       // belongs to, whichever one is on screen, so the pill climbs while the answer
       // is being written instead of appearing once it is finished.
@@ -979,10 +1000,36 @@ export function ConversationPage({
     socket.sendPermissionResponse(ask.conversationId, ask.permissionId, decision);
   };
 
+  /**
+   * Turns autopilot on or off for the conversation on screen.
+   *
+   * Nothing is written locally: the server decides it and broadcasts the change,
+   * which is what keeps a second tab in step. A switch that never reached the server
+   * therefore leaves the control where it was rather than showing a state the machine
+   * does not agree with.
+   *
+   * An ask already on screen is deliberately left alone. It carries its own buttons
+   * and its own deadline, and turning a switch on is not a reading of a decision that
+   * is already in front of the user.
+   */
+  const toggleAutopilot = (enabled: boolean): void => {
+    if (activeId === undefined) {
+      return;
+    }
+
+    setError(undefined);
+    socket.setAutopilot(activeId, enabled);
+  };
+
   const active = conversations.find((item) => item.id === activeId);
 
   /**
-   * What the last turn to report spent, which is what the pill leads with.
+   * What the last turn to report spent, which the pill names in its tooltip.
+   *
+   * No longer what it leads with: a turn's input beside a conversation total put two
+   * scopes in one line of three numbers, and the total read as though it did not add
+   * up. It is still worth reporting, because a turn's input is roughly the context the
+   * conversation now carries. See ADR-060.
    *
    * Read off the conversation rather than held as state, so the figures survive a
    * refresh and a switch between conversations. Undefined until a turn reports a
@@ -1316,25 +1363,42 @@ export function ConversationPage({
           onStop={stop}
           modelPicker={
             <>
+              {/* The model comes first: it is what the next prompt is sent to, so it
+                  is read before the setting that governs what happens after. */}
               <ModelPicker
                 models={activeModels}
                 selected={active?.model ?? undefined}
                 disabled={sendDisabled}
                 onChange={changeModel}
               />
-              {lastTurn !== undefined && (
-                <TokenUsage
-                  inputTokens={lastTurn.inputTokens}
-                  outputTokens={lastTurn.outputTokens}
-                  totalInputTokens={spentInAll?.inputTokens}
-                  totalOutputTokens={spentInAll?.outputTokens}
-                  // While a turn is running these figures are that turn's, revised as
-                  // the engine reports it, so the tooltip must not call them the last
-                  // turn's and must say they are not final. See ADR-055.
-                  live={spendingNow !== undefined}
-                />
-              )}
+              <AutopilotToggle
+                enabled={active?.autopilot === true}
+                // Deliberately not sendDisabled: that is true for the whole of a
+                // running turn, and a turn already running is the moment this switch
+                // is most wanted, because it is when the user puts the phone away.
+                // Only an unreachable machine and having no conversation open can
+                // stop it, since neither leaves anywhere for the setting to land.
+                disabled={activeId === undefined || offline}
+                onChange={toggleAutopilot}
+              />
             </>
+          }
+          usage={
+            // Keyed off the conversation's own total rather than the last turn's
+            // figures, since that is what the pill now reports. A conversation whose
+            // engine cannot count has neither and shows nothing at all.
+            spentInAll === undefined ? undefined : (
+              <TokenUsage
+                inputTokens={spentInAll.inputTokens}
+                outputTokens={spentInAll.outputTokens}
+                turnInputTokens={lastTurn?.inputTokens}
+                turnOutputTokens={lastTurn?.outputTokens}
+                // A turn still running is counted in these figures and has not been
+                // charged yet, so the tooltip has to say they are not final. See
+                // ADR-055.
+                live={spendingNow !== undefined}
+              />
+            )
           }
         />
       </main>

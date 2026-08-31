@@ -634,6 +634,22 @@ export const browserMessageSchema = z.discriminatedUnion('type', [
     decision: permissionDecisionSchema,
   }),
   /**
+   * Turns autopilot on or off for one conversation.
+   *
+   * Named per conversation rather than per session because that is the whole of what
+   * it grants: an ask raised in another conversation is still put to the user, even
+   * while this one is answering its own. See ADR-059.
+   *
+   * Deliberately not a `permission_response` with a wider scope, and deliberately not
+   * the `always` decision either: `always` writes a rule on the machine that outlives
+   * every conversation on it, and this stops the moment it is switched off.
+   */
+  z.object({
+    type: z.literal('set_autopilot'),
+    conversationId: conversationIdSchema,
+    enabled: z.boolean(),
+  }),
+  /**
    * Stop the answer that is running.
    *
    * The turn is named rather than left implicit, so a stop that arrives just after
@@ -886,6 +902,28 @@ export const serverToBrowserMessageSchema = z.discriminatedUnion('type', [
     turnId: turnIdSchema,
     permissionId: permissionIdSchema,
     outcome: permissionOutcomeSchema,
+    /**
+     * True when autopilot answered rather than a person.
+     *
+     * Sent as a fact of its own rather than as a fifth outcome: what reached the
+     * engine really was `once`, and a browser that has to undo its card reads the
+     * outcome. This is what lets the surface say nobody was asked, so an approval
+     * granted by a switch is never presented as one somebody made. Absent reads as
+     * a decision a person took, which is what every older server sends.
+     */
+    auto: z.boolean().optional(),
+  }),
+  /**
+   * Autopilot was switched for one conversation.
+   *
+   * Broadcast rather than answered only to the tab that asked, because two tabs on
+   * one session would otherwise disagree about whether anybody is being asked. See
+   * ADR-059.
+   */
+  z.object({
+    type: z.literal('autopilot_changed'),
+    conversationId: conversationIdSchema,
+    enabled: z.boolean(),
   }),
   z.object({
     type: z.literal('turn_done'),

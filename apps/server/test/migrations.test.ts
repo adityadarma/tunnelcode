@@ -122,6 +122,32 @@ test('an activity written before the blocked flag reads as having run', async ()
   });
 });
 
+test('a conversation written before autopilot existed reads as off', async () => {
+  await withTempDb(async (handle, file) => {
+    new SessionRepository(handle.db).persistApproved(session);
+    handle.close();
+
+    // Written the way a build that predates the column did, without naming it.
+    const raw = new Database(file);
+    raw
+      .prepare(
+        'insert into conversations (id, session_id, engine, created_at, updated_at) values (?, ?, ?, ?, ?)',
+      )
+      .run('c-old', 'session-1', 'opencode', 1, 1);
+    raw.close();
+
+    await reopenDb(file, async (reopened) => {
+      const repository = new ConversationRepository(reopened.db);
+
+      // The column default is what keeps an existing row valid, and false is the only
+      // safe reading of a row from before the switch existed: nothing is allowed until
+      // somebody turns it on. See ADR-059.
+      assert.equal(repository.findById('c-old')?.autopilot, false);
+      assert.equal(repository.isAutopilot('c-old'), false);
+    });
+  });
+});
+
 test('a database written before thinking existed still opens, and keeps it after', async () => {
   await withTempDb(async (handle, file) => {
     new SessionRepository(handle.db).persistApproved(session);

@@ -45,6 +45,14 @@ export interface SessionSocket {
    * next one. See ADR-042.
    */
   stopTurn: (turnId: string) => void;
+  /**
+   * Turns autopilot on or off for one conversation.
+   *
+   * Sent to the server rather than kept here, because the case it exists for is a
+   * browser that is closed: an ask raised with nothing attached has to be answered by
+   * something still running. See ADR-059.
+   */
+  setAutopilot: (conversationId: string, enabled: boolean) => void;
   disconnect: () => void;
 }
 
@@ -212,6 +220,16 @@ export function useSessionSocket({ sessionId, onMessage }: UseSessionSocketOptio
     socket.send(JSON.stringify({ type: 'stop_turn', turnId }));
   }, []);
 
+  const setAutopilot = useCallback((conversationId: string, enabled: boolean): void => {
+    const socket = socketRef.current;
+
+    if (socket === undefined || socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    socket.send(JSON.stringify({ type: 'set_autopilot', conversationId, enabled }));
+  }, []);
+
   /**
    * Ends the session on the paired machine before the browser forgets it.
    *
@@ -236,6 +254,7 @@ export function useSessionSocket({ sessionId, onMessage }: UseSessionSocketOptio
     sendPermissionResponse,
     sendGrantAndRetry,
     stopTurn,
+    setAutopilot,
     disconnect,
   };
 }
