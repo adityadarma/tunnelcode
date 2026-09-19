@@ -3,7 +3,7 @@ import type { GlobalConfig } from '@tunnelcode/config';
 import { ENGINE_NAMES } from '@tunnelcode/engine';
 import type { AvailableEngine } from '@tunnelcode/engine';
 import { ensureGlobalConfig } from '../default-config.js';
-import { discoverEnginesCached } from '../engine-cache.js';
+import { discoverEnginesSplit } from '../engine-discovery.js';
 import { runPairingSession } from '../pairing/session.js';
 import { writeErr, writeOut } from '../output.js';
 import { withSpinner } from '../spinner.js';
@@ -18,6 +18,8 @@ import { readVersion } from '../version.js';
 interface Ready {
   config: GlobalConfig;
   engines: AvailableEngine[];
+  /** Resolves with the complete engine list, when discovery left some unlisted. */
+  remainingEngines: Promise<AvailableEngine[]> | undefined;
 }
 
 /**
@@ -46,12 +48,15 @@ async function prepare(cwd: string): Promise<Ready | undefined> {
     writeOut('');
   }
 
-  // Named for what is actually being waited on. Any engine whose models are not
-  // already remembered is run to ask it, which takes seconds on some of them, and a
-  // label reading "Generating" put that wait on the QR code, which costs nothing.
-  // The menu has erased itself by now, so without something on screen the terminal is
-  // blank for as long as the slowest engine takes to answer.
-  const engines = await withSpinner('Checking engines...', () => discoverEnginesCached());
+  // Named for what is actually being waited on: which is on PATH, a `which` per
+  // engine that answers in milliseconds. Listing models is the slow half, and an
+  // engine with no fresh cache entry is left with an empty list here rather than
+  // making the spinner wait for its own CLI to start. That list arrives later, as
+  // an engines_updated message, once runPairingSession has something to send it on.
+  const { immediate: engines, remaining: remainingEngines } = await withSpinner(
+    'Checking engines...',
+    () => discoverEnginesSplit(),
+  );
 
   const version = readVersion();
   writeOut(`${dim(`[TunnelCode v${version}]`)} Initializing device...`);
@@ -87,7 +92,7 @@ async function prepare(cwd: string): Promise<Ready | undefined> {
 
   writeOut('');
 
-  return { config, engines };
+  return { config, engines, remainingEngines };
 }
 
 /**
@@ -121,6 +126,7 @@ export async function runStart(cwd: string): Promise<number> {
     deviceName: ready.config.device.name,
     workspace: cwd,
     engines,
+    ...(ready.remainingEngines === undefined ? {} : { remainingEngines: ready.remainingEngines }),
     timeouts: {
       idleMs: ready.config.timeouts.idleMinutes * 60 * 1000,
       answerMs: ready.config.timeouts.answerMinutes * 60 * 1000,

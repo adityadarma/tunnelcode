@@ -235,3 +235,46 @@ test('an engine that cannot list models is still offered', async () => {
     });
   });
 });
+
+/**
+ * Fake copilot that takes 7 seconds to answer `session/new`.
+ *
+ * A real ACP-based engine spawns a process and completes a handshake before it
+ * reports anything, which measured at 5-8 seconds on an ordinary machine. This
+ * mimics that cost, rather than the near-instant answer the other fakes give, so
+ * a timeout regression shows up the same way it would against the real thing.
+ */
+const SLOW_COPILOT = `#!/usr/bin/env node
+const send = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+let buffer = '';
+process.stdin.on('data', (chunk) => {
+  buffer += chunk;
+  const lines = buffer.split('\\n');
+  buffer = lines.pop() ?? '';
+  for (const line of lines) {
+    if (line.trim() === '') continue;
+    const msg = JSON.parse(line);
+    if (msg.method === 'initialize') {
+      send({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: 1, agentInfo: { name: 'Copilot', version: '1.0.78' } } });
+    }
+    if (msg.method === 'session/new') {
+      setTimeout(() => {
+        send({ jsonrpc: '2.0', id: msg.id, result: { sessionId: 'f0e1d2c3', models: { currentModelId: 'claude-sonnet-5', availableModels: [{ modelId: 'claude-sonnet-5', name: 'Claude Sonnet 5' }] } } });
+      }, 7000);
+    }
+  }
+});
+`;
+
+test('an engine slower than the old timeout still reports its models', async () => {
+  await withEmptyPath(async () => {
+    await withFakeEngine('copilot', SLOW_COPILOT, async () => {
+      const found = await discoverEngines();
+
+      // Regression: a flat 5 second budget cut this off before session/new
+      // answered, and reported the engine with no models rather than the ones it
+      // has. The budget has to outlast a handshake this slow. See ADR-020.
+      assert.deepEqual(found[0]?.models, [{ id: 'claude-sonnet-5', label: 'Claude Sonnet 5' }]);
+    });
+  });
+});

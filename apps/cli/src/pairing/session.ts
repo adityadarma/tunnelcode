@@ -27,6 +27,17 @@ export interface PairingSessionOptions {
    */
   engines: AvailableEngine[];
   /**
+   * Resolves with the complete engine list, once every engine missing from
+   * `engines` at the time this was built has answered.
+   *
+   * `engines` is already what `which` found; this is the slower half, listing
+   * models. Undefined when nothing was missing, so nothing else is awaited.
+   * Sent to the server as an `engines_updated` message as soon as it resolves,
+   * rather than being waited on here: the pairing code must not sit behind it.
+   * See ADR-020.
+   */
+  remainingEngines?: Promise<AvailableEngine[]>;
+  /**
    * Timeout overrides from the config file, in milliseconds.
    * When absent, hardcoded defaults are used.
    */
@@ -296,6 +307,23 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
     if (engine !== undefined) {
       engines.set(available.name, engine);
     }
+  }
+
+  // The models still being listed when the pairing code went up, filled in without
+  // making the browser wait for them. `options.engines` is mutated in place, rather
+  // than reassigned, so a reconnect that happens after this resolves registers with
+  // the complete list on its own, with no separate update to send.
+  if (options.remainingEngines !== undefined) {
+    void options.remainingEngines.then((full) => {
+      // Kept in the order this session already settled on (the configured engine
+      // first), rather than whatever order discovery answered in, so the update
+      // does not reshuffle a list the browser is already showing.
+      const byName = new Map(full.map((engine) => [engine.name, engine]));
+      const ordered = options.engines.map((engine) => byName.get(engine.name) ?? engine);
+
+      options.engines.splice(0, options.engines.length, ...ordered);
+      state.client?.report({ type: 'engines_updated', engines: ordered });
+    });
   }
 
   /**

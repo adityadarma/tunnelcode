@@ -332,3 +332,140 @@ test('a server too old to report live sessions still shows the code', async () =
     });
   });
 });
+
+/** Fake opencode whose model listing answers only after a short delay. */
+const SLOW_ENGINE = `#!/usr/bin/env node
+if (process.argv[2] === 'models' && process.argv[3] === '--verbose') {
+  setTimeout(() => {
+    process.stdout.write('opencode/fast\\n');
+    process.stdout.write(JSON.stringify({ id: 'fast', providerID: 'opencode', name: 'Fast' }, null, 2) + '\\n');
+    process.exit(0);
+  }, 200);
+  return;
+}
+process.stdin.resume();
+`;
+
+async function withSlowFixture<T>(
+  serverUrl: string,
+  run: (fixture: Fixture) => Promise<T>,
+): Promise<T> {
+  const home = await mkdtemp(join(tmpdir(), 'tunnelcode-invite-home-'));
+  const binDir = await mkdtemp(join(tmpdir(), 'tunnelcode-invite-bin-'));
+
+  if (process.platform === 'win32') {
+    await writeFile(join(binDir, 'opencode.js'), SLOW_ENGINE, 'utf8');
+    await writeFile(join(binDir, 'opencode.cmd'), '@node "%~dp0opencode.js" %*\r\n', 'utf8');
+  } else {
+    const enginePath = join(binDir, 'opencode');
+    await writeFile(enginePath, SLOW_ENGINE, 'utf8');
+    await chmod(enginePath, 0o755);
+  }
+
+  const configDir =
+    process.platform === 'win32'
+      ? join(home, 'AppData', 'Roaming', 'TunnelCode')
+      : join(home, '.config', 'tunnelcode');
+  await mkdir(configDir, { recursive: true });
+  await writeFile(
+    join(configDir, 'tunnelcode.json'),
+    JSON.stringify({
+      server: { url: serverUrl },
+      device: { name: 'Test Mac' },
+      engine: 'opencode',
+    }),
+    'utf8',
+  );
+
+  try {
+    return await run({ home, binDir });
+  } finally {
+    await rm(home, { recursive: true, force: true });
+    await rm(binDir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * The pairing code must not wait on a model list that is slow to arrive, and the
+ * models it was missing have to reach the server on their own once they are ready.
+ */
+test('register goes out with no models yet, and engines_updated fills them in', async () => {
+  const server = new WebSocketServer({ port: 0, path: '/ws/cli' });
+  const sockets: WebSocket[] = [];
+  const received: { type: string; engines?: { name: string; models: unknown[] }[] }[] = [];
+
+  server.on('connection', (socket) => {
+    sockets.push(socket);
+    socket.on('message', (raw: Buffer) => {
+      const message = JSON.parse(raw.toString('utf8')) as {
+        type: string;
+        engines?: { name: string; models: unknown[] }[];
+      };
+      received.push(message);
+
+      if (message.type === 'register') {
+        socket.send(JSON.stringify({ type: 'registered', deviceId: 'device-1' }));
+      }
+    });
+  });
+
+  await new Promise<void>((resolve) => {
+    server.on('listening', resolve);
+  });
+
+  const address = server.address();
+  const port = typeof address === 'object' && address !== null ? address.port : 0;
+
+  try {
+    await withSlowFixture(`http://127.0.0.1:${String(port)}`, async (fixture) => {
+      const child = startCli(fixture);
+
+      try {
+        // The code is on screen before the slow engine has answered anything: the
+        // pairing screen is what this whole change is about not waiting.
+        await readUntil(child, /Waiting for browser connection/);
+
+        const register = received.find((message) => message.type === 'register');
+        assert.notEqual(register, undefined);
+
+        // Only opencode is asserted on, rather than the whole list: a machine
+        // running this suite may have other engines on its real PATH, and this is
+        // about the one whose listing was made to be slow.
+        const registeredOpencode = register?.engines?.find((engine) => engine.name === 'opencode');
+        assert.notEqual(registeredOpencode, undefined);
+        assert.deepEqual(registeredOpencode?.models, []);
+
+        // engines_updated arrives afterwards, on its own, once the slow engine's
+        // own CLI has finally answered.
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            reject(new Error('Timed out waiting for engines_updated.'));
+          }, 20000);
+
+          const check = (): void => {
+            const updated = received.find((message) => message.type === 'engines_updated');
+            if (updated !== undefined) {
+              clearTimeout(timer);
+              resolve();
+              return;
+            }
+            setTimeout(check, 20);
+          };
+
+          check();
+        });
+
+        const updated = received.find((message) => message.type === 'engines_updated');
+        const updatedOpencode = updated?.engines?.find((engine) => engine.name === 'opencode');
+        assert.deepEqual(updatedOpencode?.models, [{ id: 'opencode/fast', label: 'Fast' }]);
+      } finally {
+        child.kill('SIGKILL');
+      }
+    });
+  } finally {
+    for (const socket of sockets) {
+      socket.terminate();
+    }
+    server.close();
+  }
+});

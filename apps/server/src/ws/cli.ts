@@ -395,6 +395,20 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
           }
           return;
 
+        case 'engines_updated':
+          if (deviceId !== undefined) {
+            // Replaces what register sent, so the next browser to attach or fetch
+            // the session already gets the full list rather than the partial one.
+            devices.updateEngines(deviceId, message.engines);
+
+            // Broadcast to every browser already watching a session for this
+            // device, so a picker open right now fills in without a reload.
+            for (const sid of sessionRepository.listSessionIdsByDevice(deviceId)) {
+              browsers.broadcast(sid, { type: 'engines_updated', engines: message.engines });
+            }
+          }
+          return;
+
         case 'list_sessions_response':
           if (deviceId !== undefined && sessionImport) {
             sessionImport.resolveListSessions(message.requestId, message);

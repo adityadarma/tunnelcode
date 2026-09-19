@@ -1,6 +1,6 @@
 export { ConfigError } from './error.js';
 export { machineIdPath, readOrCreateDeviceId } from './device-id.js';
-export { enginesCachePath, globalConfigPath, grantsPath, updateStatePath } from './paths.js';
+export { globalConfigPath, grantsPath, updateStatePath } from './paths.js';
 export { loadGlobalConfig } from './load.js';
 export { writeGlobalConfig } from './write.js';
 export { addGrants, loadGrants, writeGrants } from './grants.js';

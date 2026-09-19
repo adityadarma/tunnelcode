@@ -109,6 +109,39 @@ test('register carries the models of each engine separately', () => {
   });
 });
 
+test('engines_updated from the CLI carries the same shape as register', () => {
+  const parsed = parseCliMessage(
+    JSON.stringify({
+      type: 'engines_updated',
+      engines: [
+        { name: 'opencode', models: [{ id: 'opencode/fast', label: 'Fast' }] },
+        { name: 'claude', label: 'Claude Code', models: ['sonnet'] },
+      ],
+    }),
+  );
+
+  assert.equal(parsed?.type, 'engines_updated');
+  assert.deepEqual(parsed?.type === 'engines_updated' ? parsed.engines : undefined, [
+    { name: 'opencode', label: 'opencode', models: [{ id: 'opencode/fast', label: 'Fast' }] },
+    { name: 'claude', label: 'Claude Code', models: [{ id: 'sonnet', label: 'sonnet' }] },
+  ]);
+});
+
+test('engines_updated must offer at least one engine, like register does', () => {
+  const none = JSON.stringify({ type: 'engines_updated', engines: [] });
+
+  assert.equal(parseCliMessage(none), undefined);
+});
+
+test('engines_updated to the browser carries the revised engine list', () => {
+  const result = serverToBrowserMessageSchema.safeParse({
+    type: 'engines_updated',
+    engines: [{ name: 'opencode', label: 'OpenCode', models: [] }],
+  });
+
+  assert.equal(result.success, true);
+});
+
 test('a prompt to the CLI names the engine to run', () => {
   assert.equal(
     serverToCliMessageSchema.safeParse({

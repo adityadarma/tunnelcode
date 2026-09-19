@@ -228,3 +228,32 @@ test('a live agent still holds its workspace', () => {
   assert.equal(result.ok, false);
   assert.equal(result.ok ? '' : result.reason, 'workspace_busy');
 });
+
+test('an engines_updated message revises the engine list in place', () => {
+  const devices = withLiveConnections();
+  devices.register(base);
+
+  const revised = [
+    { name: 'opencode', label: 'OpenCode', models: [{ id: 'opencode/fast', label: 'Fast' }] },
+    { name: 'claude', label: 'Claude Code', models: [{ id: 'sonnet', label: 'sonnet' }] },
+  ];
+
+  devices.updateEngines('device-1', revised);
+
+  assert.deepEqual(devices.findById('device-1')?.engines, revised);
+  assert.deepEqual(devices.findEngine('device-1', 'claude')?.models, [
+    { id: 'sonnet', label: 'sonnet' },
+  ]);
+});
+
+test('an engines_updated message for a device that disconnected does nothing', () => {
+  const devices = withLiveConnections();
+  devices.register(base);
+  devices.remove('device-1');
+
+  // The run that produced this update no longer has a session to update it for,
+  // so this must not resurrect a row the device's disconnect already removed.
+  devices.updateEngines('device-1', [{ name: 'claude', label: 'Claude Code', models: [] }]);
+
+  assert.equal(devices.findById('device-1'), undefined);
+});

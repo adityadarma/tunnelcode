@@ -62,6 +62,31 @@ export const engineModelSchema = z
 export type EngineModelPayload = z.output<typeof engineModelSchema>;
 
 /**
+ * One engine a CLI can run, with the models it reported.
+ *
+ * Shared between `register` and `engines_updated`: the second is a later
+ * revision of the same list the first sent, so the two must describe an engine
+ * exactly the same way or a browser would have to read two shapes for one fact.
+ */
+const deviceEngineSchema = z
+  .object({
+    name: z.string().min(1),
+    /**
+     * The engine's own name for itself, as its vendor writes it.
+     *
+     * Optional so a CLI from before labels existed still registers, and filled
+     * from the name when it is absent. Kept out of every comparison: a
+     * conversation records the name, and that is what is matched.
+     */
+    label: z.string().min(1).optional(),
+    models: z.array(engineModelSchema),
+  })
+  .transform((engine) => ({ ...engine, label: engine.label ?? engine.name }));
+
+/** One engine a device reported, as every reader downstream of the schema sees it. */
+export type DeviceEnginePayload = z.output<typeof deviceEngineSchema>;
+
+/**
  * What an ask carries, wherever it travels.
  *
  * Shared between the CLI and the browser halves of the trip so the two cannot
@@ -177,24 +202,7 @@ export const cliMessageSchema = z.discriminatedUnion('type', [
      * in the browser. Sending only what is installed is what stops the browser
      * offering an engine this machine cannot run. See ADR-020.
      */
-    engines: z
-      .array(
-        z
-          .object({
-            name: z.string().min(1),
-            /**
-             * The engine's own name for itself, as its vendor writes it.
-             *
-             * Optional so a CLI from before labels existed still registers, and
-             * filled from the name when it is absent. Kept out of every comparison:
-             * a conversation records the name, and that is what is matched.
-             */
-            label: z.string().min(1).optional(),
-            models: z.array(engineModelSchema),
-          })
-          .transform((engine) => ({ ...engine, label: engine.label ?? engine.name })),
-      )
-      .min(1),
+    engines: z.array(deviceEngineSchema).min(1),
     /**
      * Version of the CLI process, so the browser can compare it with the server.
      *
@@ -209,6 +217,22 @@ export const cliMessageSchema = z.discriminatedUnion('type', [
      * older CLI that does not send it falls back to the server's default. See ADR-022.
      */
     answerTimeoutMs: z.number().positive().optional(),
+  }),
+  /**
+   * A later revision of the engine list `register` already sent.
+   *
+   * `register` cannot wait for every engine's models before the code goes on
+   * screen: listing them runs that engine's own CLI, which can cost several
+   * seconds per engine, and the QR is the visible wait a person is looking at.
+   * This carries the models that were still missing when `register` was sent,
+   * so the browser learns them without the pairing screen ever holding for it.
+   * The whole list is sent again rather than a diff, so a browser attaching
+   * partway through discovery is never asked to merge two partial pictures. See
+   * ADR-020.
+   */
+  z.object({
+    type: z.literal('engines_updated'),
+    engines: z.array(deviceEngineSchema).min(1),
   }),
   z.object({
     type: z.literal('approve'),
@@ -759,6 +783,18 @@ export const serverToBrowserMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('device_status'),
     online: z.boolean(),
+  }),
+  /**
+   * A later revision of the engine list this session's device reported.
+   *
+   * Sent when the CLI finishes listing a model set that was still missing when
+   * this browser attached, so the picker fills in without a reload. The whole
+   * list travels again rather than a diff, for the same reason the CLI sends it
+   * that way. See ADR-020.
+   */
+  z.object({
+    type: z.literal('engines_updated'),
+    engines: z.array(deviceEngineSchema).min(1),
   }),
   // Echoed back so every browser on this session sees the prompt that was sent.
   z.object({

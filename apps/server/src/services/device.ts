@@ -187,6 +187,20 @@ export class DeviceService {
   }
 
   /**
+   * Replaces a device's engine list with a later revision from the same CLI run.
+   *
+   * Sent once the models `register` did not have time to list are ready. Silently
+   * does nothing for a device that has since disconnected: the run that produced
+   * this update no longer has a session to update it for. See ADR-020.
+   */
+  updateEngines(id: string, engines: DeviceEngine[]): void {
+    const device = this.byId.get(id);
+    if (device !== undefined) {
+      device.engines = engines;
+    }
+  }
+
+  /**
    * Removes a device and frees its code. Called when the CLI disconnects, so a
    * code is never reusable after its session ends.
    */

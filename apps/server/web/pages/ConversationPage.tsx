@@ -73,6 +73,8 @@ interface ServerEvent {
   total?: unknown;
   /** Whether autopilot is on, as reported by the server that decided it. */
   enabled?: unknown;
+  /** A later revision of the device's engine list, on `engines_updated`. */
+  engines?: unknown;
 }
 
 /** Strings from a list that crossed the socket, ignoring anything else in it. */
@@ -101,6 +103,65 @@ function readUsage(value: unknown): { inputTokens: number; outputTokens: number 
   return typeof inputTokens === 'number' && typeof outputTokens === 'number'
     ? { inputTokens, outputTokens }
     : undefined;
+}
+
+/**
+ * Reads one engine model off the socket.
+ *
+ * Returns undefined unless both fields a picker needs are present: an id with no
+ * label, or the reverse, is not something worth offering a choice on.
+ */
+function readEngineModel(value: unknown): { id: string; label: string } | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+
+  const { id, label } = value as { id?: unknown; label?: unknown };
+
+  return typeof id === 'string' && typeof label === 'string' ? { id, label } : undefined;
+}
+
+/**
+ * Reads a device's engine list off the socket.
+ *
+ * Returns undefined unless it is a non-empty array of engines that each name
+ * themselves and carry a (possibly empty) model list: a picker built from
+ * anything less would offer a choice it cannot honour.
+ */
+function readDeviceEngines(
+  value: unknown,
+): { name: string; label: string; models: { id: string; label: string }[] }[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) {
+    return undefined;
+  }
+
+  const engines: { name: string; label: string; models: { id: string; label: string }[] }[] = [];
+
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null) {
+      return undefined;
+    }
+
+    const { name, label, models } = item as { name?: unknown; label?: unknown; models?: unknown };
+
+    if (typeof name !== 'string' || typeof label !== 'string' || !Array.isArray(models)) {
+      return undefined;
+    }
+
+    const readModels: { id: string; label: string }[] = [];
+
+    for (const model of models) {
+      const read = readEngineModel(model);
+      if (read === undefined) {
+        return undefined;
+      }
+      readModels.push(read);
+    }
+
+    engines.push({ name, label, models: readModels });
+  }
+
+  return engines;
 }
 
 /**
@@ -761,6 +822,20 @@ export function ConversationPage({
         // guard against a card outliving the turn it belongs to.
         setAsks((current) => current.filter((item) => item.turnId !== String(event.turnId)));
         return;
+
+      // A later revision of the engine list `attached` or the session fetch already
+      // had, sent once the CLI finishes listing models that were not ready yet. The
+      // picker fills in on its own, with no reload and no refetch. See ADR-020.
+      case 'engines_updated': {
+        const engines = readDeviceEngines(event.engines);
+
+        if (engines === undefined) {
+          return;
+        }
+
+        setSession((current) => (current === undefined ? current : { ...current, engines }));
+        return;
+      }
 
       // The terminal refused to serve this session again, which retires it. There is
       // nothing to wait for and nothing to retry, so the only honest place to be is

@@ -10,6 +10,40 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-09-19
+
+### Changed
+
+- **The pairing code no longer waits on every engine's models.** Discovery used to
+  run in two halves before anything went on screen: finding what is on PATH, a
+  `which` that answers in milliseconds, and listing what each of those can
+  answer with, which runs that engine's own CLI and can cost several seconds
+  per engine. The code now goes up as soon as the first half finishes. An
+  engine whose model list was not ready yet is offered with none, and fills in
+  on its own moments later without a reload, once the CLI finishes asking it
+  and sends the browser the completed list.
+
+- **The remembered model list is gone, along with the wait it was there to
+  avoid.** Discovery no longer holds anything up, so there was nothing left for
+  it to save. A model an engine gained used to stay hidden for up to 12 hours,
+  behind a file at `~/.config/tunnelcode/engines.json` that a version bump or a
+  reinstalled engine could also leave stale; now every start asks each engine
+  directly and the answer is never more than one run of the CLI old.
+
+- **Cursor and Copilot report their models again.** Listing them opens an ACP
+  session, which spawns a process and completes a handshake before it can
+  report anything — measured at 5 to 8 seconds on an ordinary machine, and
+  sometimes longer. The 5 second budget model discovery was given added in
+  0.4.4 cut that off before either finished, which reported both with no
+  models rather than the ones they have. The budget is now 15 seconds, long
+  enough for the slowest of the two with room to spare.
+
+- **Listing an engine's models no longer holds up pairing.** Every adapter now
+  gives model discovery a 5 second budget instead of sharing the longer timeout
+  used for commands that answer a prompt. An engine that is slow to respond, or
+  hangs, used to keep the QR code off screen; it now offers that engine with no
+  models rather than waiting on it further.
+
 ## [0.4.3] - 2026-08-31
 
 ### Added

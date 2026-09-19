@@ -1436,16 +1436,18 @@
   @apply flex items-center justify-end gap-2.5 pt-3 border-t border-[var(--border)];
 }
 
-/* Footer carrying three actions. Side by side they squeeze each other until the
-   longest label wraps mid-phrase, so on a phone they stack full width instead:
+/* Footer carrying three actions. The modal card itself is only max-w-md wide, so
+   three buttons never fit side by side without squeezing each other until the
+   longest label wraps mid-phrase — that is true at any viewport width, not just on
+   a phone, so this stacks unconditionally rather than switching at a breakpoint.
    column-reverse puts the primary action on top while leaving Cancel first in the
    DOM, where a keyboard and a screen reader expect it. */
 .modal-footer-stacked {
-  @apply flex-col-reverse items-stretch sm:flex-row sm:items-center;
+  @apply flex-col-reverse items-stretch;
 }
 
 .modal-footer-stacked > button {
-  @apply w-full justify-center whitespace-nowrap sm:w-auto;
+  @apply w-full justify-center whitespace-nowrap;
 }
 
 .btn-modal-cancel {

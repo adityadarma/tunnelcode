@@ -42,6 +42,7 @@ export {
 export type {
   BrowserMessage,
   CliMessage,
+  DeviceEnginePayload,
   EngineModelPayload,
   ServerToBrowserMessage,
   ServerToCliMessage,
