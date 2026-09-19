@@ -116,6 +116,7 @@ export async function startJsonRpc(
   args: readonly string[],
   cwd: string,
   handlers: RpcHandlers,
+  options: { timeoutMs?: number | undefined } = {},
 ): Promise<RpcConnection> {
   const resolved = await resolveCommand(command);
 
@@ -138,6 +139,22 @@ export async function startJsonRpc(
   const pending = new Map<string, Pending>();
   let nextId = 1;
   let closed = false;
+  const timeout =
+    options.timeoutMs === undefined
+      ? undefined
+      : setTimeout(() => {
+          closed = true;
+          abandon('The agent took too long to list its models.');
+          child.stdin.end();
+          child.kill();
+        }, options.timeoutMs);
+  timeout?.unref();
+
+  const clearTimeout = (): void => {
+    if (timeout !== undefined) {
+      globalThis.clearTimeout(timeout);
+    }
+  };
 
   const send = (message: unknown): void => {
     if (closed) {
@@ -248,12 +265,14 @@ export async function startJsonRpc(
   };
 
   child.on('error', (error) => {
+    clearTimeout();
     closed = true;
     abandon(error.message);
     handlers.onExit(1);
   });
 
   child.on('close', (code) => {
+    clearTimeout();
     closed = true;
     abandon('The agent ended before answering.');
     handlers.onExit(code ?? 0);
@@ -275,6 +294,7 @@ export async function startJsonRpc(
       send({ jsonrpc: '2.0', method, params });
     },
     close: () => {
+      clearTimeout();
       closed = true;
       stdout.close();
       stderr.close();

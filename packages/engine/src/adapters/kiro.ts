@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 
 import { readActivityTarget } from '../activity.js';
-import { captureOutput, isOnPath } from '../which.js';
+import { captureOutput, isOnPath, MODEL_LIST_TIMEOUT_MS } from '../which.js';
 import { RpcFailure, startJsonRpc } from './json-rpc.js';
 import type { RpcConnection, RpcRequest } from './json-rpc.js';
 import { labelledById } from '../types.js';
@@ -332,8 +332,8 @@ export class KiroEngine implements Engine {
    * it: it prints that nobody is logged in and exits. Every other command starts a
    * device login flow, opens a browser and waits for it to be completed.
    */
-  private async isLoggedIn(): Promise<boolean> {
-    return (await captureOutput(COMMAND, ['user', 'whoami'])) !== undefined;
+  private async isLoggedIn(timeoutMs?: number): Promise<boolean> {
+    return (await captureOutput(COMMAND, ['user', 'whoami'], { timeoutMs })) !== undefined;
   }
 
   /**
@@ -349,11 +349,13 @@ export class KiroEngine implements Engine {
    * the engine is still offered once someone logs in.
    */
   async listModels(): Promise<EngineModel[]> {
-    if (!(await this.isLoggedIn())) {
+    if (!(await this.isLoggedIn(MODEL_LIST_TIMEOUT_MS))) {
       return [];
     }
 
-    const output = await captureOutput(COMMAND, ['chat', '--list-models', '--format', 'json']);
+    const output = await captureOutput(COMMAND, ['chat', '--list-models', '--format', 'json'], {
+      timeoutMs: MODEL_LIST_TIMEOUT_MS,
+    });
 
     if (output === undefined) {
       return [];

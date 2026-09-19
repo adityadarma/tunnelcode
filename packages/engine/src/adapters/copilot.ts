@@ -5,7 +5,7 @@ import { createInterface } from 'node:readline';
 
 import { readActivityTarget } from '../activity.js';
 import { openSqliteReadonly } from '../sqlite.js';
-import { isOnPath } from '../which.js';
+import { isOnPath, MODEL_LIST_TIMEOUT_MS } from '../which.js';
 import { startJsonRpc } from './json-rpc.js';
 import type { RpcConnection, RpcRequest } from './json-rpc.js';
 import type {
@@ -473,21 +473,27 @@ export class CopilotEngine implements Engine {
     let connection: RpcConnection | undefined;
 
     try {
-      connection = await startJsonRpc(COMMAND, ['--acp'], process.cwd(), {
-        onRequest: () => Promise.reject(new Error('Nothing is asked of a listing.')),
-        onNotification: () => {
-          // A listing has no turn, so the session's own notifications are not this
-          // method's business.
+      connection = await startJsonRpc(
+        COMMAND,
+        ['--acp'],
+        process.cwd(),
+        {
+          onRequest: () => Promise.reject(new Error('Nothing is asked of a listing.')),
+          onNotification: () => {
+            // A listing has no turn, so the session's own notifications are not this
+            // method's business.
+          },
+          onStderr: () => {
+            // Diagnostics belong to a turn. Listing models has no transcript to put
+            // them in, and a warning here is not a reason to offer no models.
+          },
+          onExit: () => {
+            // The request below already fails when the process goes early, which is
+            // what reports it.
+          },
         },
-        onStderr: () => {
-          // Diagnostics belong to a turn. Listing models has no transcript to put
-          // them in, and a warning here is not a reason to offer no models.
-        },
-        onExit: () => {
-          // The request below already fails when the process goes early, which is
-          // what reports it.
-        },
-      });
+        { timeoutMs: MODEL_LIST_TIMEOUT_MS },
+      );
 
       await connection.request('initialize', {
         protocolVersion: PROTOCOL_VERSION,

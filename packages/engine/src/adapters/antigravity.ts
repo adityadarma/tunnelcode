@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RUN_COMMANDS_RULE } from './antigravity-settings.js';
 import { openSqliteReadonly } from '../sqlite.js';
-import { captureOutput, isOnPath } from '../which.js';
+import { captureOutput, isOnPath, MODEL_LIST_TIMEOUT_MS } from '../which.js';
 import { streamProcess } from '../process.js';
 import type { Engine, EngineEvent, EngineModel, PromptOptions } from '../types.js';
 import { SessionScanUnsupportedError } from '../session.js';
@@ -218,7 +218,7 @@ export class AntigravityEngine implements Engine {
    * ADR-051.
    */
   async listModels(): Promise<EngineModel[]> {
-    const output = await captureOutput(COMMAND, ['models']);
+    const output = await captureOutput(COMMAND, ['models'], { timeoutMs: MODEL_LIST_TIMEOUT_MS });
 
     if (output === undefined) {
       return [];

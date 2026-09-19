@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 
 import { readActivityTarget } from '../activity.js';
-import { captureOutput, isOnPath } from '../which.js';
+import { captureOutput, isOnPath, MODEL_LIST_TIMEOUT_MS } from '../which.js';
 import { RpcFailure, startJsonRpc } from './json-rpc.js';
 import type { RpcConnection, RpcRequest } from './json-rpc.js';
 import type {
@@ -329,8 +329,8 @@ export class CodexEngine implements Engine {
    * stderr, so a check against what it said matched neither of them and reported
    * every machine as logged out, which offered no models on a machine that had them.
    */
-  private async isLoggedIn(): Promise<boolean> {
-    return (await captureOutput(COMMAND, ['login', 'status'])) !== undefined;
+  private async isLoggedIn(timeoutMs?: number): Promise<boolean> {
+    return (await captureOutput(COMMAND, ['login', 'status'], { timeoutMs })) !== undefined;
   }
 
   /**
@@ -344,28 +344,34 @@ export class CodexEngine implements Engine {
    * the engine is still offered once someone logs in.
    */
   async listModels(): Promise<EngineModel[]> {
-    if (!(await this.isLoggedIn())) {
+    if (!(await this.isLoggedIn(MODEL_LIST_TIMEOUT_MS))) {
       return [];
     }
 
     let connection: RpcConnection | undefined;
 
     try {
-      connection = await startJsonRpc(COMMAND, ['app-server'], process.cwd(), {
-        onRequest: () => Promise.reject(new Error('Nothing is asked of a listing.')),
-        onNotification: () => {
-          // A listing has no turn, so the app server's status notifications are
-          // not this method's business.
+      connection = await startJsonRpc(
+        COMMAND,
+        ['app-server'],
+        process.cwd(),
+        {
+          onRequest: () => Promise.reject(new Error('Nothing is asked of a listing.')),
+          onNotification: () => {
+            // A listing has no turn, so the app server's status notifications are
+            // not this method's business.
+          },
+          onStderr: () => {
+            // Diagnostics belong to a turn. Listing models has no transcript to put
+            // them in, and a warning here is not a reason to offer no models.
+          },
+          onExit: () => {
+            // The request below already fails when the process goes early, which is
+            // what reports it.
+          },
         },
-        onStderr: () => {
-          // Diagnostics belong to a turn. Listing models has no transcript to put
-          // them in, and a warning here is not a reason to offer no models.
-        },
-        onExit: () => {
-          // The request below already fails when the process goes early, which is
-          // what reports it.
-        },
-      });
+        { timeoutMs: MODEL_LIST_TIMEOUT_MS },
+      );
 
       await connection.request('initialize', { clientInfo: CLIENT_INFO });
 

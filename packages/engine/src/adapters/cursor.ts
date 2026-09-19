@@ -1,5 +1,5 @@
 import { readActivityTarget } from '../activity.js';
-import { captureOutput, isOnPath } from '../which.js';
+import { captureOutput, isOnPath, MODEL_LIST_TIMEOUT_MS } from '../which.js';
 import { RpcFailure, startJsonRpc } from './json-rpc.js';
 import type { RpcConnection, RpcRequest } from './json-rpc.js';
 import type {
@@ -595,8 +595,8 @@ export class CursorEngine implements Engine {
    * changed. Reading the status also covers `CURSOR_API_KEY` with no special case,
    * since the child inherits the environment.
    */
-  private async isLoggedIn(): Promise<boolean> {
-    return (await captureOutput(COMMAND, ['status'])) !== undefined;
+  private async isLoggedIn(timeoutMs?: number): Promise<boolean> {
+    return (await captureOutput(COMMAND, ['status'], { timeoutMs })) !== undefined;
   }
 
   /**
@@ -615,27 +615,33 @@ export class CursorEngine implements Engine {
    * the engine is still offered once someone logs in.
    */
   async listModels(): Promise<EngineModel[]> {
-    if (!(await this.isLoggedIn())) {
+    if (!(await this.isLoggedIn(MODEL_LIST_TIMEOUT_MS))) {
       return [];
     }
 
     let connection: RpcConnection | undefined;
 
     try {
-      connection = await startJsonRpc(COMMAND, [ACP_ARGUMENT], process.cwd(), {
-        onRequest: () => Promise.reject(new Error('Nothing is asked of a listing.')),
-        onNotification: () => {
-          // A listing has no turn, so the agent's updates are not its business.
+      connection = await startJsonRpc(
+        COMMAND,
+        [ACP_ARGUMENT],
+        process.cwd(),
+        {
+          onRequest: () => Promise.reject(new Error('Nothing is asked of a listing.')),
+          onNotification: () => {
+            // A listing has no turn, so the agent's updates are not its business.
+          },
+          onStderr: () => {
+            // Diagnostics belong to a turn. Listing models has no transcript to put
+            // them in, and a warning here is not a reason to offer no models.
+          },
+          onExit: () => {
+            // The request below already fails when the process goes early, which is
+            // what reports it.
+          },
         },
-        onStderr: () => {
-          // Diagnostics belong to a turn. Listing models has no transcript to put
-          // them in, and a warning here is not a reason to offer no models.
-        },
-        onExit: () => {
-          // The request below already fails when the process goes early, which is
-          // what reports it.
-        },
-      });
+        { timeoutMs: MODEL_LIST_TIMEOUT_MS },
+      );
 
       await connection.request('initialize', {
         protocolVersion: PROTOCOL_VERSION,

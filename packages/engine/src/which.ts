@@ -71,12 +71,20 @@ export async function isOnPath(command: string): Promise<boolean> {
 const CAPTURE_TIMEOUT_MS = 20 * 1000;
 
 /**
+ * Model discovery runs before pairing, so it gets a much shorter budget than a
+ * command used while answering a prompt. An engine that misses this can still
+ * run with its default model; it must not keep the QR code off screen.
+ */
+export const MODEL_LIST_TIMEOUT_MS = 5 * 1000;
+
+/**
  * Runs a command and collects its stdout. Returns undefined when the command is
  * missing, fails, or takes too long, so a caller can fall back rather than wait.
  */
 export async function captureOutput(
   command: string,
   args: readonly string[],
+  options: { timeoutMs?: number | undefined } = {},
 ): Promise<string | undefined> {
   const resolved = await resolveCommand(command);
 
@@ -91,7 +99,7 @@ export async function captureOutput(
     const child = spawn(target, finalArgs, {
       stdio: ['ignore', 'pipe', 'ignore'],
       windowsHide: true,
-      timeout: CAPTURE_TIMEOUT_MS,
+      timeout: options.timeoutMs ?? CAPTURE_TIMEOUT_MS,
     });
 
     let stdout = '';

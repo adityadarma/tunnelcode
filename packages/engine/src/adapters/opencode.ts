@@ -1,7 +1,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { captureOutput, isOnPath } from '../which.js';
+import { captureOutput, isOnPath, MODEL_LIST_TIMEOUT_MS } from '../which.js';
 import { readActivityTarget } from '../activity.js';
 import { openSqliteReadonly } from '../sqlite.js';
 import { readResultBody } from './opencode-output.js';
@@ -295,14 +295,17 @@ export class OpenCodeEngine implements Engine {
    * what it was before names were read at all.
    */
   async listModels(): Promise<EngineModel[]> {
-    const verbose = await captureOutput(COMMAND, ['models', '--verbose']);
+    const verbose = await captureOutput(COMMAND, ['models', '--verbose'], {
+      timeoutMs: MODEL_LIST_TIMEOUT_MS,
+    });
     const named = verbose === undefined ? [] : readVerboseModels(verbose);
 
     if (named.length > 0) {
       return named;
     }
 
-    const output = verbose ?? (await captureOutput(COMMAND, ['models']));
+    const output =
+      verbose ?? (await captureOutput(COMMAND, ['models'], { timeoutMs: MODEL_LIST_TIMEOUT_MS }));
 
     if (output === undefined) {
       return [];
