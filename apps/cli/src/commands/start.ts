@@ -72,26 +72,6 @@ async function prepare(cwd: string): Promise<Ready | undefined> {
     return undefined;
   }
 
-  // What a new conversation will actually start on: the configured engine when it
-  // is installed, and otherwise the first one found. Marking that rather than the
-  // configured name keeps the label honest on a machine that has never chosen.
-  const leading = engines.find((engine) => engine.name === config.engine)?.name ?? engines[0]?.name;
-
-  writeOut(
-    `${dim('engines')}    ${engines
-      .map((engine) => (engine.name === leading ? `${engine.name} (default)` : engine.name))
-      .join(', ')}`,
-  );
-
-  // A configured engine that is not installed is worth saying out loud: the
-  // session still runs, but a new conversation will start on a different one.
-  // Nothing is said when none is configured, because then no choice was ignored.
-  if (config.engine !== undefined && !engines.some((engine) => engine.name === config.engine)) {
-    writeOut(`           ${config.engine} is configured but not installed, using ${leading ?? ''}`);
-  }
-
-  writeOut('');
-
   return { config, engines, remainingEngines };
 }
 

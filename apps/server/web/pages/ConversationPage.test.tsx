@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test, vi, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ConversationPage } from './ConversationPage.js';
+import { SessionSocketProvider } from '../SessionSocketContext.js';
 import type { Conversation } from '../api.js';
 
 /**
@@ -110,6 +111,25 @@ function stubFetchWith(only: Conversation): void {
 }
 
 /**
+ * Renders the page with the socket it reads from.
+ *
+ * The connection lives above the screens rather than inside this one, so a bare
+ * render would be a page with nothing to listen to.
+ */
+function renderPage(onSessionLost: () => void = vi.fn()): void {
+  render(
+    <SessionSocketProvider sessionId="session-1">
+      <ConversationPage
+        sessionId="session-1"
+        onSessionLost={onSessionLost}
+        theme="dark"
+        onToggleTheme={vi.fn()}
+      />
+    </SessionSocketProvider>,
+  );
+}
+
+/**
  * Waits until the page has loaded its conversations and selected one.
  *
  * The composer exists before that, so attaching too early would arrive while no
@@ -135,7 +155,7 @@ describe('ConversationPage turn state', () => {
   });
 
   test('attaching with a running turn blocks the composer', async () => {
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
 
     await loadPage();
 
@@ -156,7 +176,7 @@ describe('ConversationPage turn state', () => {
   });
 
   test('a turn that finishes frees the composer again', async () => {
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
 
     await loadPage();
 
@@ -184,7 +204,7 @@ describe('ConversationPage turn state', () => {
   });
 
   test('attaching with nothing running leaves the composer usable', async () => {
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
 
     await loadPage();
 
@@ -196,7 +216,7 @@ describe('ConversationPage turn state', () => {
   });
 
   test('a turn running in another conversation says so', async () => {
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
 
     await loadPage();
 
@@ -219,7 +239,7 @@ describe('ConversationPage turn state', () => {
   });
 
   test('a stored message mid-turn keeps the typing indicator up', async () => {
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
 
     await loadPage();
 
@@ -267,7 +287,7 @@ describe('ConversationPage turn state', () => {
   });
 
   test('a message arriving with no turn running raises no indicator', async () => {
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
 
     await loadPage();
 
@@ -293,7 +313,7 @@ describe('ConversationPage turn state', () => {
   });
 
   test('a malformed active turn is treated as nothing running', async () => {
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
 
     await loadPage();
 
@@ -355,7 +375,7 @@ describe('ConversationPage permission asks', () => {
   }
 
   test('an ask is put in front of the user', async () => {
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
     await loadPage();
 
     attach();
@@ -372,7 +392,7 @@ describe('ConversationPage permission asks', () => {
   });
 
   test('answering sends the decision and takes the card away', async () => {
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
     await loadPage();
 
     attach();
@@ -396,7 +416,7 @@ describe('ConversationPage permission asks', () => {
   });
 
   test('an ask answered somewhere else stops being offered here', async () => {
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
     await loadPage();
 
     attach();
@@ -419,7 +439,7 @@ describe('ConversationPage permission asks', () => {
   });
 
   test('the same ask replayed twice is shown once', async () => {
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
     await loadPage();
 
     attach();
@@ -434,7 +454,7 @@ describe('ConversationPage permission asks', () => {
   });
 
   test('an ask belonging to another conversation is still surfaced', async () => {
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
     await loadPage();
 
     attach();
@@ -452,7 +472,7 @@ describe('ConversationPage permission asks', () => {
   });
 
   test('a turn that ends clears its ask', async () => {
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
     await loadPage();
 
     attach();
@@ -486,7 +506,7 @@ describe('ConversationPage reconnect approval', () => {
   });
 
   test('a session waiting on the terminal shows the number instead of the conversation', async () => {
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
     await loadPage();
 
     FakeSocket.latest?.deliver({
@@ -502,7 +522,7 @@ describe('ConversationPage reconnect approval', () => {
   });
 
   test('an approved reconnect attaches again and brings the conversation back', async () => {
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
     await loadPage();
 
     FakeSocket.latest?.deliver({
@@ -528,7 +548,7 @@ describe('ConversationPage reconnect approval', () => {
 
   test('a refused reconnect gives up the session', async () => {
     const lost = vi.fn();
-    render(<ConversationPage sessionId="session-1" onSessionLost={lost} />);
+    renderPage(lost);
     await loadPage();
 
     FakeSocket.latest?.deliver({
@@ -557,7 +577,7 @@ describe('ConversationPage token counts', () => {
 
   test('a conversation nothing was counted for shows no figures', async () => {
     stubFetch();
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
 
     await loadPage();
 
@@ -575,7 +595,7 @@ describe('ConversationPage token counts', () => {
       lastOutputTokens: 30,
     });
 
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
 
     await loadPage();
 
@@ -599,7 +619,7 @@ describe('ConversationPage token counts', () => {
       lastOutputTokens: 30,
     });
 
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
 
     await loadPage();
 
@@ -623,7 +643,7 @@ describe('ConversationPage token counts', () => {
       lastOutputTokens: 30,
     });
 
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
 
     await loadPage();
 
@@ -657,7 +677,7 @@ describe('ConversationPage token counts', () => {
       lastOutputTokens: 20,
     });
 
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
 
     await loadPage();
 
@@ -685,7 +705,7 @@ describe('ConversationPage token counts', () => {
       lastOutputTokens: 20,
     });
 
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
 
     await loadPage();
 
@@ -708,7 +728,7 @@ describe('ConversationPage token counts', () => {
     // than waiting for the turn to end.
     stubFetch();
 
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
 
     await loadPage();
 
@@ -733,7 +753,7 @@ describe('ConversationPage token counts', () => {
       lastOutputTokens: 20,
     });
 
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
 
     await loadPage();
 
@@ -791,7 +811,7 @@ describe('ConversationPage token counts', () => {
       lastOutputTokens: 20,
     });
 
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
 
     await loadPage();
 
@@ -827,7 +847,7 @@ describe('ConversationPage stopping an answer', () => {
   });
 
   test('a running answer offers Stop instead of a Send nobody can press', async () => {
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
     await loadPage();
 
     FakeSocket.latest?.deliver({ type: 'attached', sessionId: 'session-1', online: true });
@@ -864,7 +884,7 @@ describe('ConversationPage stopping an answer', () => {
   });
 
   test('the composer comes back when the stopped turn ends', async () => {
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
     await loadPage();
 
     FakeSocket.latest?.deliver({
@@ -920,7 +940,7 @@ describe('ConversationPage autopilot', () => {
 
   test('a conversation starts with the switch off', async () => {
     stubFetch();
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
     await loadPage();
 
     FakeSocket.latest?.deliver({ type: 'attached', sessionId: 'session-1', online: true });
@@ -933,7 +953,7 @@ describe('ConversationPage autopilot', () => {
 
   test('the model comes before the switch, and the switch is labelled', async () => {
     stubFetch();
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
     await loadPage();
 
     FakeSocket.latest?.deliver({ type: 'attached', sessionId: 'session-1', online: true });
@@ -961,7 +981,7 @@ describe('ConversationPage autopilot', () => {
 
   test('switching it on asks the server rather than deciding locally', async () => {
     stubFetch();
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
     await loadPage();
 
     FakeSocket.latest?.deliver({ type: 'attached', sessionId: 'session-1', online: true });
@@ -990,7 +1010,7 @@ describe('ConversationPage autopilot', () => {
     // What the server reports for a conversation switched on before this browser
     // loaded, which is the whole point of storing it rather than holding it in a tab.
     stubFetchWith({ ...conversation, autopilot: true });
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
     await loadPage();
 
     FakeSocket.latest?.deliver({ type: 'attached', sessionId: 'session-1', online: true });
@@ -1001,7 +1021,7 @@ describe('ConversationPage autopilot', () => {
 
   test('the switch stays usable while an answer is running', async () => {
     stubFetch();
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
     await loadPage();
 
     FakeSocket.latest?.deliver({ type: 'attached', sessionId: 'session-1', online: true });
@@ -1025,7 +1045,7 @@ describe('ConversationPage autopilot', () => {
 
   test('an unreachable machine leaves nowhere for the setting to land', async () => {
     stubFetch();
-    render(<ConversationPage sessionId="session-1" onSessionLost={vi.fn()} />);
+    renderPage();
     await loadPage();
 
     FakeSocket.latest?.deliver({ type: 'attached', sessionId: 'session-1', online: false });

@@ -1,15 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { readSession } from '../api.js';
+import type { SessionDetail } from '../api.js';
+import { useSharedSessionSocket } from '../SessionSocketContext.js';
+import { DevicePanel } from '../components/DevicePanel.js';
+import { SidebarBrand } from '../components/SidebarBrand.js';
+import { ThemeToggle } from '../components/ThemeToggle.js';
+import { ViewToggle } from '../components/ViewToggle.js';
+import type { FileChange } from '../useSessionSocket.js';
+import type { Theme } from '../useTheme.js';
 
 interface FileChangesPageProps {
   sessionId: string;
   onBack: () => void;
-}
-
-interface FileChange {
-  path: string;
-  status: string;
-  diff?: string;
+  /** The chosen theme, held above both screens so one switch governs them. */
+  theme: Theme;
+  onToggleTheme: () => void;
+  /**
+   * Retires the session, the same call the conversation's panel makes.
+   *
+   * Passed in rather than done here, because ending a session is what sends the
+   * browser back to pairing, and that is not this screen's decision to make.
+   */
+  onSessionLost: () => void;
 }
 
 function statusLabel(status: string): string {
@@ -189,297 +201,352 @@ function DiffView({ diff }: { diff: string }): React.JSX.Element {
   );
 }
 
-export function FileChangesPage({ sessionId, onBack }: FileChangesPageProps): React.JSX.Element {
-  const [files, setFiles] = useState<FileChange[]>([]);
-  const [selectedFile, setSelectedFile] = useState<FileChange | undefined>(undefined);
-  const [connected, setConnected] = useState(false);
-  const [cliOnline, setCliOnline] = useState(false);
-  const [workspace, setWorkspace] = useState<string | undefined>(undefined);
-  const socketRef = useRef<WebSocket | undefined>(undefined);
+export function FileChangesPage({
+  sessionId,
+  onBack,
+  theme,
+  onToggleTheme,
+  onSessionLost,
+}: FileChangesPageProps): React.JSX.Element {
+  const [session, setSession] = useState<SessionDetail | undefined>(undefined);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // Fetch session workspace for display
+  /**
+   * Dismisses whichever sidebar is on screen.
+   *
+   * Two different states, same as the conversation: below md the file list is a
+   * drawer over the diff, held open by menuOpen, and from md up it is a column
+   * beside it, held open by sidebarOpen. The drawer being open is what tells the two
+   * apart, so no viewport has to be measured here.
+   */
+  const dismissSidebar = (): void => {
+    if (menuOpen) {
+      setMenuOpen(false);
+      return;
+    }
+
+    setSidebarOpen(false);
+  };
+
+  /**
+   * The file on screen, held as a path rather than the change itself.
+   *
+   * The device reports the whole list again on every edit, so a stored object would
+   * be last edit's diff for as long as it stayed selected. A path is looked up in
+   * whatever arrived most recently, which is what keeps the view live.
+   */
+  const [selectedPath, setSelectedPath] = useState<string | undefined>(undefined);
+
+  const socket = useSharedSessionSocket();
+  const files = socket.fileChanges;
+  const connected = socket.connected;
+  const cliOnline = socket.online;
+
+  // The whole session rather than just its workspace: the device panel in the
+  // sidebar names the machine and its version too.
   useEffect(() => {
     void (async () => {
       try {
-        const session = await readSession(sessionId);
-        setWorkspace(session.workspace);
+        setSession(await readSession(sessionId));
       } catch {
-        // Ignore
+        // Ignore. The panel is a summary, so a failed read leaves it out rather than
+        // taking the diff on screen down with it.
       }
     })();
   }, [sessionId]);
 
-  // Connect WebSocket to receive file_changes events
+  // Asking the server to describe the session again is what brings the changed
+  // files in, since they are replayed on attach. The socket is shared and stays
+  // open, so this is the whole cost of arriving here.
   useEffect(() => {
-    let disposed = false;
-    let reconnectTimer: number | undefined;
+    socket.reattach();
+  }, [socket.reattach]);
 
-    const connect = (): void => {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const url = `${protocol}//${window.location.host}/ws/browser`;
-      const socket = new WebSocket(url);
-      socketRef.current = socket;
+  const selectedFile = files.find((file) => file.path === selectedPath);
 
-      socket.addEventListener('open', () => {
-        setConnected(true);
-        socket.send(JSON.stringify({ type: 'attach', sessionId }));
-      });
+  // Something has to be on screen: opening the list with nothing selected would
+  // show the empty prompt next to a sidebar full of files, and a file that stopped
+  // being changed leaves a selection pointing at nothing.
+  useEffect(() => {
+    if (files.length === 0) {
+      setSelectedPath(undefined);
+      return;
+    }
 
-      socket.addEventListener('message', (event: MessageEvent<string>) => {
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(event.data);
-        } catch {
-          return;
-        }
+    if (selectedPath !== undefined && files.some((file) => file.path === selectedPath)) {
+      return;
+    }
 
-        if (typeof parsed !== 'object' || parsed === null || !('type' in parsed)) return;
-        const msg = parsed as Record<string, unknown>;
-
-        // Handle the initial attached response which includes CLI online state
-        if (msg.type === 'attached' && 'online' in msg) {
-          setCliOnline(msg.online as boolean);
-        }
-
-        // Handle CLI online/offline status changes
-        if (msg.type === 'device_status' && 'online' in msg) {
-          setCliOnline(msg.online as boolean);
-        }
-
-        if (msg.type === 'file_changes' && 'files' in msg) {
-          const fileMsg = msg as { type: 'file_changes'; files: FileChange[] };
-          const sorted = [...fileMsg.files].sort((a, b) => a.path.localeCompare(b.path));
-          setFiles(sorted);
-
-          // Auto-select first file if nothing is selected or selection is gone
-          setSelectedFile((prev) => {
-            if (sorted.length === 0) return undefined;
-            if (prev && sorted.some((f) => f.path === prev.path)) {
-              // Update current selection with latest data
-              return sorted.find((f) => f.path === prev.path);
-            }
-            return sorted[0];
-          });
-        }
-      });
-
-      socket.addEventListener('close', () => {
-        setConnected(false);
-        setCliOnline(false);
-        if (!disposed) {
-          reconnectTimer = window.setTimeout(connect, 2000);
-        }
-      });
-    };
-
-    connect();
-
-    return () => {
-      disposed = true;
-      if (reconnectTimer !== undefined) {
-        window.clearTimeout(reconnectTimer);
-      }
-      socketRef.current?.close();
-      socketRef.current = undefined;
-    };
-  }, [sessionId]);
+    setSelectedPath(files[0]?.path);
+  }, [files, selectedPath]);
 
   const handleSelectFile = useCallback((file: FileChange) => {
-    setSelectedFile(file);
+    setSelectedPath(file.path);
     setMenuOpen(false);
   }, []);
 
-  const [menuOpen, setMenuOpen] = useState(false);
+  /**
+   * Ends the session on the paired machine before the browser forgets it.
+   *
+   * The same pair of calls the conversation's panel makes: the agent runs there, so
+   * clearing local state alone would leave a terminal waiting for a browser that
+   * already left.
+   */
+  const disconnect = (): void => {
+    socket.disconnect();
+    onSessionLost();
+  };
 
+  /**
+   * What the body shows instead of a diff, or undefined when there is one to show.
+   *
+   * Read once for the whole screen rather than wrapped around the columns, because
+   * the sidebar has nothing to list in any of these cases and a file list beside
+   * "device is offline" would be a list of what used to be changed.
+   */
+  const notice = !connected ? (
+    <div className="fc-empty">
+      <span className="pulse-dot" />
+      <p className="muted">Connecting to device…</p>
+    </div>
+  ) : !cliOnline ? (
+    <div className="fc-empty">
+      <svg
+        width="32"
+        height="32"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="var(--muted)"
+        strokeWidth="1.5"
+      >
+        <line x1="1" y1="1" x2="23" y2="23" />
+        <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
+        <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" />
+        <path d="M10.71 5.05A16 16 0 0 1 22.56 9" />
+        <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" />
+        <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+        <line x1="12" y1="20" x2="12.01" y2="20" />
+      </svg>
+      <p className="muted">Device is offline.</p>
+    </div>
+  ) : files.length === 0 ? (
+    <div className="fc-empty">
+      <svg
+        width="32"
+        height="32"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="var(--ok)"
+        strokeWidth="1.5"
+      >
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+        <polyline points="22 4 12 14.01 9 11.01" />
+      </svg>
+      <p className="muted">Working directory clean — no changes.</p>
+    </div>
+  ) : undefined;
+
+  // The same shell as the conversation, down to the class names: one sidebar beside
+  // one main column, the same header height, the same drawer below md. Built out of
+  // its own markup, this screen drifted from the one it sits next to, and moving
+  // between them looked like arriving somewhere else. See ADR-007.
   return (
-    <div className={`fc-layout ${menuOpen ? 'fc-menu-open' : ''}`}>
-      {/* Header */}
-      <header className="fc-header">
-        <div className="fc-header-left">
-          <button type="button" className="fc-back-btn" onClick={onBack} aria-label="Go back">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <polyline points="15 18 9 12 15 6" />
-            </svg>
-          </button>
-          {/* Hamburger for mobile — opens the file list drawer */}
-          <button
-            type="button"
-            className="fc-menu-btn"
-            onClick={() => {
-              setMenuOpen(!menuOpen);
-            }}
-            aria-label="Toggle file list"
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect width="18" height="18" x="3" y="3" rx="2" />
-              <path d="M9 3v18" />
-            </svg>
-          </button>
-          <h1 className="fc-title">Changed Files</h1>
-          {workspace && <span className="fc-workspace">{workspace}</span>}
-        </div>
-        <div className="fc-header-right">
-          <span className={`fc-status-dot ${connected && cliOnline ? 'online' : 'offline'}`} />
-          <span className="fc-status-label">
-            {!connected ? 'Connecting…' : cliOnline ? 'Live' : 'Device offline'}
-          </span>
-        </div>
-      </header>
+    <div className={`layout ${sidebarOpen ? '' : 'sidebar-closed'} ${menuOpen ? 'menu-open' : ''}`}>
+      <div
+        className="layout-overlay"
+        onClick={() => {
+          setMenuOpen(false);
+        }}
+      />
 
-      {/* Main content area */}
-      <div className="fc-body">
-        {!connected ? (
-          <div className="fc-empty">
-            <span className="pulse-dot" />
-            <p className="muted">Connecting to device…</p>
-          </div>
-        ) : !cliOnline ? (
-          <div className="fc-empty">
-            <svg
-              width="32"
-              height="32"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--muted)"
-              strokeWidth="1.5"
-            >
-              <line x1="1" y1="1" x2="23" y2="23" />
-              <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
-              <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" />
-              <path d="M10.71 5.05A16 16 0 0 1 22.56 9" />
-              <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" />
-              <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
-              <line x1="12" y1="20" x2="12.01" y2="20" />
-            </svg>
-            <p className="muted">Device is offline.</p>
-          </div>
-        ) : files.length === 0 ? (
-          <div className="fc-empty">
-            <svg
-              width="32"
-              height="32"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--ok)"
-              strokeWidth="1.5"
-            >
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-              <polyline points="22 4 12 14.01 9 11.01" />
-            </svg>
-            <p className="muted">Working directory clean — no changes.</p>
-          </div>
-        ) : (
-          <>
-            {/* Overlay for mobile drawer */}
-            <div
-              className="fc-overlay"
-              onClick={() => {
-                setMenuOpen(false);
-              }}
-            />
-
-            {/* File sidebar */}
-            <aside className="fc-sidebar">
-              <div className="fc-sidebar-head">
+      <aside className="sidebar">
+        <nav aria-label="Changed files">
+          <div className="sidebar-head">
+            <SidebarBrand />
+            <div className="sidebar-head-actions">
+              {files.length > 0 && (
                 <span className="fc-sidebar-count">
-                  {files.length} change{files.length !== 1 ? 's' : ''}
+                  {files.length} file{files.length !== 1 ? 's' : ''}
                 </span>
-              </div>
-              <ul className="fc-file-list" role="listbox" aria-label="Changed files">
-                {files.map((file) => {
-                  const stats = diffStats(file.diff);
-                  return (
-                    <li
-                      key={file.path}
-                      role="option"
-                      aria-selected={selectedFile?.path === file.path}
-                    >
-                      <button
-                        type="button"
-                        className={`fc-file-item ${selectedFile?.path === file.path ? 'active' : ''}`}
-                        onClick={() => {
-                          handleSelectFile(file);
-                        }}
-                      >
-                        <span className="fc-file-icon">{fileIcon(file.status)}</span>
-                        <span className="fc-file-info">
-                          <span className="fc-file-name">{fileName(file.path)}</span>
-                          <span className="fc-file-dir">{fileDir(file.path)}</span>
-                        </span>
-                        <span className="fc-file-stats">
-                          {stats.added > 0 && <span className="fc-stat-add">+{stats.added}</span>}
-                          {stats.deleted > 0 && (
-                            <span className="fc-stat-del">-{stats.deleted}</span>
-                          )}
-                          {stats.added === 0 && stats.deleted === 0 && (
-                            <span
-                              className="fc-file-status"
-                              style={{ color: statusColor(file.status) }}
-                            >
-                              {file.status}
-                            </span>
-                          )}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </aside>
-
-            {/* File content viewer */}
-            <main className="fc-content">
-              {selectedFile ? (
-                <>
-                  <div className="fc-content-head">
-                    <span className="fc-content-icon">{fileIcon(selectedFile.status)}</span>
-                    <span className="fc-content-path">{selectedFile.path}</span>
-                    <span
-                      className="fc-content-tool"
-                      style={{ color: statusColor(selectedFile.status) }}
-                    >
-                      {statusLabel(selectedFile.status)}
-                    </span>
-                  </div>
-                  <div className="fc-content-body">
-                    {selectedFile.diff ? (
-                      <DiffView diff={selectedFile.diff} />
-                    ) : (
-                      <div className="fc-no-output">
-                        <p className="muted">
-                          {selectedFile.status === 'D'
-                            ? 'File was deleted.'
-                            : 'No diff available for this file.'}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <div className="fc-empty">
-                  <p className="muted">Select a file to view its diff.</p>
-                </div>
               )}
-            </main>
-          </>
+              <button
+                type="button"
+                className="btn-toggle-sidebar"
+                onClick={dismissSidebar}
+                title="Hide sidebar"
+                aria-label="Hide sidebar"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect width="18" height="18" x="3" y="3" rx="2" />
+                  <path d="M9 3v18" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {files.length === 0 ? (
+            <div className="empty-conversations">
+              <p className="muted padded">No changed files.</p>
+            </div>
+          ) : (
+            <ul className="conversation-items" role="listbox" aria-label="Changed files">
+              {files.map((file) => {
+                const stats = diffStats(file.diff);
+                const selected = selectedFile?.path === file.path;
+
+                return (
+                  <li
+                    key={file.path}
+                    className="conversation-item-wrapper"
+                    role="option"
+                    aria-selected={selected}
+                  >
+                    <button
+                      type="button"
+                      className={`conversation-item fc-file-row ${selected ? 'active' : ''}`}
+                      onClick={() => {
+                        handleSelectFile(file);
+                      }}
+                    >
+                      <span className="item-icon">{fileIcon(file.status)}</span>
+                      <span className="item-text">
+                        <span className="item-title">{fileName(file.path)}</span>
+                        <span className="item-meta">{fileDir(file.path) || file.status}</span>
+                      </span>
+                      <span className="fc-file-stats">
+                        {stats.added > 0 && <span className="fc-stat-add">+{stats.added}</span>}
+                        {stats.deleted > 0 && <span className="fc-stat-del">-{stats.deleted}</span>}
+                        {stats.added === 0 && stats.deleted === 0 && (
+                          <span
+                            className="fc-file-status"
+                            style={{ color: statusColor(file.status) }}
+                          >
+                            {file.status}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </nav>
+
+        {session !== undefined && (
+          <div className="device-wrapper">
+            {/* The notification switch is deliberately not here. It belongs beside
+                the asks it raises, and those are answered in the conversation. */}
+            <DevicePanel session={{ ...session, online: cliOnline }} onDisconnect={disconnect} />
+          </div>
         )}
-      </div>
+      </aside>
+
+      <main className="main">
+        <header className="main-head">
+          <div className="main-head-title">
+            {!sidebarOpen && (
+              <button
+                type="button"
+                className="btn-toggle-sidebar btn-toggle-sidebar-wide"
+                onClick={() => {
+                  setSidebarOpen(true);
+                }}
+                title="Show sidebar"
+                aria-label="Show sidebar"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect width="18" height="18" x="3" y="3" rx="2" />
+                  <path d="M9 3v18" />
+                </svg>
+              </button>
+            )}
+            <button
+              type="button"
+              className="menu-button ghost"
+              onClick={() => {
+                setMenuOpen(!menuOpen);
+              }}
+              aria-label="Toggle menu"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect width="18" height="18" x="3" y="3" rx="2" />
+                <path d="M9 3v18" />
+              </svg>
+            </button>
+            {/* The screen's name rather than the open file's path. The bar below
+                already names the file, with its icon and status beside it, and
+                carrying the path here too put it on screen twice. */}
+            <h1>Changed Files</h1>
+            {/* The workspace is named in the device panel in the sidebar now, so
+                repeating it here would be the same duplication the path had. */}
+          </div>
+          <div className="main-head-controls">
+            <ViewToggle view="file-changes" onToggle={onBack} />
+            <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+          </div>
+        </header>
+
+        {notice ?? (
+          <div className="fc-content">
+            {selectedFile !== undefined && (
+              <>
+                <div className="fc-content-head">
+                  <span className="fc-content-icon">{fileIcon(selectedFile.status)}</span>
+                  <span className="fc-content-path">{selectedFile.path}</span>
+                  <span
+                    className="fc-content-tool"
+                    style={{ color: statusColor(selectedFile.status) }}
+                  >
+                    {statusLabel(selectedFile.status)}
+                  </span>
+                </div>
+                <div className="fc-content-body">
+                  {selectedFile.diff !== undefined ? (
+                    <DiffView diff={selectedFile.diff} />
+                  ) : (
+                    <div className="fc-no-output">
+                      <p className="muted">
+                        {selectedFile.status === 'D'
+                          ? 'File was deleted.'
+                          : 'No diff available for this file.'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </main>
     </div>
   );
 }

@@ -4,6 +4,44 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 const RECONNECT_DELAY_MS = 2000;
 const PING_INTERVAL_MS = 30000;
 
+/** One changed file in the workspace, as the device reported it. */
+export interface FileChange {
+  path: string;
+  status: string;
+  diff?: string;
+}
+
+/** Reads the changed files off a `file_changes` event, ignoring malformed entries. */
+function readFileChanges(raw: unknown): FileChange[] | undefined {
+  if (!Array.isArray(raw)) {
+    return undefined;
+  }
+
+  const files: FileChange[] = [];
+
+  for (const entry of raw) {
+    if (typeof entry !== 'object' || entry === null) {
+      continue;
+    }
+
+    const candidate = entry as { path?: unknown; status?: unknown; diff?: unknown };
+
+    if (typeof candidate.path !== 'string' || typeof candidate.status !== 'string') {
+      continue;
+    }
+
+    files.push({
+      path: candidate.path,
+      status: candidate.status,
+      ...(typeof candidate.diff === 'string' ? { diff: candidate.diff } : {}),
+    });
+  }
+
+  // Sorted here rather than where they are drawn, because every reader wants the
+  // same order and the list only changes when one of these events arrives.
+  return files.sort((left, right) => left.path.localeCompare(right.path));
+}
+
 export interface SessionSocket {
   online: boolean;
   connected: boolean;
@@ -16,6 +54,31 @@ export interface SessionSocket {
    * this browser may carry on. See ADR-040.
    */
   resumeApprovalNumber: string | undefined;
+  /**
+   * The workspace's changed files, as the device last reported them.
+   *
+   * Held on the socket rather than in the screen that draws them, because the
+   * socket is what receives them and it outlives that screen: leaving the file list
+   * and coming back must not need a reconnect to find out what changed.
+   */
+  fileChanges: FileChange[];
+  /**
+   * Registers a listener for everything arriving on the socket and returns the call
+   * that removes it again.
+   *
+   * More than one screen reads this stream, so the connection cannot belong to any
+   * single one of them: a second socket would mean a second attach, and every event
+   * delivered twice.
+   */
+  subscribe: (handler: (message: unknown) => void) => () => void;
+  /**
+   * Asks the server to describe the session again over the connection already open.
+   *
+   * Attaching is what reports a running turn and replays a waiting ask, so a screen
+   * that stopped listening while it was off view catches up with this instead of
+   * dropping the socket to earn a fresh one.
+   */
+  reattach: () => void;
   /**
    * Sends a prompt. The engine and the model are not passed: they belong to the
    * conversation and the server reads them from it. See ADR-020.
@@ -58,7 +121,6 @@ export interface SessionSocket {
 
 interface UseSessionSocketOptions {
   sessionId: string;
-  onMessage: (message: unknown) => void;
 }
 
 function buildSocketUrl(): string {
@@ -71,15 +133,40 @@ function buildSocketUrl(): string {
  *
  * Reconnecting re-attaches rather than re-pairing, because the session already
  * exists; a refresh must not ask the user to approve again.
+ *
+ * Mounted once above the screens rather than inside one of them, so moving between
+ * them neither drops the connection nor opens a second one.
  */
-export function useSessionSocket({ sessionId, onMessage }: UseSessionSocketOptions): SessionSocket {
+export function useSessionSocket({ sessionId }: UseSessionSocketOptions): SessionSocket {
   const socketRef = useRef<WebSocket | undefined>(undefined);
   const [connected, setConnected] = useState(false);
   const [online, setOnline] = useState(false);
   const [resumeApprovalNumber, setResumeApprovalNumber] = useState<string | undefined>(undefined);
-  const handlerRef = useRef(onMessage);
+  const [fileChanges, setFileChanges] = useState<FileChange[]>([]);
 
-  handlerRef.current = onMessage;
+  /**
+   * The screens listening, held in a ref because the socket handler is built once
+   * and must not depend on which of them happened to be mounted at the time.
+   */
+  const handlersRef = useRef<Set<(message: unknown) => void>>(new Set());
+
+  const subscribe = useCallback((handler: (message: unknown) => void): (() => void) => {
+    handlersRef.current.add(handler);
+
+    return () => {
+      handlersRef.current.delete(handler);
+    };
+  }, []);
+
+  const sendAttach = useCallback((): void => {
+    const socket = socketRef.current;
+
+    if (socket === undefined || socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    socket.send(JSON.stringify({ type: 'attach', sessionId }));
+  }, [sessionId]);
 
   useEffect(() => {
     let disposed = false;
@@ -131,9 +218,21 @@ export function useSessionSocket({ sessionId, onMessage }: UseSessionSocketOptio
           if (type === 'attached') {
             setResumeApprovalNumber(undefined);
           }
+
+          if (type === 'file_changes' && 'files' in parsed) {
+            const files = readFileChanges(parsed.files);
+
+            if (files !== undefined) {
+              setFileChanges(files);
+            }
+          }
         }
 
-        handlerRef.current(parsed);
+        // Iterated over a copy: a listener that unsubscribes on the event it just
+        // received would otherwise change the set being walked.
+        for (const handler of [...handlersRef.current]) {
+          handler(parsed);
+        }
       });
 
       socket.addEventListener('close', () => {
@@ -142,6 +241,11 @@ export function useSessionSocket({ sessionId, onMessage }: UseSessionSocketOptio
         // The number belonged to a request on that connection. Keeping it would show
         // a number the terminal is no longer asking about; the reconnect asks again.
         setResumeApprovalNumber(undefined);
+
+        // The changed files are deliberately kept. They describe the workspace, not
+        // the connection, and the server replays them on attach, so clearing them
+        // would blank the list for the length of a reconnect and then fill it with
+        // the same thing.
 
         if (pingTimer !== undefined) {
           window.clearInterval(pingTimer);
@@ -250,6 +354,9 @@ export function useSessionSocket({ sessionId, onMessage }: UseSessionSocketOptio
     online,
     connected,
     resumeApprovalNumber,
+    fileChanges,
+    subscribe,
+    reattach: sendAttach,
     sendPrompt,
     sendPermissionResponse,
     sendGrantAndRetry,

@@ -30,17 +30,20 @@ import {
 } from '../notifications.js';
 import {
   readStoredActiveConversationId,
-  readStoredTheme,
   storeActiveConversationId,
   storeModel,
-  storeTheme,
 } from '../storage.js';
-import { useSessionSocket } from '../useSessionSocket.js';
+import { useSharedSessionSocket } from '../SessionSocketContext.js';
+import { ViewToggle } from '../components/ViewToggle.js';
+import type { Theme } from '../useTheme.js';
 
 interface ConversationPageProps {
   sessionId: string;
   onSessionLost: () => void;
   onNavigateFileChanges?: () => void;
+  /** The chosen theme, held above both screens so one switch governs them. */
+  theme: Theme;
+  onToggleTheme: () => void;
 }
 
 interface ServerEvent {
@@ -244,6 +247,8 @@ export function ConversationPage({
   sessionId,
   onSessionLost,
   onNavigateFileChanges,
+  theme,
+  onToggleTheme,
 }: ConversationPageProps): React.JSX.Element {
   const [session, setSession] = useState<SessionDetail | undefined>(undefined);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -291,7 +296,6 @@ export function ConversationPage({
     | { conversationId: string; turnId: string; inputTokens: number; outputTokens: number }
     | undefined
   >(undefined);
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => readStoredTheme() ?? 'dark');
   const [error, setError] = useState<string | undefined>(undefined);
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -321,16 +325,6 @@ export function ConversationPage({
     }
 
     setSidebarOpen(false);
-  };
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-  }, [theme]);
-
-  const toggleTheme = (): void => {
-    const next = theme === 'light' ? 'dark' : 'light';
-    setTheme(next);
-    storeTheme(next);
   };
 
   const activeIdRef = useRef<string | undefined>(undefined);
@@ -853,7 +847,18 @@ export function ConversationPage({
     }
   }, []);
 
-  const socket = useSessionSocket({ sessionId, onMessage: handleEvent });
+  const socket = useSharedSessionSocket();
+
+  // Listening is a subscription rather than a connection, because the socket is
+  // shared: this screen may be off view, and the file list is reading the same
+  // stream. Re-attaching on the way in is what replaces the events missed while it
+  // was not listening, which is the same catching up a reconnect does.
+  useEffect(() => {
+    const unsubscribe = socket.subscribe(handleEvent);
+    socket.reattach();
+
+    return unsubscribe;
+  }, [socket.subscribe, socket.reattach, handleEvent]);
 
   const refreshSession = useCallback(async (): Promise<void> => {
     try {
@@ -1345,28 +1350,9 @@ export function ConversationPage({
           </div>
           <div className="main-head-controls">
             {onNavigateFileChanges && (
-              <button
-                type="button"
-                className="theme-toggle"
-                onClick={onNavigateFileChanges}
-                aria-label="View changed files"
-                title="Changed files"
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                  <line x1="9" y1="15" x2="15" y2="15" />
-                </svg>
-              </button>
+              <ViewToggle view="conversation" onToggle={onNavigateFileChanges} />
             )}
-            <ThemeToggle theme={theme} onToggle={toggleTheme} />
+            <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           </div>
         </header>
 

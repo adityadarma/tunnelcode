@@ -4,6 +4,15 @@
   --breakpoint-xs: 23rem;
 }
 
+/* Motion, kept out of the theme blocks because it does not change with the palette.
+   The curve starts fast and settles slowly, which is what makes a panel read as
+   being pushed rather than played back: a symmetric ease spends the same time at
+   both ends and looks like it hesitates before it lands. */
+:root {
+  --dur-sidebar: 280ms;
+  --ease-sidebar: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
 :root,
 [data-theme='dark'] {
   --bg: #12151e;
@@ -516,25 +525,48 @@
   font-size: 0.95em;
 }
 
-/* Base Layout Classes */
+/* Base Layout Classes
+   The column and the panel inside it move on one curve and one duration. They used
+   to carry different easings, which is what made collapsing look like two things
+   happening: the panel slid out on one timing while the column edge closed on
+   another, and the gap between them showed as a seam. */
 .layout {
-  @apply grid grid-cols-1 md:grid-cols-[18rem_1fr] lg:grid-cols-[19rem_1fr] h-full w-full max-w-full overflow-hidden relative bg-[var(--bg)] transition-[grid-template-columns] duration-300;
+  @apply grid grid-cols-1 md:grid-cols-[18rem_1fr] lg:grid-cols-[19rem_1fr] h-full w-full max-w-full overflow-hidden relative bg-[var(--bg)];
+  transition: grid-template-columns var(--dur-sidebar) var(--ease-sidebar);
 }
 
 .layout.sidebar-closed {
   @apply md:grid-cols-[0rem_1fr] lg:grid-cols-[0rem_1fr];
 }
 
+/* Faded rather than switched off. Display cannot be transitioned, so the overlay
+   used to appear and vanish on the same frame the drawer began a 300ms slide, which
+   read as the screen flashing before anything moved. Visibility is what still takes
+   it out of reach once it is invisible, and it is delayed by the length of the fade
+   so it does not cut the fade short. */
 .layout-overlay {
-  @apply hidden fixed inset-0 z-30 bg-black/60 backdrop-blur-xs transition-opacity md:!hidden;
+  @apply fixed inset-0 z-30 bg-black/60 backdrop-blur-xs opacity-0 invisible pointer-events-none md:!hidden;
+  transition:
+    opacity var(--dur-sidebar) var(--ease-sidebar),
+    visibility 0s linear var(--dur-sidebar);
 }
 
 .layout.menu-open .layout-overlay {
-  @apply block md:!hidden;
+  @apply opacity-100 visible pointer-events-auto md:!hidden;
+  transition:
+    opacity var(--dur-sidebar) var(--ease-sidebar),
+    visibility 0s linear 0s;
 }
 
+/* will-change is set only on the drawer, which is the transform that runs on a
+   phone. Left on permanently it asks the compositor for a layer that is idle
+   almost all the time. */
 .sidebar {
-  @apply fixed inset-y-0 left-0 z-40 w-[min(18rem,85vw)] md:w-full md:static flex flex-col bg-[var(--surface)] border-r border-[var(--border)] transition-[transform,opacity] duration-300 ease-in-out -translate-x-full md:translate-x-0 h-full overflow-hidden;
+  @apply fixed inset-y-0 left-0 z-40 w-[min(18rem,85vw)] md:w-full md:static flex flex-col bg-[var(--surface)] border-r border-[var(--border)] -translate-x-full md:translate-x-0 h-full overflow-hidden;
+  transition:
+    transform var(--dur-sidebar) var(--ease-sidebar),
+    opacity var(--dur-sidebar) var(--ease-sidebar);
+  will-change: transform;
 }
 
 .layout.sidebar-closed .sidebar {
@@ -543,6 +575,25 @@
 
 .layout.menu-open .sidebar {
   @apply translate-x-0 shadow-2xl md:shadow-none;
+}
+
+/* Someone who has asked their system for less movement gets the end states without
+   the travel. The panel still opens and closes; it just arrives rather than slides.
+   Visibility keeps its delay at zero here, since there is no fade left to protect. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-sidebar: 0ms;
+  }
+
+  .layout-overlay,
+  .layout.menu-open .layout-overlay {
+    transition: none;
+  }
+
+  .sidebar {
+    transition: none;
+    will-change: auto;
+  }
 }
 
 /* Sidebar Layout & Navigation */
@@ -573,8 +624,11 @@
   @apply flex items-center gap-2 text-[var(--text)] min-w-0 font-semibold text-sm;
 }
 
+/* The mark is a raster image now rather than a stroked path, so the accent colour
+   no longer reaches it. Rounded to match the square icon's own corners, which read
+   as hard edges against the sidebar at this size. */
 .sidebar-title .icon {
-  @apply text-[var(--accent)] shrink-0;
+  @apply text-[var(--accent)] shrink-0 rounded-[4px] object-contain;
 }
 
 .sidebar-title h2 {
@@ -1458,96 +1512,29 @@
   @apply px-4 py-2 rounded-xl text-xs md:text-sm font-medium text-white bg-[var(--accent)] border border-[var(--accent)] hover:bg-[var(--accent-hover)] shadow-md transition-all cursor-pointer;
 }
 
-/* File Changes Page — VS Code-like split view */
-.fc-layout {
-  @apply h-full w-full flex flex-col overflow-hidden bg-[var(--bg)];
-}
-
-.fc-header {
-  @apply flex items-center justify-between gap-3 h-14 px-4 md:px-6 border-b border-[var(--border)] bg-[var(--surface)] shrink-0;
-}
-
-.fc-header-left {
-  @apply flex items-center gap-2 min-w-0;
-}
-
-.fc-back-btn {
-  @apply inline-flex items-center justify-center p-1.5 rounded-lg bg-transparent border-0 text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer;
-}
-
-.fc-title {
-  @apply text-sm md:text-base font-semibold text-[var(--text)] m-0;
-}
-
-.fc-header-right {
-  @apply flex items-center gap-2 shrink-0;
-}
-
-.fc-conv-select {
-  @apply bg-[var(--surface-2)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--text)] outline-none focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-glow)] transition-all cursor-pointer max-w-[12rem] truncate;
-}
-
-.fc-body {
-  flex: 1;
-  display: grid;
-  grid-template-columns: 16rem 1fr;
-  overflow: hidden;
-  min-height: 0;
-}
-
-.fc-body:has(.fc-empty) {
-  display: flex;
-  flex-direction: row;
-}
-
+/* File Changes Page
+   The shell is the conversation's: .layout, .sidebar and .main carry the columns,
+   the header height and the drawer, so only what is particular to a diff lives
+   here. The rules for a page-specific frame were dropped when the two screens were
+   made to share one. */
 .fc-empty {
   @apply flex-1 flex flex-col items-center justify-center gap-3 text-center p-6;
 }
 
-/* Sidebar: list of changed files */
-.fc-sidebar {
-  @apply shrink-0 flex flex-col border-r border-[var(--border)] bg-[var(--surface)] overflow-hidden min-h-0;
-}
-
-.fc-sidebar-head {
-  @apply flex items-center px-3 h-10 border-b border-[var(--border)] bg-[var(--surface-2)] shrink-0;
-}
-
 .fc-sidebar-count {
-  @apply text-xs font-medium text-[var(--muted)] uppercase tracking-wider;
+  @apply text-[11px] font-medium text-[var(--muted)] tabular-nums shrink-0;
 }
 
-.fc-file-list {
-  @apply list-none m-0 p-1.5 flex-1 overflow-y-auto space-y-0.5;
-}
-
-.fc-file-item {
-  @apply w-full flex items-center gap-2 px-2.5 py-2 rounded-lg bg-transparent border-0 text-left text-xs cursor-pointer text-[var(--text)] transition-colors;
-}
-
-.fc-file-item.active {
-  @apply bg-[var(--surface-2)] font-medium;
-}
-
-.fc-file-icon {
-  @apply shrink-0 flex items-center justify-center;
-}
-
-.fc-file-info {
-  @apply flex flex-col gap-0.5 min-w-0 overflow-hidden;
-}
-
-.fc-file-name {
-  @apply block truncate text-xs font-medium text-[var(--text)];
-}
-
-.fc-file-dir {
-  @apply block truncate text-[10px] text-[var(--muted)];
+/* A changed file in the sidebar, which is a conversation row with the trailing
+   room for a delete button taken back: a file has nothing to delete, and the space
+   is where its added and removed counts go instead. */
+.fc-file-row {
+  @apply pr-2.5;
 }
 
 /* Content viewer: file output */
 .fc-content {
-  @apply flex flex-col min-w-0 overflow-hidden min-h-0;
+  @apply flex-1 flex flex-col min-w-0 overflow-hidden min-h-0;
 }
 
 .fc-content-head {
@@ -1582,73 +1569,12 @@
   @apply flex items-center justify-center h-full p-6;
 }
 
-/* Responsive: mobile drawer sidebar */
-.fc-menu-btn {
-  @apply hidden;
-}
-
-.fc-overlay {
-  @apply hidden;
-}
-
+/* Narrow screens. The drawer, the overlay and the header are the conversation's
+   now, so what is left is the diff itself, which has to give up room the transcript
+   never needed: two gutters and a marker column before any code. */
 @media (max-width: 640px) {
-  .fc-menu-btn {
-    @apply inline-flex items-center justify-center p-1.5 rounded-lg text-lg leading-none text-[var(--text)] hover:bg-[var(--surface-2)] bg-transparent border-0 cursor-pointer;
-  }
-
-  .fc-header {
-    @apply px-3 h-12;
-  }
-
   .fc-workspace {
     @apply hidden;
-  }
-
-  .fc-body {
-    display: flex;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .fc-body:has(.fc-empty) {
-    display: flex;
-  }
-
-  .fc-sidebar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    z-index: 40;
-    width: min(16rem, 85vw);
-    border-right: 1px solid var(--border);
-    border-bottom: none;
-    transform: translateX(-100%);
-    transition: transform 0.3s ease;
-    max-height: none;
-  }
-
-  .fc-menu-open .fc-sidebar {
-    transform: translateX(0);
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-  }
-
-  .fc-overlay {
-    display: none;
-    position: fixed;
-    inset: 0;
-    z-index: 30;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(1px);
-  }
-
-  .fc-menu-open .fc-overlay {
-    display: block;
-  }
-
-  .fc-content {
-    flex: 1;
-    min-width: 0;
   }
 
   .fc-content-head {
@@ -1809,22 +1735,6 @@
 
 .fc-workspace {
   @apply text-xs text-[var(--muted)] truncate max-w-[12rem] hidden md:inline-block;
-}
-
-.fc-status-dot {
-  @apply w-2 h-2 rounded-full inline-block shrink-0;
-}
-
-.fc-status-dot.online {
-  @apply bg-[var(--ok)] shadow-[0_0_8px_var(--ok)];
-}
-
-.fc-status-dot.offline {
-  @apply bg-[var(--danger)];
-}
-
-.fc-status-label {
-  @apply text-xs text-[var(--muted)];
 }
 
 /* ==========================================================================
