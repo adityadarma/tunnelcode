@@ -10,6 +10,55 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-09-22
+
+### Added
+
+- **Moving between the conversation and the changed files keeps both where you left
+  them.** Each was torn down and rebuilt on the way back before, so a half-typed
+  prompt, the diff you had scrolled to, and which files you had opened were all gone
+  by the time the other screen arrived. Both now stay mounted and are only hidden, so
+  switching is instant and nothing is retyped. The screen that is hidden stops
+  listening while it is away and asks the server for what it missed when it comes
+  back, so returning to it shows the current transcript rather than a stale one.
+- **One connection now serves both screens.** They each opened their own, which meant
+  two sockets attaching to the same session and the server sending everything twice.
+  Messages are now fanned out from a single connection shared by both.
+
+### Changed
+
+- **Opening and closing the sidebar animates as one movement.** The column and the
+  panel inside it were on different timings, so collapsing showed a seam between them,
+  and the dimmed backdrop on a phone appeared and vanished in a single frame while the
+  drawer was still sliding, which read as the screen flashing. Both now run on one
+  curve, and the backdrop fades with the drawer. A system set to reduce motion gets the
+  end states without the travel.
+- **The two screens are the same screen now.** The changed files view carried its own
+  header, sidebar, and back button, so moving between them looked like leaving one app
+  for another. They now share one shell, one sidebar, and one theme, and the button
+  that moves you says where it goes: `View changed files` on the conversation,
+  `View conversation` on the diff.
+- **`.env.example` ships `HOST=0.0.0.0`,** which is what a container needs. It shipped
+  loopback, and since `.env` overrides the image's own value, a server started with the
+  example file listened where nothing outside the container could reach it and the
+  published port answered nothing.
+- **The terminal no longer prints the engine list at startup.** Model discovery
+  finishes after the pairing code is already up, so the list printed there was written
+  before the answer was known and could name a default that later discovery disagreed
+  with. The browser shows what each engine can actually serve, once it is known.
+
+### Fixed
+
+- **The documented Docker volume was wrong.** `README.md` said `/data` while the image
+  and the compose file use `/app/data`, so following it gave a container whose
+  conversations were written somewhere a new image would not find. Deploying is now
+  documented as two files fetched with `curl` and a generated keypair, with no checkout
+  of this repository needed.
+- **The two required environment variables were missing from the documentation.** The
+  server prints how to generate a keypair and exits when `VAPID_PUBLIC_KEY` or
+  `VAPID_PRIVATE_KEY` is unset, and neither appeared in `README.md`. The bind address
+  was documented as defaulting to loopback when it defaults to every interface.
+
 ## [0.4.4] - 2026-09-19
 
 ### Changed
