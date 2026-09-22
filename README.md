@@ -9,17 +9,122 @@ TunnelCode is a bridge between the browser, a server, and a local AI agent. It i
 not an IDE and not an AI provider. See `PROJECT.md` for the full specification and
 `DECISIONS.md` for the architecture decisions.
 
-## Requirements
+## Deploy the server
 
-- Node.js 22.18 or newer for the CLI. The minor matters: 22.18 is where Node runs
-  TypeScript without a flag and where `node:sqlite` exists, which is what reading an
-  engine's own session history needs. The server image ships on Node 24.
-- pnpm 11
-- An engine on PATH: [OpenCode](https://opencode.ai), [Claude Code](https://claude.com/product/claude-code),
-  [Antigravity CLI](https://antigravity.google/product/antigravity-cli),
-  [Kiro CLI](https://kiro.dev), [Codex CLI](https://developers.openai.com/codex/cli),
-  [GitHub Copilot CLI](https://docs.github.com/copilot/how-tos/copilot-cli), or
-  [Cursor Agent CLI](https://cursor.com/cli)
+Docker Compose is how the server is meant to run. You do not need a checkout of this
+repository: two files and a keypair are the whole of it.
+
+All you need on the host is Docker with the Compose plugin. No Node, no pnpm.
+
+**1. Fetch the two files** into an empty directory:
+
+```sh
+mkdir tunnelcode && cd tunnelcode
+curl -fsSLO https://raw.githubusercontent.com/adityadarma/tunnelcode/master/docker-compose.yml
+curl -fsSL -o .env https://raw.githubusercontent.com/adityadarma/tunnelcode/master/.env.example
+```
+
+**2. Create the network** the compose file joins. It is declared external so that a
+reverse proxy living in its own compose project can reach this container by name.
+Once per host:
+
+```sh
+docker network create internet
+```
+
+**3. Generate the push keypair.** The server prints instructions and exits without
+one, so this is not optional:
+
+```sh
+docker run --rm --entrypoint node ghcr.io/adityadarma/tunnelcode:latest \
+  -e "import('./dist/services/web-push.js').then(m => console.log(JSON.stringify(m.generateVapidKeys(), null, 2)))"
+```
+
+**4. Edit `.env`.** Two settings decide whether the container is reachable at all:
+
+- **Set `HOST=0.0.0.0`.** The file ships `127.0.0.1`, which is right for a checkout
+  and wrong in a container: `.env` overrides the image's own value, and loopback
+  inside a container means the published port answers nothing. What controls access
+  here is the port you publish and the firewall in front of it.
+- **Paste both keys from step 3** into `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`.
+  Keep the pair once notifications are in use: every subscription is bound to the
+  public key it was created with, so replacing it silently retires all of them.
+
+**5. Start it:**
+
+```sh
+docker compose up -d
+docker compose ps
+```
+
+Wait for `healthy` rather than `Up`: the image carries a healthcheck against
+`/api/health`, so that is the difference between answering and merely running.
+
+The API and the web app are served from the same port, `3000` by default. Open it in
+a browser, install the CLI below, and pair.
+
+### Day to day
+
+```sh
+docker compose logs -f                        # follow the log
+docker compose pull && docker compose up -d   # update to a new image
+docker compose down                           # stop, keeping ./data
+```
+
+Updating asks nothing of anyone already paired. Connections drop and come back on
+their own, and the sessions the CLI approved stay approved.
+
+### What the compose file decides
+
+| Setting                     | Why                                                                                                                                            |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `image: ghcr.io/…:latest`   | The published image. Pin a version tag instead if you would rather choose when to move.                                                        |
+| `ports: '3000:3000'`        | The only way in. Publish to `127.0.0.1:3000:3000` when a proxy on the same host is the only thing that should reach it.                         |
+| `volumes: ./data:/app/data` | Conversations and the session database, kept beside the compose file so a new image never touches them. `/app/data` is where the image looks.   |
+| `restart: unless-stopped`   | Comes back after a reboot or a crash, and stays down when you stopped it on purpose.                                                           |
+| `env_file: .env`            | Everything under Environment variables. These override the image's own values.                                                                 |
+| `networks: internet`        | Shared with a reverse proxy that lives in another compose project.                                                                             |
+
+The image is Alpine based, compiles the SQLite binding at build time, and runs as
+`nobody`. The `./data` directory is created on first start and owned by that user.
+
+### Behind a reverse proxy
+
+Terminate TLS in front of the container and set `TRUST_PROXY`, so the pairing rate
+limit counts real clients rather than counting the proxy as one. There is no user
+authentication, so the proxy is also where anything deciding who may reach the app
+belongs. See Security.
+
+TLS is also what makes the browser offer to install the app and allow notifications;
+neither is available over plain `http` except on `localhost`.
+
+## Install the CLI
+
+The CLI is published to npm as a single bundled file:
+
+```sh
+npm i -g tunnelcode
+```
+
+Then run it from the project directory you want the agent to work in:
+
+```sh
+tunnelcode
+```
+
+That opens a menu. Choose Setup on the first run to point it at your server, then
+Scan QR to print a QR code and an 8 letter pairing code.
+
+Needs Node.js 22.18 or newer. The minor matters: 22.18 is where Node runs TypeScript
+without a flag and where `node:sqlite` exists, which is what reading an engine's own
+session history needs.
+
+It also needs an engine on PATH: [OpenCode](https://opencode.ai),
+[Claude Code](https://claude.com/product/claude-code),
+[Antigravity CLI](https://antigravity.google/product/antigravity-cli),
+[Kiro CLI](https://kiro.dev), [Codex CLI](https://developers.openai.com/codex/cli),
+[GitHub Copilot CLI](https://docs.github.com/copilot/how-tos/copilot-cli), or
+[Cursor Agent CLI](https://cursor.com/cli).
 
 ## Platforms
 
@@ -33,45 +138,6 @@ someone runs it. Reports are welcome.
 
 The server does not need Windows. It ships only as a Docker image and runs on Linux,
 so the browser is the only part of it you touch from any other platform.
-
-## Install
-
-The CLI is published to npm as a single bundled file:
-
-```sh
-npm i -g tunnelcode
-```
-
-The server is not on npm. It ships only as a Docker image, since it needs SQLite
-with a native binding and a volume for its data.
-
-To work on the project instead, from a checkout:
-
-```sh
-pnpm install
-pnpm build
-```
-
-## Run
-
-Start the server:
-
-```sh
-pnpm --filter tunnelcode-server start
-```
-
-It listens on `127.0.0.1:3000` by default and serves the web app from the same
-port.
-
-Then run the CLI from the project directory you want the agent to work in:
-
-```sh
-cd /path/to/your/project
-pnpm exec tunnelcode
-```
-
-That opens a menu. Choose Setup on the first run to set the server URL, then Scan QR
-to print a QR code and an 8 letter pairing code.
 
 ## Pairing
 
@@ -127,13 +193,13 @@ discards a change. Arrow keys and Enter move through the lists, Escape goes back
 
 | Engine                                                             | Binary     | macOS | Linux            | Windows          |
 | ------------------------------------------------------------------ | ---------- | ----- | ---------------- | ---------------- |
-| [OpenCode](https://opencode.ai)                                    | `opencode` | ✅    | ⚠️ needs a tester | ⚠️ needs a tester |
-| [Claude Code](https://claude.com/product/claude-code)              | `claude`   | ✅    | ⚠️ needs a tester | ⚠️ needs a tester |
-| [Antigravity CLI](https://antigravity.google/product/antigravity-cli) | `agy`      | ✅    | ⚠️ needs a tester | ⚠️ needs a tester |
-| [Kiro CLI](https://kiro.dev)                                       | `kiro-cli` | ✅    | ⚠️ needs a tester | ⚠️ needs a tester |
-| [Codex CLI](https://developers.openai.com/codex/cli)               | `codex`    | ✅    | ⚠️ needs a tester | ⚠️ needs a tester |
-| [GitHub Copilot CLI](https://docs.github.com/copilot/how-tos/copilot-cli) | `copilot`  | ✅    | ⚠️ needs a tester | ⚠️ needs a tester |
-| [Cursor Agent CLI](https://cursor.com/cli)                           | `agent`    | ✅    | ⚠️ needs a tester | ⚠️ needs a tester |
+| [OpenCode](https://opencode.ai)                                    | `opencode` | ✅    | ✅ | ⚠️ needs a tester |
+| [Claude Code](https://claude.com/product/claude-code)              | `claude`   | ✅    | ✅ | ⚠️ needs a tester |
+| [Antigravity CLI](https://antigravity.google/product/antigravity-cli) | `agy`      | ✅    | ✅ | ⚠️ needs a tester |
+| [Kiro CLI](https://kiro.dev)                                       | `kiro-cli` | ✅    | ✅ | ⚠️ needs a tester |
+| [Codex CLI](https://developers.openai.com/codex/cli)               | `codex`    | ✅    | ✅ | ⚠️ needs a tester |
+| [GitHub Copilot CLI](https://docs.github.com/copilot/how-tos/copilot-cli) | `copilot`  | ✅    | ✅ | ⚠️ needs a tester |
+| [Cursor Agent CLI](https://cursor.com/cli)                           | `agent`    | ✅    | ✅ | ⚠️ needs a tester |
 
 ✅ means the adapter has been driven against the real CLI on that platform, prompt to
 answer, with its tool calls reported and an earlier conversation continued. ⚠️ means
@@ -380,14 +446,27 @@ the agent reports to. See ADR-018.
 
 Read by the server:
 
-| Variable        | Default                  | Purpose                           |
-| --------------- | ------------------------ | --------------------------------- |
-| `HOST`          | `127.0.0.1`              | Bind address                      |
-| `PORT`          | `3000`                   | Port for HTTP and WebSocket       |
-| `DATABASE_FILE` | `data/tunnelcode.sqlite` | SQLite location                   |
-| `LOG_LEVEL`     | `info`                   | `fatal` through `trace`, `silent` |
-| `ENV_FILE`      | nearest `.env`           | Environment file to load          |
-| `TRUST_PROXY`   | unset                    | Whose forwarded client address to believe |
+| Variable             | Default                  | Purpose                                   |
+| -------------------- | ------------------------ | ----------------------------------------- |
+| `VAPID_PUBLIC_KEY`   | none, required           | Push signing identity                     |
+| `VAPID_PRIVATE_KEY`  | none, required           | Push signing identity                     |
+| `HOST`               | `0.0.0.0`                | Bind address                              |
+| `PORT`               | `3000`                   | Port for HTTP and WebSocket               |
+| `DATABASE_FILE`      | `data/tunnelcode.sqlite` | SQLite location                           |
+| `LOG_LEVEL`          | `info`                   | `fatal` through `trace`, `silent`         |
+| `ENV_FILE`           | nearest `.env`           | Environment file to load                  |
+| `TRUST_PROXY`        | unset                    | Whose forwarded client address to believe |
+
+The two VAPID keys are the only required ones: the server prints how to generate a
+pair and exits when either is missing. `.env.example` ships them empty for that
+reason. Keep the pair stable once notifications are in use, because every
+subscription is bound to the public key it was created with.
+
+`HOST` defaults to every interface, which is what a container wants. A checkout
+usually wants the opposite, and `.env.example` ships `127.0.0.1` to get it: exposing
+the server exposes an agent that can read and write files on the paired machine, so
+outside a container it should be a deliberate choice. Read Security before widening
+it.
 
 `TRUST_PROXY` matters when the server sits behind a reverse proxy. Unset, the
 connection's own address is the only one trusted, and `X-Forwarded-For` is ignored:
@@ -397,10 +476,6 @@ pairing rate limit from counting. Set it to `true` when nothing but the proxy ca
 reach the port, or name the proxy addresses to trust. Leaving it unset behind a proxy
 is safe but blunt: every client shares the proxy's address, so one of them can
 exhaust the limit for all of them.
-
-Changing `HOST` away from `127.0.0.1` exposes an agent that can read and write
-files on the paired machine. Only do that on a network you trust, and read the
-Security section first.
 
 The CLI decides which server to talk to from the stored config alone. Precedence,
 most specific first: the stored config, then the URL baked in at publish time,
@@ -422,65 +497,46 @@ PORT=8080 pnpm --filter tunnelcode-server dev:web
 
 The CLI is not in that list: point it at the new port in Setup, Server URL.
 
-## Docker
-
-```sh
-docker build -t tunnelcode .
-docker run -d -p 3000:3000 -v tunnelcode-data:/data tunnelcode
-```
-
-The image binds `0.0.0.0` inside the container, so the published port is what
-controls access. Conversations live on the `/data` volume and survive a new
-image. The image is Alpine based and compiles the SQLite binding at build time.
-
 ## Security
 
-There is no user authentication in this version. Anyone who can reach the server
-and complete pairing controls an agent that can read and write files on the
-paired machine. The server binds to loopback by default for that reason. Put it
-behind TLS and think about who can reach the port before exposing it.
+**There is no user authentication.** Anyone who can reach the server and complete
+pairing controls an agent that can read and write files on the paired machine. Deploy
+it behind TLS, and decide who can reach the port before you expose it.
 
-What the server does enforce, so it is clear what is and is not being relied on:
+What the server enforces, so it is clear what is and is not being relied on:
 
-- Pairing needs the 4 digit number approved in the terminal. The number never
-  travels in a URL, the code is single use, and the pair endpoint is rate limited.
-- A session stops working an hour after the conversation went quiet, and twelve hours
-  after it was approved whatever has happened since. A restart gives it neither
-  another hour nor another twelve. Ending a session from the browser retires it
-  immediately while keeping the stored history.
-- The credential is a token in an `HttpOnly`, `SameSite=Strict` cookie, and only its
-  SHA-256 is stored. The page cannot read it, so a script that reaches the page
-  cannot copy it and use it from somewhere else. The session id, which the page does
-  keep and which travels in paths, opens nothing on its own.
-- A session from before the CLI was restarted has to be approved in the terminal
-  again before it can prompt or answer a permission ask. Refusing ends it. Reading
-  the transcript is not gated on it, since reading does nothing to the machine.
-  Restarting the server asks nothing: the run of the CLI is identified by an id it
-  generates per process, and the sessions it approved carry the hash of that id, so a
-  new image reinstates them without a keypress. A browser cannot send that id, so a
-  leaked cookie is no closer to the agent than before.
-- A conversation id is not a credential. Reading, changing, or deleting a
-  conversation over HTTP needs a session cookie the server can resolve, and the
-  conversation has to belong to the same workspace.
-- A WebSocket handshake from a page that is not this server's own is refused before
-  the upgrade, because WebSocket is not subject to CORS.
-- No page may put this app in a frame. Every response says so, because the origin
-  check above cannot help there: inside a frame the page is this server's own
-  origin, so a handshake from it looks exactly as it should, and a click laid over
-  the approval card would be answered by the paired machine.
-- Neither a pairing code nor a session id nor a session token is written to the log.
-  The shape of the route is kept and the values are not, since a log outlives the
-  session it describes and can end up somewhere the user does not control.
-- Messages have a maximum length, and oversized frames are refused by the transport
-  rather than parsed.
-- The config, the granted permissions, and the machine id are written `0600` in a
-  `0700` directory, so another account on the machine cannot read what this one
-  agreed to.
+- **Pairing** needs a 4 digit number approved in the terminal. It never travels in a
+  URL, the code is single use, and the endpoint is rate limited.
+- **Sessions expire** an hour after the conversation went quiet, and twelve hours
+  after approval regardless. A restart extends neither.
+- **The credential** is a token in an `HttpOnly`, `SameSite=Strict` cookie, stored
+  only as its SHA-256. The page cannot read it. The session id it does keep opens
+  nothing on its own, and neither does a conversation id.
+- **A restarted CLI** must be approved again before that session can prompt or
+  approve anything; reading the transcript is not gated, since reading does nothing
+  to the machine. A restarted server asks nothing, because approval is tied to an id
+  the CLI generates per process and no browser can send.
+- **Origin is checked** before the WebSocket upgrade, since WebSocket ignores CORS,
+  and no page may frame the app — inside a frame the origin check cannot help, and a
+  click laid over the approval card would be answered by the paired machine.
+- **Secrets stay out of logs**: no pairing code, session id, or token. Oversized
+  frames are refused by the transport rather than parsed.
+- **Local files** — config, granted permissions, machine id — are `0600` in a `0700`
+  directory.
 
-Permission prompts are a control over what the agent does with your files, not a
-boundary around it. See Permissions, and ADR-022 for the reasoning.
+Permission prompts control what the agent does with your files; they are not a
+boundary around it. See Permissions and ADR-022.
 
 ## Development
+
+Everything below is for working on TunnelCode itself. Deploying it needs none of it.
+
+Needs Node.js 22.18 or newer and pnpm 11. From a checkout:
+
+```sh
+pnpm install
+pnpm build
+```
 
 ```sh
 pnpm build        # build every package
@@ -489,6 +545,32 @@ pnpm lint         # ESLint
 pnpm format       # Prettier
 pnpm test         # build, then run every test
 ```
+
+### Running the server from a checkout
+
+```sh
+pnpm --filter tunnelcode-server start
+```
+
+It reads the same `.env` and serves the web app from the same port as the image. Note
+that `.env.example` ships `HOST=127.0.0.1`, which is what you want here: nothing
+restarts this if it stops, and it is not meant to be reachable from elsewhere.
+
+Push keys are required here too, so generate a pair before the first start:
+
+```sh
+node -e "import('./apps/server/dist/services/web-push.js').then(m => console.log(JSON.stringify(m.generateVapidKeys(), null, 2)))"
+```
+
+### Building the image yourself
+
+Only needed to run an unreleased change; the compose file pulls a published image.
+
+```sh
+docker build -t tunnelcode .
+```
+
+Then point `image:` at `tunnelcode` in a compose override file.
 
 ## Tests
 
