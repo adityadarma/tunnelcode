@@ -10,6 +10,29 @@ to the version it ships as and leaves an empty one behind.
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-10-05
+
+### Fixed
+
+- **A session that expired left the terminal saying it was still connected.** The
+  browser was answered `Unknown session.` while the CLI kept running, because the two
+  sides were measuring different things and never told each other. Expiry on the
+  server is a predicate every read applies: nothing wrote the row when a session went
+  idle or hit its twelve hour ceiling, and nothing informed the machine, so its socket
+  stayed open and the device kept reading as online. The server now reports expiry to
+  the CLI it affects and to any browser still watching, so the session ends in the
+  terminal and the browser says why instead of refusing the next prompt.
+- **A session could outlive the ceiling the server enforces.** The twelve hour limit
+  existed only on the server, and the CLI measured an idle window alone, so a
+  conversation in continuous use kept the terminal going long past the point where
+  every browser attaching to it was turned away. The CLI now carries the same ceiling
+  and ends there. Activity moves the idle deadline and nothing else, and the terminal
+  names whichever window ran out rather than pointing at `idleMinutes` for a limit
+  that is not yours to change.
+- **The terminal could print its goodbye repeatedly.** A turn that finished after the
+  ceiling had passed still reported its activity, and each report ended the session
+  again.
+
 ## [0.4.5] - 2026-09-22
 
 ### Added
