@@ -200,6 +200,57 @@ function activityOf(file: string, sessionId: string): number | null {
   }
 }
 
+test('an expired session is reported to the CLI holding it', async () => {
+  await withServer(
+    async ({ baseUrl }) => {
+      const { cli, sessionId } = await pair(baseUrl);
+
+      const browser = await connect<BrowserEvent>(baseUrl, '/ws/browser');
+      browser.send({ type: 'attach', sessionId });
+      await browser.waitFor((events) => events.some((event) => event.type === 'attached'));
+
+      // Expiry on the server is a predicate every read applies: nothing writes the
+      // row and, before this, nothing told the machine. The CLI stayed connected and
+      // `isConnected` stayed true while the same session answered `Unknown session.`
+      // for every browser attaching to it.
+      await cli.waitFor((events) => events.some((event) => event.type === 'stop'));
+
+      // Told to the browser as well, so an open tab learns why it is going back to
+      // pairing instead of finding out by having its next prompt refused.
+      await browser.waitFor((events) => events.some((event) => event.type === 'resume_rejected'));
+
+      browser.close();
+      cli.close();
+    },
+    // Long enough that pairing and attaching both land inside the window, short
+    // enough that the test does not wait out the real hour.
+    { sessionIdleMs: 500, sessionExpiryCheckMs: 25 },
+  );
+});
+
+test('a CLI showing a pairing code is not told anything expired', async () => {
+  await withServer(
+    async ({ baseUrl }) => {
+      const cli = await connect<CliEvent>(baseUrl, '/ws/cli');
+      cli.send(register);
+      await cli.waitFor((events) => events.some((event) => event.type === 'registered'));
+
+      // A device that has just registered has no live session for an honest reason:
+      // its code is on screen and nobody has scanned it. Counting that as expiry
+      // would stop the CLI before anybody could pair with it at all.
+      await wait(120);
+
+      assert.equal(
+        cli.events.find((event) => event.type === 'stop'),
+        undefined,
+      );
+
+      cli.close();
+    },
+    { sessionIdleMs: 40, sessionExpiryCheckMs: 20 },
+  );
+});
+
 test('a prompt records activity, attaching does not', async () => {
   await withServer(async ({ baseUrl, databaseFile }) => {
     const { cli, sessionId, conversationId } = await pair(baseUrl);

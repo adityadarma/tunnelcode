@@ -14,6 +14,7 @@ import type { TurnRelay } from './turn-relay.js';
 import { startAuthTimeout } from './auth-timeout.js';
 import { startHeartbeat } from './heartbeat.js';
 import { requestResume } from './resume.js';
+import { startSessionExpiryWatch } from './session-expiry.js';
 import { fileChangesCache } from './file-changes-cache.js';
 import type { SessionImportService } from '../services/session-import.js';
 import type { Lifecycle } from '../lifecycle.js';
@@ -53,6 +54,8 @@ interface CliSocketOptions {
   authTimeoutMs?: number;
   /** Shortened by tests, which cannot wait out the real one. */
   reconnectGraceMs?: number;
+  /** Shortened by tests, which cannot wait out the real one. */
+  sessionExpiryCheckMs?: number;
 }
 
 /**
@@ -78,6 +81,14 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
 
   app.get('/ws/cli', { websocket: true }, (socket: WebSocket) => {
     let deviceId: string | undefined;
+
+    /**
+     * Stops the watch that tells this CLI its sessions expired.
+     *
+     * Undefined until the device registers, because there is nothing to watch
+     * before that.
+     */
+    let stopExpiryWatch: (() => void) | undefined;
 
     // A dead connection that never sent a close frame would otherwise keep its
     // pairing code and its workspace held until the server restarts.
@@ -186,6 +197,37 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
               requestResume({ deviceId: device.id, sessionId: id, sessions, registry, browsers });
             }
           }
+
+          // Expiry on the server is a predicate every read applies, not an event:
+          // nothing wrote the row and nothing told the machine, so the terminal said
+          // connected while every browser attaching was answered `Unknown session.`
+          // This is what closes that gap. Replaced rather than added to on a
+          // reconnect, so one connection never leaves a second watch behind.
+          stopExpiryWatch?.();
+          stopExpiryWatch = startSessionExpiryWatch({
+            deviceId: device.id,
+            sessionRepository,
+            isClosing: () => lifecycle.isClosing(),
+            ...(options.sessionExpiryCheckMs === undefined
+              ? {}
+              : { intervalMs: options.sessionExpiryCheckMs }),
+            onExpired: () => {
+              // Told to every browser first, so a tab that is open learns why it is
+              // being sent back to pairing rather than finding out by having its next
+              // prompt refused.
+              for (const id of sessionRepository.listSessionIdsByDevice(device.id)) {
+                browsers.broadcast(id, {
+                  type: 'resume_rejected',
+                  message: 'The session expired. Pair again from the terminal.',
+                });
+              }
+
+              reply({
+                type: 'stop',
+                reason: 'The session expired. Start tunnelcode again to pair.',
+              });
+            },
+          });
 
           return;
         }
@@ -449,6 +491,11 @@ export function registerCliSocket(app: FastifyInstance, options: CliSocketOption
     socket.on('close', () => {
       stopHeartbeat();
       stopAuthTimeout();
+
+      // The watch belongs to this socket, so it stops here even when a replacement
+      // socket is already holding the device: that one armed a watch of its own.
+      stopExpiryWatch?.();
+      stopExpiryWatch = undefined;
 
       if (deviceId === undefined) {
         return;

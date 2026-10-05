@@ -20,6 +20,12 @@ export interface ServerOptions {
   authTimeoutMs?: number;
   /** Shortened so a test can watch the grace period expire quickly. */
   reconnectGraceMs?: number;
+  /** Shortened so a test can watch the expiry notice arrive quickly. */
+  sessionExpiryCheckMs?: number;
+  /** Shortened so a test does not have to wait out the real hour. */
+  sessionIdleMs?: number;
+  /** Shortened so a test does not have to wait out the real twelve hours. */
+  sessionMaxLifetimeMs?: number;
   /**
    * Turns logging on and collects every line into this array.
    *
@@ -70,6 +76,13 @@ export async function withServer<T>(
     ...(options.trustProxy === undefined ? {} : { trustProxy: options.trustProxy }),
     ...(options.authTimeoutMs === undefined ? {} : { authTimeoutMs: options.authTimeoutMs }),
     reconnectGraceMs: options.reconnectGraceMs ?? 50,
+    ...(options.sessionExpiryCheckMs === undefined
+      ? {}
+      : { sessionExpiryCheckMs: options.sessionExpiryCheckMs }),
+    ...(options.sessionIdleMs === undefined ? {} : { sessionIdleMs: options.sessionIdleMs }),
+    ...(options.sessionMaxLifetimeMs === undefined
+      ? {}
+      : { sessionMaxLifetimeMs: options.sessionMaxLifetimeMs }),
   });
 
   await app.listen({ host: '127.0.0.1', port: 0 });

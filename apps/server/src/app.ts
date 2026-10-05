@@ -73,6 +73,27 @@ export interface AppOptions {
    */
   reconnectGraceMs?: number;
   /**
+   * How often a connected CLI's sessions are checked for having expired.
+   *
+   * Only set by tests, which cannot wait out the real one. The default lives with
+   * the constant in the session expiry module.
+   */
+  sessionExpiryCheckMs?: number;
+  /**
+   * How long a session survives without conversation activity.
+   *
+   * Only set by tests, which cannot wait out the real hour. The default lives with
+   * the constant in the session repository.
+   */
+  sessionIdleMs?: number;
+  /**
+   * How long a session may live at all, however busy it is.
+   *
+   * Only set by tests, which cannot wait out the real twelve hours. The default
+   * lives with the constant in the session repository.
+   */
+  sessionMaxLifetimeMs?: number;
+  /**
    * Where log lines go.
    *
    * Only set by tests, which have to read what was written to assert that a
@@ -114,7 +135,14 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const handle = openDb(options.databaseFile);
   runMigrations(handle.db, options.databaseFile);
 
-  const sessionRepository = new SessionRepository(handle.db);
+  // Both windows are only ever passed by tests, which cannot wait out an hour or
+  // half a day. The defaults live with the constants in the repository.
+  const sessionRepository = new SessionRepository(handle.db, {
+    ...(options.sessionIdleMs === undefined ? {} : { idleMs: options.sessionIdleMs }),
+    ...(options.sessionMaxLifetimeMs === undefined
+      ? {}
+      : { maxLifetimeMs: options.sessionMaxLifetimeMs }),
+  });
   const conversationRepository = new ConversationRepository(handle.db);
   const pushRepository = new PushRepository(handle.db);
 
@@ -230,6 +258,10 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     options.authTimeoutMs === undefined ? {} : { authTimeoutMs: options.authTimeoutMs };
   const reconnectGrace =
     options.reconnectGraceMs === undefined ? {} : { reconnectGraceMs: options.reconnectGraceMs };
+  const sessionExpiryCheck =
+    options.sessionExpiryCheckMs === undefined
+      ? {}
+      : { sessionExpiryCheckMs: options.sessionExpiryCheckMs };
 
   registerCliSocket(app, {
     devices,
@@ -244,6 +276,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     sessionImport,
     ...authTimeout,
     ...reconnectGrace,
+    ...sessionExpiryCheck,
   });
   registerBrowserSocket(app, {
     devices,

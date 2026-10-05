@@ -45,6 +45,14 @@ export interface PairingSessionOptions {
     idleMs?: number;
     answerMs?: number;
     silenceMs?: number;
+    /**
+     * How long a session may run however busy it is.
+     *
+     * Not configurable: the server enforces the same ceiling, and a machine allowed
+     * to raise its own would only end up connected to a session the browser is told
+     * is unknown. Present so tests can shorten it. See ADR-039.
+     */
+    maxLifetimeMs?: number;
   };
 }
 
@@ -281,12 +289,28 @@ export async function runPairingSession(options: PairingSessionOptions): Promise
    */
   const idle = new IdleTimer({
     timeoutMs: options.timeouts?.idleMs,
-    onExpired: () => {
-      const minutes = Math.round((options.timeouts?.idleMs ?? 60 * 60 * 1000) / 60 / 1000);
+    maxLifetimeMs: options.timeouts?.maxLifetimeMs,
+    onExpired: (expiry) => {
       writeOut('');
-      writeOut(
-        `No conversation for ${String(minutes)} minute${minutes === 1 ? '' : 's'}. Ending the session.`,
-      );
+
+      // The ceiling is reported differently on purpose: naming the idle window for a
+      // session that was in use the whole time would describe something that did not
+      // happen, and leave the user looking at `idleMinutes` for a limit that is not
+      // theirs to change.
+      if (expiry === 'lifetime') {
+        const hours = Math.round(
+          (options.timeouts?.maxLifetimeMs ?? 12 * 60 * 60 * 1000) / 60 / 60 / 1000,
+        );
+        writeOut(
+          `A session cannot run longer than ${String(hours)} hour${hours === 1 ? '' : 's'}. Ending the session.`,
+        );
+      } else {
+        const minutes = Math.round((options.timeouts?.idleMs ?? 60 * 60 * 1000) / 60 / 1000);
+        writeOut(
+          `No conversation for ${String(minutes)} minute${minutes === 1 ? '' : 's'}. Ending the session.`,
+        );
+      }
+
       stop();
     },
   });
